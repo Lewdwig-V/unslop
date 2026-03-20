@@ -81,4 +81,7 @@ Use this when creating a spec for a file that has no existing spec. Fill in what
 
 ## Dependencies
 [External services, libraries, or other managed files it relies on]
+
+## Error Handling
+[How errors are surfaced, what fails visibly vs silently, recovery behavior]
 ```
