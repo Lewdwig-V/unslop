@@ -192,7 +192,7 @@ The summary is a guard against context drift — after compaction or in a new se
 Run once per project:
 
 1. Create `.unslop/` directory with `.unslop/archive/`
-2. Create `.unslop/.gitignore` — ignores `archive/` only
+2. Create `.unslop/.gitignore` — ignores `archive/` and `feedback.md`
 3. Detect test command:
    - `package.json` with test script -> `npm test`
    - `pytest.ini` / `pyproject.toml` with pytest -> `pytest`
@@ -227,6 +227,25 @@ Use the unslop/spec-language skill for guidance on spec writing voice.
 Use the unslop/generation skill for code generation discipline.
 ```
 Loaded on demand through superpowers' skill system. Commands stay thin.
+
+## Feedback Loop
+
+The plugin encourages models that use it to suggest improvements to unslop's own workflows.
+
+### Mechanism
+The session-context hook includes a prompt in the loaded context:
+
+> If you noticed friction with the unslop workflow during this session — spec-language patterns that didn't generate well, convergence loop behaviors that felt wrong, missing constraints, or workflow steps that could be streamlined — note them in `.unslop/feedback.md` before the session ends.
+
+`.unslop/feedback.md` is an append-only log. Each entry includes:
+- Date and which command/skill triggered the observation
+- What happened vs what should have happened
+- Suggested improvement
+
+This file is gitignored (it's project-local observations, not team documentation). The user brings it back to the unslop plugin repo as input for plugin development.
+
+### Why this matters
+The models using unslop in real projects have the best vantage point on what works and what doesn't. This closes the loop: use the plugin -> model notices friction -> feedback captured -> plugin author improves the plugin.
 
 ## Roadmap
 
