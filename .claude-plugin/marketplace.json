@@ -1,0 +1,16 @@
+{
+  "$schema": "https://anthropic.com/claude-code/marketplace.schema.json",
+  "name": "unslop",
+  "description": "Spec-driven code management — treats specs as source of truth, generated code as disposable output",
+  "owner": {
+    "name": "lewdwig",
+    "email": ""
+  },
+  "plugins": [
+    {
+      "name": "unslop",
+      "source": "./unslop",
+      "description": "Rescue vibe-coded prototypes into spec-driven development. Takeover pipeline extracts specs from existing code, validates against tests, and manages regeneration."
+    }
+  ]
+}

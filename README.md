@@ -25,8 +25,8 @@ The usual response is to rewrite. `unslop` proposes a different path: extract wh
 ## Installation
 
 ```
-/plugin marketplace add yourusername/unslop-marketplace
-/plugin install unslop@unslop-marketplace
+/plugin marketplace add <username>/unslop
+/plugin install unslop@unslop
 ```
 
 ## Workflow
@@ -87,11 +87,11 @@ Edit the spec. Run `generate`. The managed file is overwritten. Your edit surfac
 Managed files carry a header comment that marks them as unslop-owned:
 
 ```python
-# @unslop-managed — do not edit directly. Edit src/retry.spec.md instead.
+# @unslop-managed — do not edit directly. Edit src/retry.py.spec.md instead.
 # Generated from spec at 2026-03-20T14:32:00Z
 ```
 
-A pre-commit hook (installed by `/unslop:init`) warns if you attempt to commit a managed file with modifications that post-date the spec. The spec is the edit surface. The generated file is always disposable.
+The spec is the edit surface. The generated file is always disposable. A pre-commit hook to warn on direct edits to managed files is planned for a future release.
 
 ### Spec files
 
@@ -99,9 +99,9 @@ Specs live alongside their source files by convention:
 
 ```
 src/
-  retry.py          # managed — do not edit
-  retry.spec.md     # edit this
-  retry_test.py     # human-owned — ground truth
+  retry.py           # managed — do not edit
+  retry.py.spec.md   # edit this
+  retry_test.py      # human-owned — ground truth
 ```
 
 Specs describe intent, not implementation. The discipline:
@@ -122,24 +122,21 @@ If your spec reads like commented-out code, it's over-specified. The LLM fills t
 
 `unslop` ships a skills directory that superpowers can load on demand:
 
-- `unslop/spec-language.md` — vocabulary guide with positive and negative examples; the register that makes specs reliably interpretable
-- `unslop/generation.md` — generation discipline; managed file conventions, test-first enforcement, boundary markers
-- `unslop/takeover.md` — takeover pipeline orchestration; the validation loop, enrichment protocol, archive conventions
-- `unslop/domain/` — domain-specific priors; add your own here
-
-Domain skills are the primary tunability lever. If your codebase has consistent patterns — Helm templates, Ansible tasks, REST adapters, a specific framework's idioms — encoding them as few-shot examples in a domain skill dramatically tightens generation variance. `unslop/domain/` is on your path; skills there shadow the core skills when paths match.
+- `unslop/skills/spec-language/SKILL.md` — vocabulary guide with positive and negative examples; the register that makes specs reliably interpretable
+- `unslop/skills/generation/SKILL.md` — generation discipline; managed file conventions, test-first enforcement, boundary markers
+- `unslop/skills/takeover/SKILL.md` — takeover pipeline orchestration; the validation loop, enrichment protocol, archive conventions
+Domain-specific skills (e.g., for FastAPI adapters, React components, Terraform modules) are planned for a future release. When available, they will live in `unslop/domain/` and provide few-shot examples that tighten generation variance for common patterns.
 
 ## Commands
 
 | Command | Description |
 |---|---|
-| `/unslop:init` | Initialise `.unslop/` directory, install pre-commit hook |
+| `/unslop:init` | Initialise `.unslop/` directory, detect test command |
 | `/unslop:spec <file>` | Create or edit the spec for a source file |
 | `/unslop:takeover <file>` | Run the takeover pipeline on an existing file |
 | `/unslop:generate` | Regenerate all stale managed files |
 | `/unslop:sync <file>` | Regenerate one specific managed file |
 | `/unslop:status` | List managed files and staleness |
-| `/unslop:unamanage <file>` | Remove a file from management (keeps last generated version) |
 
 ## Philosophy
 
