@@ -6,7 +6,7 @@
 
 unslop is a Claude Code plugin that rescues vibe-coded prototypes into disciplined software engineering practice. It extracts intent from existing code into spec files, then regenerates code from those specs — validating against existing tests that the spec fully captures the original semantics.
 
-This document covers the MVP: `takeover`, `generate`/`sync`, `status`, and the alignment summary system. A roadmap for the full plugin vision is included at the end.
+This document covers the MVP: `spec`, `takeover`, `generate`/`sync`, `status`, and the alignment summary system. A roadmap for the full plugin vision is included at the end.
 
 ## Approach
 
@@ -23,6 +23,7 @@ unslop/                              # repo root = marketplace root
 │   │   └── plugin.json              # plugin manifest
 │   ├── commands/
 │   │   ├── init.md                  # /unslop:init
+│   │   ├── spec.md                  # /unslop:spec <file>
 │   │   ├── takeover.md              # /unslop:takeover <file>
 │   │   ├── generate.md              # /unslop:generate
 │   │   ├── sync.md                  # /unslop:sync <file>
@@ -78,6 +79,21 @@ Comment syntax is detected from file extension (`#`, `//`, `/* */`, `<!-- -->`, 
 - Path to the spec file
 - Generation timestamp (ISO 8601)
 
+## Spec Command
+
+### `/unslop:spec <file>`
+The "starting fresh" entry point. For new files that don't exist yet, or existing files you want to spec before managing:
+
+1. Load the spec-language skill
+2. Create `<file>.spec.md` alongside the target path
+3. If the target file already exists: read it and draft a spec (same as takeover step 2, but without the archive/regenerate/validate pipeline)
+4. If the target file doesn't exist: create a skeleton spec with conventional headings as suggestions
+5. Present the spec to the user for editing
+
+After the user is happy with the spec, they run `/unslop:generate` to produce the managed file.
+
+This is simpler than takeover — no archiving, no convergence loop. It's for when you want to write the spec first and generate code from it, rather than extracting a spec from existing code.
+
 ## Takeover Pipeline
 
 When a user runs `/unslop:takeover src/retry.py`:
@@ -93,7 +109,7 @@ When a user runs `/unslop:takeover src/retry.py`:
 - **User reviews the draft spec before proceeding** — this is the "do you agree this captures your intent?" gate
 
 ### Step 3: Archive
-- Move original to `.unslop/archive/<file>.<timestamp>`
+- Move original to `.unslop/archive/<relative-path>.<timestamp>` (preserving directory structure, e.g., `.unslop/archive/src/retry.py.2026-03-20T143200Z`)
 - Safety net, not a versioning system
 - Archive directory is gitignored
 
@@ -117,6 +133,8 @@ When a user runs `/unslop:takeover src/retry.py`:
 - If green: done
 - If red + iterations remaining: loop
 - If red + max iterations: stop, show the user what's failing, ask for help
+
+On abandonment (max iterations reached): keep the draft spec (so the user can fix it), keep the last generated attempt (so the user can see what failed), and note that the original remains in the archive for manual recovery.
 
 The "no peeking" rule is enforced by the generation skill's instructions. This is where the prompt-only approach may be weakest — and exactly what we're testing.
 
