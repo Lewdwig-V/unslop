@@ -87,7 +87,7 @@ Edit the spec. Run `generate`. The managed file is overwritten. Your edit surfac
 Managed files carry a header comment that marks them as unslop-owned:
 
 ```python
-# @unslop-managed — do not edit directly. Edit src/retry.spec.md instead.
+# @unslop-managed — do not edit directly. Edit src/retry.py.spec.md instead.
 # Generated from spec at 2026-03-20T14:32:00Z
 ```
 
@@ -99,9 +99,9 @@ Specs live alongside their source files by convention:
 
 ```
 src/
-  retry.py          # managed — do not edit
-  retry.spec.md     # edit this
-  retry_test.py     # human-owned — ground truth
+  retry.py           # managed — do not edit
+  retry.py.spec.md   # edit this
+  retry_test.py      # human-owned — ground truth
 ```
 
 Specs describe intent, not implementation. The discipline:
@@ -122,9 +122,9 @@ If your spec reads like commented-out code, it's over-specified. The LLM fills t
 
 `unslop` ships a skills directory that superpowers can load on demand:
 
-- `unslop/spec-language.md` — vocabulary guide with positive and negative examples; the register that makes specs reliably interpretable
-- `unslop/generation.md` — generation discipline; managed file conventions, test-first enforcement, boundary markers
-- `unslop/takeover.md` — takeover pipeline orchestration; the validation loop, enrichment protocol, archive conventions
+- `unslop/skills/spec-language/SKILL.md` — vocabulary guide with positive and negative examples; the register that makes specs reliably interpretable
+- `unslop/skills/generation/SKILL.md` — generation discipline; managed file conventions, test-first enforcement, boundary markers
+- `unslop/skills/takeover/SKILL.md` — takeover pipeline orchestration; the validation loop, enrichment protocol, archive conventions
 Domain-specific skills (e.g., for FastAPI adapters, React components, Terraform modules) are planned for a future release. When available, they will live in `unslop/domain/` and provide few-shot examples that tighten generation variance for common patterns.
 
 ## Commands

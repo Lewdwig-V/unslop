@@ -13,7 +13,7 @@ Check that `.unslop/` exists in the current working directory. If it does not ex
 
 **2. Derive the spec path**
 
-Replace the file extension with `.spec.md` (e.g., `src/retry.py` → `src/retry.spec.md`).
+Append `.spec.md` to the filename (e.g., `src/retry.py` → `src/retry.py.spec.md`).
 
 Check that the spec file exists. If it does not exist, stop and tell the user:
 
@@ -40,3 +40,7 @@ Update `.unslop/alignment-summary.md` to record the sync under the `## Managed f
 ```
 
 Read the spec's first sentence or Purpose section to derive the intent summary.
+
+**6. Commit**
+
+After updating the alignment summary, commit the regenerated file and the updated alignment summary.

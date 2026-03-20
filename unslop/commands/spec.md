@@ -7,7 +7,9 @@ The argument `$ARGUMENTS` is the path to the source file (e.g., `src/retry.py`).
 
 Use the `unslop/spec-language` skill for guidance on spec writing voice throughout this command.
 
-**Derive the spec path:** replace the file extension with `.spec.md` (e.g., `src/retry.py` → `src/retry.spec.md`).
+**Check initialization:** Check that `.unslop/` exists. If not, warn the user that unslop is not initialized and suggest running `/unslop:init` first. You may still proceed with creating the spec file (spec creation works without init), but note that `/unslop:generate` will require initialization.
+
+**Derive the spec path:** append `.spec.md` to the filename (e.g., `src/retry.py` → `src/retry.py.spec.md`).
 
 ---
 

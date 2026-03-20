@@ -57,9 +57,9 @@ Freeform markdown. No rigid schema — discipline is enforced by the spec-langua
 Specs live alongside their source files:
 ```
 src/
-  retry.py          # managed — do not edit
-  retry.spec.md     # edit this
-  retry_test.py     # human-owned — ground truth
+  retry.py           # managed — do not edit
+  retry.py.spec.md   # edit this
+  retry_test.py      # human-owned — ground truth
 ```
 
 The writing discipline: intent, not implementation.
@@ -76,7 +76,7 @@ If a spec reads like commented-out code, it's over-specified.
 
 Managed files carry a header comment:
 ```python
-# @unslop-managed — do not edit directly. Edit src/retry.spec.md instead.
+# @unslop-managed — do not edit directly. Edit src/retry.py.spec.md instead.
 # Generated from spec at 2026-03-20T14:32:00Z
 ```
 
@@ -115,7 +115,7 @@ When a user runs `/unslop:takeover src/retry.py`:
 - **User reviews the draft spec before proceeding** — this is the "do you agree this captures your intent?" gate
 
 ### Step 3: Archive
-- Move original to `.unslop/archive/<relative-path>.<timestamp>` (preserving directory structure, e.g., `.unslop/archive/src/retry.py.2026-03-20T143200Z`)
+- Move original to `.unslop/archive/<relative-path>.<timestamp>` (preserving directory structure, e.g., `.unslop/archive/src/retry.py.20260320T143200Z`)
 - Safety net, not a versioning system
 - Archive directory is gitignored
 
@@ -166,12 +166,12 @@ Scans the project and reports managed file states:
 
 ```
 Managed files:
-  fresh   src/retry.py        <- retry.spec.md
-  stale   src/parser.py       <- parser.spec.md (spec edited 2h ago)
-  modified src/adapter.py     <- adapter.spec.md (3 lines changed directly)
+  fresh   src/retry.py        <- src/retry.py.spec.md
+  stale   src/parser.py       <- src/parser.py.spec.md (spec edited 2h ago)
+  modified src/adapter.py     <- src/adapter.py.spec.md (edited directly)
 
 Unmanaged specs:
-  src/utils.spec.md  (no managed file)
+  src/utils.py.spec.md  (no managed file)
 ```
 
 Three states:
@@ -191,10 +191,10 @@ Auto-generated file at `.unslop/alignment-summary.md`. Committed to git.
 
 ## Managed files
 
-- `src/retry.py` <- `src/retry.spec.md` (fresh, generated 2026-03-20T14:32:00Z)
+- `src/retry.py` <- `src/retry.py.spec.md` (fresh, generated 2026-03-20T14:32:00Z)
   Intent: Exponential backoff retry wrapper with jitter, max 5 attempts
 
-- `src/parser.py` <- `src/parser.spec.md` (stale)
+- `src/parser.py` <- `src/parser.py.spec.md` (stale)
   Intent: Parses incoming webhook payloads into normalized event objects
 ```
 

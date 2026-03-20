@@ -14,7 +14,7 @@ No specs found. Get started with /unslop:spec <file> or /unslop:takeover <file>.
 
 ---
 
-For each spec file found, derive the managed file path. The spec naming convention replaces the source file's extension with `.spec.md` (e.g., `src/retry.py` → `src/retry.spec.md`). To find the managed file, look for a file in the same directory with the same base name but a source code extension (e.g., `src/retry.spec.md` → look for `src/retry.py`, `src/retry.ts`, etc.). Check for the `@unslop-managed` header to confirm. If no matching managed file is found, list the spec under "Unmanaged specs".
+For each spec file found, derive the managed file path by stripping the trailing `.spec.md` suffix (e.g., `src/retry.py.spec.md` → `src/retry.py`). If the managed file does not exist, list the spec under "Unmanaged specs".
 
 Classify each spec as follows:
 
@@ -42,13 +42,13 @@ Display results in this exact format:
 
 ```
 Managed files:
-  fresh    src/retry.py        <- retry.spec.md
-  stale    src/parser.py       <- parser.spec.md (spec edited 2h ago)
-  modified src/adapter.py      <- adapter.spec.md (edited directly)
-  unmanaged (no header)  src/legacy.py  <- legacy.spec.md
+  fresh    src/retry.py        <- src/retry.py.spec.md
+  stale    src/parser.py       <- src/parser.py.spec.md (spec edited 2h ago)
+  modified src/adapter.py      <- src/adapter.py.spec.md (edited directly)
+  unmanaged (no header)  src/legacy.py  <- src/legacy.py.spec.md
 
 Unmanaged specs:
-  src/utils.spec.md  (no managed file — run /unslop:generate)
+  src/utils.py.spec.md  (no managed file — run /unslop:generate)
 ```
 
 Rules for the display:

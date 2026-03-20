@@ -53,25 +53,25 @@ For unknown extensions, use `//` as the default.
 
 Python (`.py`):
 ```python
-# @unslop-managed — do not edit directly. Edit src/retry.spec.md instead.
+# @unslop-managed — do not edit directly. Edit src/retry.py.spec.md instead.
 # Generated from spec at 2026-03-20T14:32:00Z
 ```
 
 TypeScript (`.ts`):
 ```typescript
-// @unslop-managed — do not edit directly. Edit src/api-client.spec.md instead.
+// @unslop-managed — do not edit directly. Edit src/api-client.ts.spec.md instead.
 // Generated from spec at 2026-03-20T14:32:00Z
 ```
 
 HTML (`.html`):
 ```html
-<!-- @unslop-managed — do not edit directly. Edit src/index.spec.md instead. -->
+<!-- @unslop-managed — do not edit directly. Edit src/index.html.spec.md instead. -->
 <!-- Generated from spec at 2026-03-20T14:32:00Z -->
 ```
 
 CSS (`.css`):
 ```css
-/* @unslop-managed — do not edit directly. Edit src/styles.spec.md instead. */
+/* @unslop-managed — do not edit directly. Edit src/styles.css.spec.md instead. */
 /* Generated from spec at 2026-03-20T14:32:00Z */
 ```
 
@@ -89,6 +89,8 @@ The discipline:
 5. Refactor within the green state without breaking tests
 
 Do not write implementation code before the tests exist. Do not skip this step because the spec "seems clear enough." The tests are the executable form of the spec's intent.
+
+**Note:** During takeover, write or extend tests as needed. During generate/sync, use existing tests for validation — do not create or modify test files.
 
 ---
 

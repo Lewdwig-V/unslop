@@ -20,13 +20,13 @@ Find all `*.spec.md` files in the project tree (excluding `.unslop/` and `node_m
 
 **4. Classify each spec file**
 
-For each `*.spec.md` found, derive the managed file path. The spec naming convention replaces the source file's extension with `.spec.md` (e.g., `src/retry.py` → `src/retry.spec.md`). To find the managed file, look for a file in the same directory with the same base name but a source code extension (e.g., `src/retry.spec.md` → look for `src/retry.py`, `src/retry.ts`, etc.). If the `@unslop-managed` header exists in a candidate file, that's the managed file.
+For each `*.spec.md` found, derive the managed file path by stripping the trailing `.spec.md` suffix (e.g., `src/retry.py.spec.md` → `src/retry.py`).
 
 Classify it as one of:
 
-- **New**: the managed file does not exist yet — must be generated.
-- **Stale**: the managed file exists but the spec file's modification time is newer — must be regenerated.
-- **Fresh**: the managed file exists and is at least as recent as the spec — skip it.
+- **New**: the managed file does not exist yet — must be generated unconditionally.
+- **Stale**: the managed file exists — read its `@unslop-managed` header, extract the generation timestamp from the second line, and compare against the spec file's modification time (mtime). If spec mtime > generation timestamp, the file is stale and must be regenerated.
+- **Fresh**: the managed file exists and the spec mtime <= generation timestamp — skip it.
 
 Report the classification of every spec file before proceeding.
 
@@ -56,3 +56,7 @@ After all files have been processed without a stopping failure, update `.unslop/
 ```
 
 Read the spec's first sentence or Purpose section to derive the intent summary.
+
+**7. Commit**
+
+After updating the alignment summary, commit the regenerated file(s) and the updated alignment summary.

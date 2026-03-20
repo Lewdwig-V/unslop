@@ -14,7 +14,7 @@ Steps:
 
 1. **Discover** — Read the target file and locate its tests
 2. **Draft Spec** — Extract intent from code and tests; get user approval
-3. **Archive** — Copy the original to `.unslop/archive/` before it is replaced
+3. **Archive** — Archive the original to `.unslop/archive/` before it is replaced
 4. **Generate** — Regenerate the file from the approved spec only
 5. **Validate** — Run tests; commit if green, enter convergence loop if red
 6. **Convergence Loop** — Enrich the spec and regenerate until tests pass or iterations are exhausted
@@ -71,10 +71,10 @@ Before touching the original file, archive it.
 
 Archive path format: `.unslop/archive/<relative-path>.<ISO8601-compact-timestamp>`
 
-Example: `.unslop/archive/src/retry.py.2026-03-20T143200Z`
+Example: `.unslop/archive/src/retry.py.20260320T143200Z`
 
 - The relative path mirrors the file's location within the project root
-- The timestamp is compact ISO 8601 in UTC: `YYYYMMDDTHHMMSSz` — no colons, no dashes in the date portion (e.g., `20260320T143200Z`)
+- The timestamp is compact ISO 8601 in UTC: `YYYYMMDDTHHMMSSZ` — no colons, no dashes in the date portion (e.g., `20260320T143200Z`)
 - Create parent directories as needed
 
 This archive is a safety net. The user can manually recover the original from it if anything goes wrong. Do not delete or modify the archive after creating it.
@@ -102,8 +102,7 @@ Run the tests.
 **If all tests pass:**
 
 - Commit the spec file and the generated file together
-- Update the alignment summary if one exists
-- Report success to the user
+- Report success to the calling command. The command handles alignment summary updates.
 
 **If any tests fail:**
 
