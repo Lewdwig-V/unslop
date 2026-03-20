@@ -32,7 +32,10 @@ Use the **unslop/generation** skill for code generation discipline.
 After a successful takeover (tests green, files committed), add the managed file to `.unslop/alignment-summary.md` under the `## Managed files` section:
 
 ```
-- `<relative-path>` — taken over <ISO8601 date>
+- `<managed-file-path>` <- `<spec-file-path>` (fresh, generated <ISO8601 timestamp>)
+  Intent: <one-line summary of what the spec describes>
 ```
+
+Read the spec's first sentence or Purpose section to derive the intent summary.
 
 If the takeover ends in the abandonment state (convergence loop exhausted), do not update the alignment summary. The file is not yet under clean spec management.

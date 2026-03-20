@@ -14,7 +14,7 @@ No specs found. Get started with /unslop:spec <file> or /unslop:takeover <file>.
 
 ---
 
-For each spec file found, derive the managed file path by replacing the `.spec.md` extension with the original source extension (e.g., `src/retry.spec.md` → `src/retry.py`). The source extension is whatever non-`.spec.md` extension the base filename implies. If the spec filename is ambiguous (e.g., `foo.spec.md` with no clear source extension), skip classification and list it under "Unmanaged specs" with a note that the source path cannot be determined.
+For each spec file found, derive the managed file path. The spec naming convention replaces the source file's extension with `.spec.md` (e.g., `src/retry.py` → `src/retry.spec.md`). To find the managed file, look for a file in the same directory with the same base name but a source code extension (e.g., `src/retry.spec.md` → look for `src/retry.py`, `src/retry.ts`, etc.). Check for the `@unslop-managed` header to confirm. If no matching managed file is found, list the spec under "Unmanaged specs".
 
 Classify each spec as follows:
 
@@ -22,12 +22,14 @@ Classify each spec as follows:
 - List under "Unmanaged specs".
 
 **If the managed file exists:**
-- Read the `@unslop-managed` header line near the top of the managed file. It will look like:
+- Read the `@unslop-managed` header near the top of the managed file. It is a two-line header:
   ```
-  # @unslop-managed generated:<ISO8601 timestamp>
+  # @unslop-managed — do not edit directly. Edit <spec-path> instead.
+  # Generated from spec at <ISO 8601 timestamp>
   ```
+  (Comment syntax varies by language — `#`, `//`, `<!-- -->`, `/* */`, `--`.)
 - If the header is missing or malformed, classify as `unmanaged (no header)` and list under "Managed files" with that label.
-- If the header is present, extract the generation timestamp and compare:
+- If the header is present, extract the generation timestamp from the second line and compare:
   - Get the spec file's last-modified time (mtime).
   - Get the managed file's last-modified time (mtime).
   - **Fresh**: spec mtime <= generation timestamp AND managed file mtime <= generation timestamp

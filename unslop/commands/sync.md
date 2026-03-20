@@ -35,5 +35,8 @@ Read the test command from `.unslop/config.md`. Run the test suite.
 Update `.unslop/alignment-summary.md` to record the sync under the `## Managed files` section. If the file already appears there, update its entry with the current timestamp:
 
 ```
-- `<relative-path>` — synced <ISO 8601 date>
+- `<managed-file-path>` <- `<spec-file-path>` (fresh, generated <ISO8601 timestamp>)
+  Intent: <one-line summary of what the spec describes>
 ```
+
+Read the spec's first sentence or Purpose section to derive the intent summary.

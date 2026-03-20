@@ -20,7 +20,7 @@ Find all `*.spec.md` files in the project tree (excluding `.unslop/` and `node_m
 
 **4. Classify each spec file**
 
-For each `*.spec.md` found, derive the managed file path by stripping `.spec.md` and restoring the original extension (e.g., `src/auth.ts.spec.md` → `src/auth.ts`).
+For each `*.spec.md` found, derive the managed file path. The spec naming convention replaces the source file's extension with `.spec.md` (e.g., `src/retry.py` → `src/retry.spec.md`). To find the managed file, look for a file in the same directory with the same base name but a source code extension (e.g., `src/retry.spec.md` → look for `src/retry.py`, `src/retry.ts`, etc.). If the `@unslop-managed` header exists in a candidate file, that's the managed file.
 
 Classify it as one of:
 
@@ -51,5 +51,8 @@ After all files have been processed without a stopping failure, update `.unslop/
 - For each newly generated or regenerated file, ensure it appears under the `## Managed files` section. If it is already listed, update the entry to reflect the regeneration date. If it is new, add it:
 
 ```
-- `<relative-path>` — regenerated <ISO8601 date>
+- `<managed-file-path>` <- `<spec-file-path>` (fresh, generated <ISO8601 timestamp>)
+  Intent: <one-line summary of what the spec describes>
 ```
+
+Read the spec's first sentence or Purpose section to derive the intent summary.
