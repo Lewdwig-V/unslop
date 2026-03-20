@@ -1,0 +1,55 @@
+---
+description: Regenerate all stale managed files from their specs
+---
+
+**1. Verify prerequisites**
+
+Check that `.unslop/` exists in the current working directory. If it does not exist, stop and tell the user:
+
+> "unslop is not initialized. Run `/unslop:init` first."
+
+**2. Load context**
+
+Use the **unslop/generation** skill for code generation discipline throughout this command.
+
+Read `.unslop/config.md` to obtain the test command. You will need it when validating regenerated files.
+
+**3. Scan for spec files**
+
+Find all `*.spec.md` files in the project tree (excluding `.unslop/` and `node_modules/`).
+
+**4. Classify each spec file**
+
+For each `*.spec.md` found, derive the managed file path by stripping `.spec.md` and restoring the original extension (e.g., `src/auth.ts.spec.md` → `src/auth.ts`).
+
+Classify it as one of:
+
+- **New**: the managed file does not exist yet — must be generated.
+- **Stale**: the managed file exists but the spec file's modification time is newer — must be regenerated.
+- **Fresh**: the managed file exists and is at least as recent as the spec — skip it.
+
+Report the classification of every spec file before proceeding.
+
+**5. Process stale and new files**
+
+For each file classified as new or stale, in order:
+
+1. Read only the spec file. Do not read the existing managed file (if any) — generate from the spec alone.
+2. Generate the managed file. The file must begin with the `@unslop-managed` header as specified by the **unslop/generation** skill.
+3. Run the test command from `.unslop/config.md`.
+4. If tests pass: report success for this file and continue to the next.
+5. If tests fail: report the failure output and **stop immediately**. Do NOT attempt to fix the code, re-read the spec, or enter any convergence loop. Tell the user:
+
+> "Tests failed after regenerating `<file>`. The spec may have introduced breaking changes. Review the failures above and update the spec or downstream code as needed."
+
+If any file causes a stop, do not process remaining files.
+
+**6. Update the alignment summary**
+
+After all files have been processed without a stopping failure, update `.unslop/alignment-summary.md`:
+
+- For each newly generated or regenerated file, ensure it appears under the `## Managed files` section. If it is already listed, update the entry to reflect the regeneration date. If it is new, add it:
+
+```
+- `<relative-path>` — regenerated <ISO8601 date>
+```
