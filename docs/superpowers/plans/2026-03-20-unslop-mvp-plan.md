@@ -265,7 +265,7 @@ Command body (instructions for Claude):
    - Check for `Makefile` with a `test` target — use `make test`
    - Check for `Cargo.toml` — use `cargo test`
    - Check for `go.mod` — use `go test ./...`
-   - If multiple detected or none detected, ask the user with AskUserQuestion
+   - If multiple detected or none detected, ask the user which test command to use
 5. Write `.unslop/config.md`:
    ```markdown
    # unslop configuration
@@ -624,7 +624,7 @@ fi
         ]
       }
     ],
-    "PreCompact": [
+    "PostCompact": [
       {
         "matcher": "*",
         "hooks": [

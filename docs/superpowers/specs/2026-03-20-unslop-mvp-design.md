@@ -29,11 +29,17 @@ unslop/                              # repo root = marketplace root
 │   │   ├── sync.md                  # /unslop:sync <file>
 │   │   └── status.md                # /unslop:status
 │   ├── skills/
-│   │   ├── spec-language.md         # vocabulary guide, positive/negative examples
-│   │   ├── generation.md            # generation discipline, managed file conventions
-│   │   └── takeover.md              # takeover pipeline orchestration
+│   │   ├── spec-language/
+│   │   │   └── SKILL.md             # vocabulary guide, positive/negative examples
+│   │   ├── generation/
+│   │   │   └── SKILL.md             # generation discipline, managed file conventions
+│   │   └── takeover/
+│   │       └── SKILL.md             # takeover pipeline orchestration
 │   └── hooks/
-│       └── hooks.json               # spec-change-detector + session-context hooks
+│       ├── hooks.json               # spec-change-detector + session-context hooks
+│       └── scripts/
+│           ├── regenerate-summary.sh
+│           └── load-context.sh
 ├── README.md
 └── LICENSE
 ```
@@ -215,6 +221,8 @@ Run once per project:
    - `package.json` with test script -> `npm test`
    - `pytest.ini` / `pyproject.toml` with pytest -> `pytest`
    - `Makefile` with test target -> `make test`
+   - `Cargo.toml` -> `cargo test`
+   - `go.mod` -> `go test ./...`
    - If ambiguous or not found -> ask the user
 4. Write `.unslop/config.md`:
    ```markdown
