@@ -149,3 +149,70 @@ When the convergence loop exhausts its iterations without green tests:
 - **Leave the original in the archive** — it is available for manual recovery
 
 Do not delete, overwrite, or clean up any of these artifacts. Leave the working tree in a state the user can reason about and act on.
+
+---
+
+## Multi-File Mode
+
+When the takeover command provides a list of files (from directory scanning or glob expansion), the pipeline operates on the entire set as a unit.
+
+### Discovery (replaces Step 1)
+
+The command has already called `orchestrator.py discover` and the user has confirmed the file list. You receive the confirmed list of source files.
+
+Find tests for the unit as a whole — look for test files adjacent to or within the directory being taken over. Read all source files and all test files together before drafting specs.
+
+If no tests are found for the unit, warn the user as in single-file mode.
+
+### Granularity Choice (new step, before Draft Spec)
+
+Ask the user:
+
+> "This directory contains N files. Would you like:
+> 1. **Per-file specs** — one spec per file, with dependency declarations between them
+> 2. **Per-unit spec** — one spec describing the entire module
+>
+> Per-file is better for loosely coupled files or large units. Per-unit is better for tightly coupled files with shared internal APIs."
+
+For units larger than ~10 files, recommend per-file mode with a note about context limits.
+
+### Draft Specs (updated Step 2)
+
+**Per-file mode:**
+- Read ALL files in the unit together to understand cross-file relationships
+- Draft one spec per file
+- Analyze imports to determine `depends-on` frontmatter for each spec
+- Present ALL specs to the user together for review
+
+**Per-unit mode:**
+- Read ALL files in the unit together
+- Draft a single `<dir>.unit.spec.md` with a `## Files` section
+- Present to the user for review
+
+In both modes, wait for user approval of ALL specs before proceeding.
+
+### Archive (Step 3 — updated)
+
+Archive ALL original files in the unit, not just one.
+
+### Build Order (new step, before Generate)
+
+**Per-file mode only.** Call `orchestrator.py build-order` with the directory containing the specs. Generate files in the returned order — leaves first, dependents after their dependencies.
+
+**Per-unit mode:** Skip this step. Generate all files from the single spec in the order listed in `## Files`.
+
+### Validate (Step 5 — updated)
+
+Run tests once for the entire unit (not per-file). The test command from `.unslop/config.md` should cover the unit. If tests pass, commit ALL specs and generated files together.
+
+### Convergence Loop (Step 6 — updated)
+
+The loop works the same as single-file mode with these changes:
+- Enrich whichever spec(s) are relevant to the failing tests
+- **Do NOT change `depends-on` frontmatter during convergence** — changing the dependency graph mid-loop creates cascading instability
+- Regenerate only files whose specs were enriched, plus files that depend on them (check the build order)
+- If the orchestrator reports an error during convergence (e.g., a cycle introduced despite the rule), abort immediately and surface the error
+
+### Abandonment State (updated)
+
+Same as single-file: keep all draft specs, keep all last generated attempts, all originals remain in archive. Do not clean up.
