@@ -121,6 +121,25 @@ def test_discover_excludes_target_dir(tmp_path):
     assert "debug.rs" not in filenames
 
 
+def test_discover_extra_excludes(tmp_path):
+    (tmp_path / "src").mkdir()
+    (tmp_path / "src" / "app.py").write_text("# app")
+    (tmp_path / "src" / "custom_cache").mkdir()
+    (tmp_path / "src" / "custom_cache" / "cached.py").write_text("# cached")
+
+    result = discover_files(str(tmp_path / "src"), extensions=[".py"], extra_excludes=["custom_cache"])
+    assert result == ["app.py"]
+    assert not any("cached" in f for f in result)
+
+
+def test_frontmatter_wrong_indentation_warning(tmp_path, capsys):
+    content = "---\ndepends-on:\n\t- tabbed.spec.md\n---\n"
+    result = parse_frontmatter(content)
+    assert result == []
+    captured = capsys.readouterr()
+    assert "malformed" in captured.err.lower() or "indentation" in captured.err.lower()
+
+
 def test_build_order_from_specs(tmp_path):
     (tmp_path / "a.py.spec.md").write_text(
         "---\ndepends-on:\n  - b.py.spec.md\n---\n\n# a spec"

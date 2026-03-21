@@ -43,6 +43,9 @@ def parse_frontmatter(content: str) -> list[str]:
             match = re.match(r"^  - (.+)$", line)
             if match:
                 deps.append(match.group(1).strip())
+            elif re.match(r"^\s+- ", line):
+                print(f"Warning: possible malformed dependency (wrong indentation): {line!r}", file=sys.stderr)
+                in_depends = False
             else:
                 in_depends = False
 
@@ -152,23 +155,28 @@ def resolve_deps(spec_path: str, project_root: str) -> list[str]:
         all_specs[rel] = parse_frontmatter(content)
 
     target_rel = str(target.relative_to(root))
-    visited = set()
-    in_stack = set()
-    order = []
+    visited: set[str] = set()
+    in_stack: set[str] = set()
+    order: list[str] = []
 
-    def visit(name):
+    # Iterative DFS to avoid recursion limit on deep chains
+    stack: list[tuple[str, bool]] = [(target_rel, False)]
+    while stack:
+        name, processed = stack.pop()
+        if processed:
+            in_stack.discard(name)
+            order.append(name)
+            continue
         if name in in_stack:
             raise ValueError(f"Cycle detected involving: {name}")
         if name in visited:
-            return
+            continue
         visited.add(name)
         in_stack.add(name)
-        for dep in all_specs.get(name, []):
-            visit(dep)
-        in_stack.remove(name)
-        order.append(name)
+        stack.append((name, True))  # post-order marker
+        for dep in reversed(all_specs.get(name, [])):
+            stack.append((dep, False))
 
-    visit(target_rel)
     order = [n for n in order if n != target_rel]
     return order
 

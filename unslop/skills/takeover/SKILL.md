@@ -197,7 +197,7 @@ Archive ALL original files in the unit, not just one.
 
 ### Build Order (new step, before Generate)
 
-**Per-file mode only.** Call `orchestrator.py build-order` with the directory containing the specs. Generate files in the returned order — leaves first, dependents after their dependencies.
+**Per-file mode only.** Call `orchestrator.py build-order` with the **project root directory** (not the spec directory). Dependency paths in `depends-on` frontmatter are project-root-relative, so the orchestrator must scan from the root to match them correctly. Generate files in the returned order — leaves first, dependents after their dependencies.
 
 **Per-unit mode:** Skip this step. Generate all files from the single spec in the order listed in `## Files`.
 
