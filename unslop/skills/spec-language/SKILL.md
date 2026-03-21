@@ -63,6 +63,64 @@ These are not required, but they cover the ground most specs need:
 
 Use all of them, some of them, or none — structure the spec to match the complexity of the file it describes. A 20-line utility doesn't need five headings.
 
+## Dependencies Between Specs
+
+When a managed file imports from or relies on another managed file, declare the dependency in YAML frontmatter:
+
+```markdown
+---
+depends-on:
+  - src/auth/tokens.py.spec.md
+  - src/auth/errors.py.spec.md
+---
+
+# handler.py spec
+...
+```
+
+Declare `depends-on` when:
+- The file imports from another managed file
+- The file calls functions or uses types defined in another managed file
+- The file's behavior depends on contracts established by another managed file
+
+Do NOT declare dependencies on:
+- Test files (tests are not managed)
+- Third-party libraries (not managed by unslop)
+- Files that are not under unslop management
+
+Paths are relative to the project root. Only list direct dependencies — the orchestrator resolves transitive dependencies automatically.
+
+## Per-Unit Specs
+
+For tightly coupled files that form a logical unit (a Python module, a Rust crate), you can write a single spec that describes the entire unit.
+
+Unit specs are named `<directory-name>.unit.spec.md` and placed inside the directory (e.g., `src/auth/auth.unit.spec.md`).
+
+A unit spec MUST include a `## Files` section listing each output file and its responsibility:
+
+```markdown
+# auth module spec
+
+## Files
+- `__init__.py` — public API re-exports
+- `tokens.py` — JWT token creation and verification
+- `middleware.py` — request authentication middleware
+- `errors.py` — authentication error types
+
+## Behavior
+...
+```
+
+Use unit specs when:
+- Files share internal APIs and cannot be meaningfully described independently
+- The unit has a clear public interface and internal implementation details
+- Per-file specs would repeat the same cross-file contracts in every file
+
+Use per-file specs when:
+- Files are loosely coupled and can be described independently
+- The unit has more than ~10 files (context limits)
+- Different files have different dependency chains
+
 ## Skeleton Template
 
 Use this when creating a spec for a file that has no existing spec. Fill in what is known; leave sections as stubs rather than omitting them.
