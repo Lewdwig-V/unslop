@@ -18,6 +18,16 @@ Read `.unslop/config.md` to obtain the test command. You will need it when valid
 
 Find all `*.spec.md` files in the project tree (excluding `.unslop/` and `node_modules/`).
 
+**3b. Resolve build order**
+
+Check if any of the found spec files have `depends-on` frontmatter (look for `---` at the start of any spec file). If dependency frontmatter is found:
+
+1. Call `python ${CLAUDE_PLUGIN_ROOT}/scripts/orchestrator.py build-order .` to get the full build order across all specs.
+2. Process files in this order instead of arbitrary order.
+3. If the orchestrator reports a cycle, stop and report the error to the user.
+
+If no specs have `depends-on` frontmatter, or if Python is not available, process in the existing order (this preserves backwards compatibility).
+
 **4. Classify each spec file**
 
 For each `*.spec.md` found, derive the managed file path by stripping the trailing `.spec.md` suffix (e.g., `src/retry.py.spec.md` → `src/retry.py`).
@@ -27,6 +37,8 @@ Classify it as one of:
 - **New**: the managed file does not exist yet — must be generated unconditionally.
 - **Stale**: the managed file exists — read its `@unslop-managed` header, extract the generation timestamp from the second line, and compare against the spec file's modification time (mtime). If spec mtime > generation timestamp, the file is stale and must be regenerated.
 - **Fresh**: the managed file exists and the spec mtime <= generation timestamp — skip it.
+
+For unit specs (`*.unit.spec.md`): derive managed file paths from the `## Files` section in the spec rather than the naming convention.
 
 Report the classification of every spec file before proceeding.
 
@@ -43,6 +55,8 @@ For each file classified as new or stale, in order:
 > "Tests failed after regenerating `<file>`. The spec may have introduced breaking changes. Review the failures above and update the spec or downstream code as needed."
 
 If any file causes a stop, do not process remaining files.
+
+If a dependency was regenerated in this run, mark its dependents as stale even if their own specs haven't changed — the dependency's implementation may have changed. If cascading regeneration of a dependent (whose own spec did not change) causes test failures, stop and report: which upstream regeneration caused the failure, which dependent broke, and the test output. Do NOT attempt to fix or converge.
 
 **6. Update the alignment summary**
 
