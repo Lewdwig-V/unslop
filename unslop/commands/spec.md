@@ -22,7 +22,7 @@ Read it and present its contents to the user for editing. Stop here — no furth
 **If the source file exists but no spec exists yet:**
 
 1. Read the source file.
-2. Draft a spec that captures intent, not implementation — describe what the file does, what constraints it satisfies, and what behavior it exhibits. Do not describe data structures, algorithms, or internal control flow.
+2. Draft a spec that captures intent, not implementation — describe what the file does, what constraints it satisfies, and what behavior it exhibits. Do not describe data structures, algorithms, or internal control flow. When creating a spec for a file that imports from other managed files, suggest `depends-on` frontmatter. Analyze the source file's imports — if any imported module has a corresponding `*.spec.md` file in the project, include it in the `depends-on` list. Present the suggested dependencies to the user for confirmation before writing the spec.
 3. Write the draft to the spec path.
 4. Present the draft to the user for review and editing.
 
