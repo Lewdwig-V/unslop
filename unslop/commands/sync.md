@@ -13,11 +13,19 @@ Check that `.unslop/` exists in the current working directory. If it does not ex
 
 **2. Derive the spec path**
 
-Append `.spec.md` to the filename (e.g., `src/retry.py` → `src/retry.py.spec.md`).
+First, check if the managed file has an `@unslop-managed` header — if so, read the spec path from the header (line 1 contains the spec path after 'Edit' and before 'instead'). Otherwise, fall back to appending `.spec.md` to the filename. This supports both per-file and per-unit specs.
 
 Check that the spec file exists. If it does not exist, stop and tell the user:
 
 > "No spec found at `<spec-path>`. Run `/unslop:spec <file-path>` to create one first."
+
+**2b. Check dependencies**
+
+If the spec has `depends-on` frontmatter, call `python ${CLAUDE_PLUGIN_ROOT}/scripts/orchestrator.py deps <spec-path> --root .` to find transitive dependencies.
+
+Check if any dependencies are stale (their spec mtime > their managed file's generation timestamp). If so, regenerate stale dependencies first, in dependency order, before regenerating the target file.
+
+If Python is not available and the spec has no `depends-on` frontmatter, proceed without dependency resolution (backwards compatible). If the spec has dependencies but Python is unavailable, report an error: "This spec has dependencies that require Python 3.8+ for resolution."
 
 **3. Generate**
 
