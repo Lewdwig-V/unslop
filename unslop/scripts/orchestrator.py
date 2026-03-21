@@ -87,3 +87,55 @@ def topo_sort(graph: dict[str, list[str]]) -> list[str]:
         raise ValueError(f"Cycle detected involving: {', '.join(sorted(remaining))}")
 
     return result
+
+
+EXCLUDED_DIRS = {
+    "__pycache__", "node_modules", "target", ".git", ".venv", "venv",
+    "dist", "build", ".tox", "vendor", ".mypy_cache", ".pytest_cache",
+    ".eggs",
+}
+
+TEST_FILE_PATTERNS = [
+    re.compile(r"^test_"),
+    re.compile(r"_test\."),
+    re.compile(r"\.test\."),
+    re.compile(r"\.spec\.(ts|js)$"),
+]
+
+TEST_DIR_NAMES = {"__tests__", "tests", "spec"}
+
+
+def discover_files(
+    directory: str,
+    extensions: list[str] | None = None,
+    extra_excludes: list[str] | None = None,
+) -> list[str]:
+    """Discover source files in a directory, excluding tests and build artifacts.
+
+    Returns sorted list of file paths relative to the scanned directory.
+    """
+    root = Path(directory).resolve()
+    excluded = EXCLUDED_DIRS | set(extra_excludes or [])
+    results = []
+
+    for path in sorted(root.rglob("*")):
+        if not path.is_file():
+            continue
+
+        rel = path.relative_to(root)
+        parts = rel.parts
+        if any(p in excluded or p.endswith(".egg-info") for p in parts[:-1]):
+            continue
+
+        if any(p in TEST_DIR_NAMES for p in parts[:-1]):
+            continue
+
+        if extensions and path.suffix not in extensions:
+            continue
+
+        if any(pat.search(path.name) for pat in TEST_FILE_PATTERNS):
+            continue
+
+        results.append(str(rel))
+
+    return results
