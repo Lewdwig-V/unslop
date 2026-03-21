@@ -115,3 +115,17 @@ Read `.unslop/config.md` for the project's test command before running tests.
 If `.unslop/config.md` does not exist or does not specify a test command, infer it from the project's conventional tooling (e.g., `pytest` for Python projects with `pyproject.toml`, `npm test` for Node projects with `package.json`). Do not guess blindly — look at the project root before choosing a fallback.
 
 Always run the test suite after generation to confirm the output is green before declaring the task complete.
+
+---
+
+## 6. Multi-File Generation (Per-Unit Specs)
+
+When a spec has a `## Files` section listing multiple output files, you are generating an entire unit from a single spec.
+
+**Rules:**
+- Generate each file listed in the `## Files` section separately
+- Apply the `@unslop-managed` header to EVERY generated file
+- ALL files reference the unit spec path in their header (e.g., `Edit src/auth/auth.unit.spec.md instead.`)
+- Generate files in the order listed in the `## Files` section — earlier files may define types/interfaces that later files use
+- Each file must be complete and independently parseable — no stubs or forward references that require manual assembly
+- The spec describes the whole unit's behavior; distribute implementation across files according to the responsibilities listed in `## Files`
