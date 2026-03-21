@@ -38,14 +38,23 @@ Classify each spec as follows:
 
 ---
 
+For files classified as fresh, check if any of their dependencies (from `depends-on` frontmatter in their spec) are stale. If so, reclassify as `stale*` with the note `(dependency stale)`. To detect transitive staleness, call `python ${CLAUDE_PLUGIN_ROOT}/scripts/orchestrator.py deps <spec-path> --root .` and check each dependency's staleness. If Python is not available, skip transitive staleness checks and note: `(dependency checking unavailable — install Python 3.8+)`.
+
+---
+
 Display results in this exact format:
 
 ```
 Managed files:
-  fresh    src/retry.py        <- src/retry.py.spec.md
-  stale    src/parser.py       <- src/parser.py.spec.md (spec edited 2h ago)
-  modified src/adapter.py      <- src/adapter.py.spec.md (edited directly)
-  unmanaged (no header)  src/legacy.py  <- src/legacy.py.spec.md
+  fresh    src/auth/tokens.py       <- src/auth/tokens.py.spec.md
+  fresh    src/auth/errors.py       <- src/auth/errors.py.spec.md
+  stale    src/auth/handler.py      <- src/auth/handler.py.spec.md (spec edited 2h ago)
+                                       depends on: tokens.py.spec.md, errors.py.spec.md
+  stale*   src/auth/middleware.py   <- src/auth/middleware.py.spec.md (dependency stale)
+                                       depends on: handler.py.spec.md
+
+Unit specs:
+  fresh    src/utils/               <- src/utils/utils.unit.spec.md (4 files)
 
 Unmanaged specs:
   src/utils.py.spec.md  (no managed file — run /unslop:generate)
@@ -55,6 +64,9 @@ Rules for the display:
 - Align columns where reasonable.
 - For **stale** entries, include a human-readable relative time since the spec was last edited (e.g., `2h ago`, `3 days ago`).
 - For **modified** entries, include the note `(edited directly)` to make the situation clear.
+- For **stale\*** entries, include the note `(dependency stale)`.
+- If a spec has `depends-on` frontmatter, show the dependencies on an indented line below the entry.
+- For unit specs (`*.unit.spec.md`): display under a `Unit specs:` section showing the directory path, spec name, and file count rather than listing each managed file individually.
 - If there are no entries in a section, omit that section header entirely.
 - Sort entries within each section alphabetically by managed file path (or spec path for unmanaged specs).
 
