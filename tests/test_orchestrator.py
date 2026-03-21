@@ -1,3 +1,5 @@
+import json
+import subprocess
 import sys
 import os
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'unslop', 'scripts'))
@@ -154,3 +156,104 @@ def test_resolve_deps_cycle_error(tmp_path):
         assert False, "Should have raised"
     except ValueError as e:
         assert "cycle" in str(e).lower()
+
+
+def test_build_order_nonexistent_directory():
+    try:
+        build_order_from_dir("/nonexistent/path/xyz")
+        assert False, "Should have raised"
+    except ValueError as e:
+        assert "does not exist" in str(e).lower()
+
+
+def test_discover_nonexistent_directory():
+    try:
+        discover_files("/nonexistent/path/xyz")
+        assert False, "Should have raised"
+    except ValueError as e:
+        assert "does not exist" in str(e).lower()
+
+
+def test_missing_dependency_warning(tmp_path, capsys):
+    (tmp_path / "a.py.spec.md").write_text(
+        "---\ndepends-on:\n  - nonexistent.py.spec.md\n---\n\n# a spec"
+    )
+    result = build_order_from_dir(str(tmp_path))
+    assert "nonexistent.py.spec.md" in result
+    assert "a.py.spec.md" in result
+    captured = capsys.readouterr()
+    assert "Missing dependency specs" in captured.err
+    assert "nonexistent.py.spec.md" in captured.err
+
+
+# --- CLI integration tests ---
+
+ORCHESTRATOR_SCRIPT = os.path.join(
+    os.path.dirname(__file__), '..', 'unslop', 'scripts', 'orchestrator.py'
+)
+
+
+def _run_cli(*args):
+    """Helper to run orchestrator.py as a subprocess."""
+    return subprocess.run(
+        [sys.executable, ORCHESTRATOR_SCRIPT, *args],
+        capture_output=True,
+        text=True,
+    )
+
+
+def test_cli_discover_happy_path(tmp_path):
+    (tmp_path / "app.py").write_text("# app")
+    (tmp_path / "lib.py").write_text("# lib")
+    proc = _run_cli("discover", str(tmp_path), "--extensions", ".py")
+    assert proc.returncode == 0
+    result = json.loads(proc.stdout)
+    assert "app.py" in result
+    assert "lib.py" in result
+
+
+def test_cli_build_order_happy_path(tmp_path):
+    (tmp_path / "a.py.spec.md").write_text(
+        "---\ndepends-on:\n  - b.py.spec.md\n---\n\n# a spec"
+    )
+    (tmp_path / "b.py.spec.md").write_text("# b spec\n\nNo deps.")
+    proc = _run_cli("build-order", str(tmp_path))
+    assert proc.returncode == 0
+    result = json.loads(proc.stdout)
+    assert result == ["b.py.spec.md", "a.py.spec.md"]
+
+
+def test_cli_deps_happy_path(tmp_path):
+    (tmp_path / "a.py.spec.md").write_text(
+        "---\ndepends-on:\n  - b.py.spec.md\n---\n\n# a spec"
+    )
+    (tmp_path / "b.py.spec.md").write_text("# b spec")
+    proc = _run_cli("deps", str(tmp_path / "a.py.spec.md"), "--root", str(tmp_path))
+    assert proc.returncode == 0
+    result = json.loads(proc.stdout)
+    assert result == ["b.py.spec.md"]
+
+
+def test_cli_unknown_command():
+    proc = _run_cli("frobnicate")
+    assert proc.returncode == 1
+    assert "Unknown command" in proc.stderr
+
+
+def test_cli_missing_args():
+    proc = _run_cli("discover")
+    assert proc.returncode == 1
+    assert "Usage" in proc.stderr
+
+
+def test_cli_cycle_error_json(tmp_path):
+    (tmp_path / "a.py.spec.md").write_text("---\ndepends-on:\n  - b.py.spec.md\n---\n")
+    (tmp_path / "b.py.spec.md").write_text("---\ndepends-on:\n  - a.py.spec.md\n---\n")
+    proc = _run_cli("build-order", str(tmp_path))
+    assert proc.returncode == 1
+    # stderr should contain JSON with an error key
+    err_lines = [line for line in proc.stderr.strip().split("\n") if line.startswith("{")]
+    assert len(err_lines) >= 1
+    err_obj = json.loads(err_lines[-1])
+    assert "error" in err_obj
+    assert "cycle" in err_obj["error"].lower()

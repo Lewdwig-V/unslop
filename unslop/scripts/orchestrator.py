@@ -1,4 +1,5 @@
 """unslop orchestrator — dependency resolution and file discovery for multi-file takeover."""
+from __future__ import annotations
 
 import json
 import re
@@ -108,20 +109,27 @@ TEST_DIR_NAMES = {"__tests__", "tests", "spec"}
 def build_order_from_dir(directory: str) -> list[str]:
     """Read all *.spec.md files in directory (recursively), parse deps, return topo-sorted list."""
     root = Path(directory).resolve()
+    if not root.is_dir():
+        raise ValueError(f"Directory does not exist: {directory}")
     specs = sorted(root.rglob("*.spec.md"))
 
-    graph = {}
+    graph: dict[str, list[str]] = {}
     for spec_path in specs:
-        name = spec_path.name
+        name = str(spec_path.relative_to(root))
         content = spec_path.read_text()
         deps = parse_frontmatter(content)
         graph[name] = deps
 
     all_nodes = set(graph.keys())
-    for deps in graph.values():
-        for dep in deps:
-            if dep not in all_nodes:
-                graph[dep] = []
+    missing: dict[str, list[str]] = {}
+    for deps_list in graph.values():
+        for dep in deps_list:
+            if dep not in all_nodes and dep not in missing:
+                missing[dep] = []
+    if missing:
+        missing_names = ", ".join(sorted(missing.keys()))
+        print(f'{{"warning": "Missing dependency specs: {missing_names}"}}', file=sys.stderr)
+    graph.update(missing)
 
     return topo_sort(graph)
 
@@ -175,6 +183,8 @@ def discover_files(
     Returns sorted list of file paths relative to the scanned directory.
     """
     root = Path(directory).resolve()
+    if not root.is_dir():
+        raise ValueError(f"Directory does not exist: {directory}")
     excluded = EXCLUDED_DIRS | set(extra_excludes or [])
     results = []
 
@@ -218,8 +228,15 @@ def main():
         if "--extensions" in sys.argv:
             ext_idx = sys.argv.index("--extensions")
             extensions = sys.argv[ext_idx + 1:]
-        result = discover_files(directory, extensions=extensions)
-        print(json.dumps(result, indent=2))
+            if not extensions:
+                print("Usage: orchestrator.py discover <directory> [--extensions .py .rs]", file=sys.stderr)
+                sys.exit(1)
+        try:
+            result = discover_files(directory, extensions=extensions)
+            print(json.dumps(result, indent=2))
+        except (OSError, ValueError) as e:
+            print(json.dumps({"error": str(e)}), file=sys.stderr)
+            sys.exit(1)
 
     elif command == "build-order":
         if len(sys.argv) < 3:
@@ -229,7 +246,7 @@ def main():
         try:
             result = build_order_from_dir(directory)
             print(json.dumps(result, indent=2))
-        except ValueError as e:
+        except (ValueError, OSError, UnicodeDecodeError, RecursionError) as e:
             print(json.dumps({"error": str(e)}), file=sys.stderr)
             sys.exit(1)
 
@@ -241,11 +258,14 @@ def main():
         project_root = "."
         if "--root" in sys.argv:
             root_idx = sys.argv.index("--root")
+            if root_idx + 1 >= len(sys.argv):
+                print("Usage: orchestrator.py deps <spec-path> [--root <project-root>]", file=sys.stderr)
+                sys.exit(1)
             project_root = sys.argv[root_idx + 1]
         try:
             result = resolve_deps(spec_path, project_root)
             print(json.dumps(result, indent=2))
-        except ValueError as e:
+        except (ValueError, OSError, UnicodeDecodeError, RecursionError) as e:
             print(json.dumps({"error": str(e)}), file=sys.stderr)
             sys.exit(1)
 
