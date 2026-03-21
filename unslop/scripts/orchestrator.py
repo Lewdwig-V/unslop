@@ -46,3 +46,44 @@ def parse_frontmatter(content: str) -> list[str]:
                 in_depends = False
 
     return deps
+
+
+def topo_sort(graph: dict[str, list[str]]) -> list[str]:
+    """Topological sort via Kahn's algorithm.
+
+    Args:
+        graph: dict mapping node -> list of dependencies (edges point to deps)
+
+    Returns:
+        List of nodes in dependency order (leaves first).
+
+    Raises:
+        ValueError: if a cycle is detected.
+    """
+    in_degree = {node: 0 for node in graph}
+    for node, deps in graph.items():
+        for dep in deps:
+            if dep not in in_degree:
+                in_degree[dep] = 0
+    for node, deps in graph.items():
+        in_degree[node] = len(deps)
+
+    queue = [n for n in in_degree if in_degree[n] == 0]
+    queue.sort()
+    result = []
+
+    while queue:
+        node = queue.pop(0)
+        result.append(node)
+        for candidate, deps in graph.items():
+            if node in deps:
+                in_degree[candidate] -= 1
+                if in_degree[candidate] == 0:
+                    queue.append(candidate)
+                    queue.sort()
+
+    if len(result) != len(in_degree):
+        remaining = set(in_degree.keys()) - set(result)
+        raise ValueError(f"Cycle detected involving: {', '.join(sorted(remaining))}")
+
+    return result
