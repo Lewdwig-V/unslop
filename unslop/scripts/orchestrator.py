@@ -105,6 +105,66 @@ TEST_FILE_PATTERNS = [
 TEST_DIR_NAMES = {"__tests__", "tests", "spec"}
 
 
+def build_order_from_dir(directory: str) -> list[str]:
+    """Read all *.spec.md files in directory (recursively), parse deps, return topo-sorted list."""
+    root = Path(directory).resolve()
+    specs = sorted(root.rglob("*.spec.md"))
+
+    graph = {}
+    for spec_path in specs:
+        name = spec_path.name
+        content = spec_path.read_text()
+        deps = parse_frontmatter(content)
+        graph[name] = deps
+
+    all_nodes = set(graph.keys())
+    for deps in graph.values():
+        for dep in deps:
+            if dep not in all_nodes:
+                graph[dep] = []
+
+    return topo_sort(graph)
+
+
+def resolve_deps(spec_path: str, project_root: str) -> list[str]:
+    """Resolve transitive dependencies of a single spec file.
+
+    Returns list of dependency spec names in build order (leaves first),
+    NOT including the spec itself.
+
+    Raises ValueError if a cycle is detected.
+    """
+    root = Path(project_root).resolve()
+    target = Path(spec_path).resolve()
+
+    all_specs = {}
+    for s in root.rglob("*.spec.md"):
+        rel = str(s.relative_to(root))
+        content = s.read_text()
+        all_specs[rel] = parse_frontmatter(content)
+
+    target_rel = str(target.relative_to(root))
+    visited = set()
+    in_stack = set()
+    order = []
+
+    def visit(name):
+        if name in in_stack:
+            raise ValueError(f"Cycle detected involving: {name}")
+        if name in visited:
+            return
+        visited.add(name)
+        in_stack.add(name)
+        for dep in all_specs.get(name, []):
+            visit(dep)
+        in_stack.remove(name)
+        order.append(name)
+
+    visit(target_rel)
+    order = [n for n in order if n != target_rel]
+    return order
+
+
 def discover_files(
     directory: str,
     extensions: list[str] | None = None,
@@ -139,3 +199,60 @@ def discover_files(
         results.append(str(rel))
 
     return results
+
+
+def main():
+    """CLI entry point."""
+    if len(sys.argv) < 2:
+        print("Usage: orchestrator.py <discover|build-order|deps> [args]", file=sys.stderr)
+        sys.exit(1)
+
+    command = sys.argv[1]
+
+    if command == "discover":
+        if len(sys.argv) < 3:
+            print("Usage: orchestrator.py discover <directory> [--extensions .py .rs]", file=sys.stderr)
+            sys.exit(1)
+        directory = sys.argv[2]
+        extensions = None
+        if "--extensions" in sys.argv:
+            ext_idx = sys.argv.index("--extensions")
+            extensions = sys.argv[ext_idx + 1:]
+        result = discover_files(directory, extensions=extensions)
+        print(json.dumps(result, indent=2))
+
+    elif command == "build-order":
+        if len(sys.argv) < 3:
+            print("Usage: orchestrator.py build-order <directory>", file=sys.stderr)
+            sys.exit(1)
+        directory = sys.argv[2]
+        try:
+            result = build_order_from_dir(directory)
+            print(json.dumps(result, indent=2))
+        except ValueError as e:
+            print(json.dumps({"error": str(e)}), file=sys.stderr)
+            sys.exit(1)
+
+    elif command == "deps":
+        if len(sys.argv) < 3:
+            print("Usage: orchestrator.py deps <spec-path> [--root <project-root>]", file=sys.stderr)
+            sys.exit(1)
+        spec_path = sys.argv[2]
+        project_root = "."
+        if "--root" in sys.argv:
+            root_idx = sys.argv.index("--root")
+            project_root = sys.argv[root_idx + 1]
+        try:
+            result = resolve_deps(spec_path, project_root)
+            print(json.dumps(result, indent=2))
+        except ValueError as e:
+            print(json.dumps({"error": str(e)}), file=sys.stderr)
+            sys.exit(1)
+
+    else:
+        print(f"Unknown command: {command}", file=sys.stderr)
+        sys.exit(1)
+
+
+if __name__ == "__main__":
+    main()

@@ -2,7 +2,7 @@ import sys
 import os
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'unslop', 'scripts'))
 
-from orchestrator import parse_frontmatter, topo_sort, discover_files
+from orchestrator import parse_frontmatter, topo_sort, discover_files, build_order_from_dir, resolve_deps
 
 def test_parse_depends_on():
     content = """---
@@ -117,3 +117,40 @@ def test_discover_excludes_target_dir(tmp_path):
     filenames = [os.path.basename(f) for f in result]
     assert "lib.rs" in filenames
     assert "debug.rs" not in filenames
+
+
+def test_build_order_from_specs(tmp_path):
+    (tmp_path / "a.py.spec.md").write_text(
+        "---\ndepends-on:\n  - b.py.spec.md\n---\n\n# a spec"
+    )
+    (tmp_path / "b.py.spec.md").write_text("# b spec\n\nNo deps.")
+    result = build_order_from_dir(str(tmp_path))
+    assert result == ["b.py.spec.md", "a.py.spec.md"]
+
+
+def test_build_order_cycle_error(tmp_path):
+    (tmp_path / "a.py.spec.md").write_text("---\ndepends-on:\n  - b.py.spec.md\n---\n")
+    (tmp_path / "b.py.spec.md").write_text("---\ndepends-on:\n  - a.py.spec.md\n---\n")
+    try:
+        build_order_from_dir(str(tmp_path))
+        assert False, "Should have raised"
+    except ValueError as e:
+        assert "cycle" in str(e).lower()
+
+
+def test_resolve_deps_transitive(tmp_path):
+    (tmp_path / "a.py.spec.md").write_text("---\ndepends-on:\n  - b.py.spec.md\n---\n")
+    (tmp_path / "b.py.spec.md").write_text("---\ndepends-on:\n  - c.py.spec.md\n---\n")
+    (tmp_path / "c.py.spec.md").write_text("# c spec")
+    result = resolve_deps(str(tmp_path / "a.py.spec.md"), str(tmp_path))
+    assert result == ["c.py.spec.md", "b.py.spec.md"]
+
+
+def test_resolve_deps_cycle_error(tmp_path):
+    (tmp_path / "a.py.spec.md").write_text("---\ndepends-on:\n  - b.py.spec.md\n---\n")
+    (tmp_path / "b.py.spec.md").write_text("---\ndepends-on:\n  - a.py.spec.md\n---\n")
+    try:
+        resolve_deps(str(tmp_path / "a.py.spec.md"), str(tmp_path))
+        assert False, "Should have raised"
+    except ValueError as e:
+        assert "cycle" in str(e).lower()
