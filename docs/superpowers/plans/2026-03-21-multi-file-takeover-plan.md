@@ -303,11 +303,17 @@ def test_discover_py_files(tmp_path):
     (tmp_path / "module" / "__pycache__" / "handler.cpython-311.pyc").write_text("")
 
     result = discover_files(str(tmp_path / "module"), extensions=[".py"])
-    filenames = [os.path.basename(f) for f in result]
-    assert "handler.py" in filenames
-    assert "utils.py" in filenames
-    assert "test_handler.py" not in filenames
-    assert "handler.cpython-311.pyc" not in filenames
+    assert "handler.py" in result
+    assert "utils.py" in result
+    assert "test_handler.py" not in result
+    # __pycache__ contents excluded
+    assert not any("cpython" in f for f in result)
+
+def test_discover_returns_relative_paths(tmp_path):
+    (tmp_path / "module" / "sub").mkdir(parents=True)
+    (tmp_path / "module" / "sub" / "app.py").write_text("# app")
+    result = discover_files(str(tmp_path / "module"), extensions=[".py"])
+    assert result == ["sub/app.py"]
 
 def test_discover_excludes_test_dirs(tmp_path):
     (tmp_path / "src").mkdir()
@@ -361,7 +367,7 @@ TEST_FILE_PATTERNS = [
     re.compile(r"\.spec\.(ts|js)$"),
 ]
 
-TEST_DIR_NAMES = {"__tests__", "tests", "test", "spec"}
+TEST_DIR_NAMES = {"__tests__", "tests", "spec"}
 
 
 def discover_files(
@@ -399,12 +405,12 @@ def discover_files(
         if any(pat.search(path.name) for pat in TEST_FILE_PATTERNS):
             continue
 
-        results.append(str(path.relative_to(root.parent) if root.parent != root else rel))
+        results.append(str(rel))
 
     return results
 ```
 
-Note: the return paths should be relative to the project root, not the scanned directory. The implementer should adjust based on how the function is called — the key contract is: output paths that the model can use directly in subsequent commands.
+Paths are returned relative to the scanned directory.
 
 - [ ] **Step 4: Run tests to verify they pass**
 
@@ -468,6 +474,20 @@ def test_resolve_deps_transitive(tmp_path):
     from orchestrator import resolve_deps
     result = resolve_deps(str(tmp_path / "a.py.spec.md"), str(tmp_path))
     assert result == ["c.py.spec.md", "b.py.spec.md"]
+
+def test_resolve_deps_cycle_error(tmp_path):
+    (tmp_path / "a.py.spec.md").write_text(
+        "---\ndepends-on:\n  - b.py.spec.md\n---\n"
+    )
+    (tmp_path / "b.py.spec.md").write_text(
+        "---\ndepends-on:\n  - a.py.spec.md\n---\n"
+    )
+    from orchestrator import resolve_deps
+    try:
+        resolve_deps(str(tmp_path / "a.py.spec.md"), str(tmp_path))
+        assert False, "Should have raised"
+    except ValueError as e:
+        assert "cycle" in str(e).lower()
 ```
 
 - [ ] **Step 2: Run tests to verify they fail**
@@ -483,7 +503,7 @@ Add to `unslop/scripts/orchestrator.py`:
 def build_order_from_dir(directory: str) -> list[str]:
     """Read all *.spec.md files in directory, parse deps, return topo-sorted list."""
     root = Path(directory).resolve()
-    specs = sorted(root.glob("*.spec.md"))
+    specs = sorted(root.rglob("*.spec.md"))
 
     graph = {}
     for spec_path in specs:
@@ -518,17 +538,22 @@ def resolve_deps(spec_path: str, project_root: str) -> list[str]:
         content = s.read_text()
         all_specs[rel] = parse_frontmatter(content)
 
-    # Find transitive deps of target
+    # Find transitive deps of target using DFS with cycle detection
     target_rel = str(target.relative_to(root))
     visited = set()
+    in_stack = set()  # tracks current DFS path for cycle detection
     order = []
 
     def visit(name):
+        if name in in_stack:
+            raise ValueError(f"Cycle detected involving: {name}")
         if name in visited:
             return
         visited.add(name)
+        in_stack.add(name)
         for dep in all_specs.get(name, []):
             visit(dep)
+        in_stack.remove(name)
         order.append(name)
 
     visit(target_rel)
