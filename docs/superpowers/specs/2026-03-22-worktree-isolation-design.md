@@ -150,7 +150,9 @@ Stage A: Enrich spec based on failure report -> user approves
 Stage B: New fresh Agent, new worktree -> generate -> tests pass -> merge
 ```
 
-Each Stage B is a fresh Agent dispatch. No context accumulates across iterations. The Builder never knows why the spec changed between iterations — it just implements the latest spec.
+Each Stage B is a fresh Agent dispatch. No context accumulates across iterations. The Builder never knows why the spec changed between iterations -- it just implements the latest spec.
+
+**Builder failure reports** must include structured information the Architect can act on without seeing code: failing test names, assertion messages, and a natural-language summary of what was attempted. The Architect uses this to identify which spec constraint is missing or incorrect.
 
 Maximum 3 iterations (same as current convergence limit).
 
@@ -166,17 +168,48 @@ Maximum 3 iterations (same as current convergence limit).
 
 ### Orphaned worktree cleanup
 
-On each generation command, check `git worktree list` for orphaned unslop worktrees. Offer to clean them up automatically.
+On each generation command, check `git worktree list` for orphaned unslop worktrees. Worktrees created by unslop use the branch naming convention `unslop/builder/<timestamp>` to distinguish them from user-created worktrees. Only worktrees matching this pattern are flagged for cleanup.
 
 ## Impact on `/unslop:change --tactical`
 
-The `[tactical]` designation no longer means "code first, spec later." With two-stage isolation, the Architect always updates the spec first. `--tactical` means "do it now" rather than "defer to next generate." The "heal step" is eliminated — the spec is updated before code generation, not after.
+**Breaking behavioral change:** The `[tactical]` designation no longer means "code first, spec later." With two-stage isolation, the Architect always updates the spec first. `--tactical` means "do it now" rather than "defer to next generate." The "heal step" is eliminated -- the spec is updated before code generation, not after.
+
+**Why this is acceptable:** The original code-first flow existed because updating the spec felt like unnecessary ceremony for a one-line fix. With worktree isolation, the Architect stage is lightweight (it only sees the spec + file tree, not the full codebase), so the overhead of spec-first is minimal. The benefit -- every change goes through the spec, ensuring the spec remains the source of truth -- outweighs the lost convenience.
 
 This simplifies the change request lifecycle:
 - `[pending]`: spec update deferred to next generate
 - `[tactical]`: spec update happens immediately, then Builder executes
 
 Both paths go through the same two-stage flow. The only difference is timing.
+
+## Generation Modes Under Worktree Isolation
+
+**Mode A (Full Regeneration)** is the default for all worktree-isolated generation. The Builder starts with a clean context and generates from the spec. This is the natural fit for the two-stage model.
+
+**Mode B (Incremental Generation)** is still supported when `--incremental` is passed to `generate` or `sync`. In a worktree, Mode B means the Builder reads the existing managed file in the worktree and produces targeted edits. The worktree contains the current codebase state, so the Builder has access to the existing code -- but crucially, it still has no access to the change request intent or conversation history.
+
+The `--incremental` flag is passed through to the Builder Agent's prompt:
+- Without `--incremental`: "Generate the managed file from the spec. Do not read the existing file."
+- With `--incremental`: "Update the managed file to match the updated spec. Read the existing file and make targeted edits only."
+
+## Phase 0c Decomposition
+
+Under two-stage isolation, Phase 0c (Change Request Consumption) is **split across stages**:
+
+- **Stage A (Architect)**: Reads `*.change.md` sidecars. For each entry, proposes a spec update. User approves. This is where the change intent is consumed -- the Architect absorbs it into the spec.
+- **Stage B (Builder)**: Skips Phase 0c entirely. By the time the Builder runs, all change requests have been absorbed into the spec. The Builder's generation skill omits Phase 0c when running in worktree isolation.
+
+For `/unslop:generate` processing pending changes: the controlling session runs Stage A for each file with pending changes (updating specs), then dispatches Stage B Builders for each file that needs regeneration.
+
+## Builder Test-Writing Policy
+
+The Builder's test-writing permissions depend on the originating command:
+
+- **Takeover**: Builder may write or extend tests. The spec was just drafted from existing code and may need test coverage for newly explicit constraints.
+- **Generate/Sync**: Builder uses existing tests for validation. Does not create or modify test files. This preserves the existing policy.
+- **Change (tactical)**: Builder may extend tests if the spec update introduced new constraints that lack test coverage.
+
+The Builder Agent's prompt is adjusted based on the originating command to reflect the correct policy.
 
 ## Unit Specs and Multi-File Generation
 
