@@ -78,6 +78,11 @@ After the Builder Agent completes:
 2. If DONE with green tests: Claude Code handles worktree merge automatically
 3. Compute `output-hash` on merged code, update `@unslop-managed` header
 4. Commit the staged spec update + merged code as a single atomic commit
+5. If DONE_WITH_CONCERNS: merge and commit (tests passed), then surface concerns as a one-liner:
+
+> "Generation complete. Tests green. N concern(s) flagged -- run `/unslop:harden` or ask to review."
+
+Do NOT auto-expand the concerns list. The user chooses when to engage.
 
 If BLOCKED or tests fail: discard the worktree AND revert the staged spec update (`git checkout HEAD -- <spec_path>`). Main branch is untouched.
 
