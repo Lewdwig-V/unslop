@@ -373,7 +373,7 @@ Note: The import in tests uses `validate_spec` (underscore) as the module name, 
 - [ ] **Step 4: Run tests to verify they pass**
 
 Run: `python -m pytest tests/test_validate_spec.py -v`
-Expected: all 13 tests PASS
+Expected: all 12 tests PASS
 
 - [ ] **Step 5: Test CLI**
 
