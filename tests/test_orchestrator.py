@@ -674,3 +674,82 @@ def test_check_freshness_mixed_changes(tmp_path):
     assert pc["count"] == 2
     assert pc["pending"] == 1
     assert pc["tactical"] == 1
+
+
+def test_check_freshness_orphan_change_file(tmp_path, capsys):
+    """Change file with no matching managed file should appear as error."""
+    (tmp_path / "ghost.py.change.md").write_text(
+        "<!-- unslop-changes v1 -->\n"
+        "### [pending] Add feature — 2026-03-22T15:00:00Z\n\nBody.\n\n---\n"
+    )
+    result = check_freshness(str(tmp_path))
+    assert result["status"] == "fail"
+    orphan = [f for f in result["files"] if f["managed"] == "ghost.py"]
+    assert len(orphan) == 1
+    assert orphan[0]["state"] == "error"
+    assert orphan[0]["spec"] is None
+    assert orphan[0]["pending_changes"]["count"] == 1
+    captured = capsys.readouterr()
+    assert "Orphan change file" in captured.err
+
+
+def test_check_freshness_unreadable_change_file(tmp_path, capsys):
+    """Unreadable change file should warn on stderr and not crash."""
+    spec = "# spec\n\n## Behavior\nDoes stuff.\nMore detail.\n"
+    body = "def thing(): pass\n"
+    sh = compute_hash(spec)
+    oh = compute_hash(body)
+    (tmp_path / "thing.py.spec.md").write_text(spec)
+    (tmp_path / "thing.py").write_text(
+        f"# @unslop-managed — do not edit directly. Edit thing.py.spec.md instead.\n"
+        f"# spec-hash:{sh} output-hash:{oh} generated:2026-03-22T14:32:00Z\n" + body
+    )
+    (tmp_path / "thing.py.change.md").write_bytes(b"\x80\x81\x82\xff\xfe")
+    result = check_freshness(str(tmp_path))
+    # Should not crash; the managed file itself is fresh
+    assert any(f["state"] == "fresh" for f in result["files"])
+    captured = capsys.readouterr()
+    assert "Cannot read change file" in captured.err
+
+
+def test_parse_change_file_en_dash_timestamp():
+    """En-dash and double-hyphen separators should parse correctly."""
+    content_en = "<!-- unslop-changes v1 -->\n### [pending] Fix bug \u2013 2026-03-22T15:00:00Z\n\nBody.\n\n---\n"
+    result_en = parse_change_file(content_en)
+    assert len(result_en) == 1
+    assert result_en[0]["timestamp"] == "2026-03-22T15:00:00Z"
+
+    content_dh = "<!-- unslop-changes v1 -->\n### [pending] Fix bug -- 2026-03-22T15:00:00Z\n\nBody.\n\n---\n"
+    result_dh = parse_change_file(content_dh)
+    assert len(result_dh) == 1
+    assert result_dh[0]["timestamp"] == "2026-03-22T15:00:00Z"
+
+
+def test_check_freshness_hint_combined(tmp_path):
+    """Existing hint on a non-fresh file should be combined, not overwritten."""
+    old_spec = "# old\n\n## Behavior\nOld.\nMore.\n"
+    body = "def thing(): pass\n"
+    sh = compute_hash(old_spec)
+    oh = compute_hash(body)
+    (tmp_path / "thing.py.spec.md").write_text("# new\n\n## Behavior\nNew.\nDifferent.\n")
+    (tmp_path / "thing.py").write_text(
+        f"# @unslop-managed — do not edit directly. Edit thing.py.spec.md instead.\n"
+        f"# spec-hash:{sh} output-hash:{oh} generated:2026-03-22T14:32:00Z\n" + body
+    )
+    (tmp_path / "thing.py.change.md").write_text(
+        "<!-- unslop-changes v1 -->\n"
+        "### [pending] Add feature — 2026-03-22T15:00:00Z\n\nBody.\n\n---\n"
+    )
+    result = check_freshness(str(tmp_path))
+    file_entry = [f for f in result["files"] if f["managed"] == "thing.py"][0]
+    # The stale file has no hint by default, so only change hint should appear
+    assert "change request(s) awaiting processing" in file_entry["hint"]
+
+
+def test_parse_change_file_unparseable_content_warns(capsys):
+    """File with marker but no valid entries and non-whitespace content should warn."""
+    content = "<!-- unslop-changes v1 -->\nSome random text here.\nMore text.\n"
+    result = parse_change_file(content)
+    assert result == []
+    captured = capsys.readouterr()
+    assert "no parseable entries" in captured.err

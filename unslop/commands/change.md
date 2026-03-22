@@ -67,6 +67,8 @@ If no description was provided, ask the user:
 
 Wait for the user's response and use it as the description.
 
+If the description is a single short sentence, ask: "Would you like to add more detail to this change request?" If yes, append the user's elaboration. If no, proceed.
+
 **4. Write the entry**
 
 Determine the status tag:
