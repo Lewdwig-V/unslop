@@ -67,6 +67,46 @@ After structural validation passes, review the spec for semantic ambiguity.
 
 ---
 
+### Phase 0c: Change Request Consumption
+
+After validation passes, check for a `*.change.md` sidecar file for the target managed file (same directory, same base name with `.change.md` extension).
+
+If no change file exists, skip to Section 1.
+
+If change entries exist:
+
+**1. Conflict detection (model-driven):** Before processing, review each entry's intent against the current spec. If any entry contradicts the spec (e.g., spec says "backoff base is 2", entry says "change to 1.5"), surface the conflict to the user:
+
+> "Change request conflicts with current spec: [quote entry] vs [quote spec]. Resolve by editing the spec or the change entry before proceeding."
+
+Stop generation until the conflict is resolved.
+
+**2. Classify and order entries:**
+- Process `[pending]` entries first (they update the spec)
+- Then `[tactical]` entries (they patch code and propose spec updates)
+
+**3. For each `[pending]` entry:**
+- Propose a spec update that captures the entry's intent
+- Present to the user: "This change request suggests updating the spec as follows: [diff]. Approve?"
+- On approval: apply the spec update, then generate code from the updated spec
+- On rejection: skip this entry, leave it in change.md
+
+**4. For each `[tactical]` entry:**
+- Patch the managed file via incremental mode (Mode B) based on the entry's intent
+- Run tests
+- If green: propose a spec update reflecting the code change
+- Present to user: "I've patched the code and updated the spec to match. Review?"
+- On approval: entry is promoted
+- On rejection: revert code change, entry stays
+
+**5. After processing:**
+- Delete each successfully promoted entry from the change.md file
+- If the file is now empty (no remaining entries), delete it entirely
+- Compute final output-hash from the managed file body
+- Each promoted entry is committed individually (sequential, not atomic)
+
+---
+
 ## 1. Generation Mode Selection
 
 Generation operates in one of two modes. **The controlling agent or command selects the mode.** If no mode is specified, default to **full regeneration**.
