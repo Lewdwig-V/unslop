@@ -113,6 +113,34 @@ Stop generation until the conflict is resolved.
 
 ---
 
+### Phase 0d: Domain Skill Loading
+
+After change request consumption, check for framework-specific domain skills to load as additional generation context.
+
+**1. Check for explicit framework list:**
+Read `.unslop/config.json`. If it has a `frameworks` field (e.g., `["fastapi", "sqlalchemy"]`), use that list.
+
+**2. If no explicit list, auto-detect:**
+Read the spec file and any test files for the target module. Identify framework imports:
+- `from fastapi import` or `import fastapi` -- load `unslop/domain/fastapi`
+- `from sqlalchemy import` or `import sqlalchemy` -- load `unslop/domain/sqlalchemy`
+- `import React` or `from 'react'` -- load `unslop/domain/react`
+- Other frameworks: check if a matching `unslop/domain/<name>/SKILL.md` exists
+
+**3. Load matching skills:**
+For each detected framework, read the corresponding `unslop/domain/<framework>/SKILL.md` as additional generation context. These skills provide framework-specific conventions, patterns, and constraints.
+
+**4. Context priority:**
+Domain skills are additive -- they augment the generation skill, not replace it. Priority order:
+- Project Principles (highest -- non-negotiable)
+- Domain Skills (framework conventions)
+- File Spec (file-specific requirements)
+- Generation Skill defaults (lowest)
+
+If no domain skills match, this phase is a no-op. Proceed to Section 1.
+
+---
+
 ## 1. Generation Mode Selection
 
 Generation operates in one of two modes. **The controlling agent or command selects the mode.** If no mode is specified, default to **full regeneration**.
