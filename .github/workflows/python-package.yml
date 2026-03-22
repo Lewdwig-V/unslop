@@ -24,10 +24,10 @@ jobs:
       run: uv python install ${{ matrix.python-version }}
 
     - name: Lint with ruff
-      run: uvx ruff check unslop/scripts/ tests/
+      run: uv run --python ${{ matrix.python-version }} ruff check unslop/scripts/ tests/
 
     - name: Run tests
-      run: uvx --python ${{ matrix.python-version }} pytest tests/ -v
+      run: uv run --python ${{ matrix.python-version }} pytest tests/ -v
 
     - name: Check spec freshness
-      run: uv run --python ${{ matrix.python-version }} unslop/scripts/orchestrator.py check-freshness .
+      run: uv run --python ${{ matrix.python-version }} python unslop/scripts/orchestrator.py check-freshness .
