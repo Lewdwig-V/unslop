@@ -44,7 +44,33 @@ If multiple indicators are found, or none are found, ask the user which test com
 
 **Migration:** If `.unslop/config.md` exists, read its test command value, migrate to `config.json`, then delete `config.md`. Include the deletion in the commit.
 
-**5. Create `.unslop/alignment-summary.md`**
+**5. Create `.unslop/principles.md` (optional)**
+
+Ask the user: 'Would you like to define project principles? These are non-negotiable constraints that apply to all generated code (e.g., error handling style, architecture patterns).'
+
+If yes, create `.unslop/principles.md` with a starter template:
+
+```markdown
+# Project Principles
+
+<!-- Define non-negotiable constraints for all generated code. -->
+<!-- These are enforced during every generation cycle. -->
+
+## Architecture
+- [Add architectural constraints here]
+
+## Error Handling
+- [Add error handling rules here]
+
+## Style
+- [Add style requirements here]
+```
+
+Present the template to the user for editing.
+
+If no, skip. Principles are optional.
+
+**6. Create `.unslop/alignment-summary.md`**
 
 ```markdown
 # unslop alignment summary
@@ -55,6 +81,6 @@ If multiple indicators are found, or none are found, ask the user which test com
 No managed files yet. Use /unslop:takeover or /unslop:spec to get started.
 ```
 
-**6. Commit**
+**7. Commit**
 
 Stage the entire `.unslop/` directory and create a commit with the message: `chore: initialize unslop`
