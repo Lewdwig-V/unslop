@@ -434,6 +434,62 @@ def check_freshness(directory: str) -> dict:
     return {"status": "pass" if all_fresh else "fail", "files": files, "summary": summary}
 
 
+def parse_change_file(content: str) -> list[dict]:
+    """Parse stacked change entries from a *.change.md file.
+
+    Returns list of dicts with: status, description, timestamp, body.
+    Requires <!-- unslop-changes v1 --> format marker on first line.
+    Malformed entries are skipped with a stderr warning.
+    """
+    lines = content.split("\n")
+    if not lines or "unslop-changes" not in lines[0]:
+        return []
+
+    entries = []
+    current_entry = None
+
+    for line in lines[1:]:
+        heading_match = re.match(
+            r'^### \[(\w+)\]\s+(.+?)(?:\s+—\s+(\S+))?\s*$', line
+        )
+        if heading_match:
+            if current_entry is not None:
+                current_entry["body"] = current_entry["body"].strip()
+                entries.append(current_entry)
+            status = heading_match.group(1)
+            if status not in ("pending", "tactical"):
+                print(
+                    f'{{"warning": "Malformed change entry: unknown status [{status}]"}}',
+                    file=sys.stderr
+                )
+                current_entry = None
+                continue
+            current_entry = {
+                "status": status,
+                "description": heading_match.group(2).strip(),
+                "timestamp": heading_match.group(3),
+                "body": "",
+            }
+        elif line.strip() == "---":
+            if current_entry is not None:
+                current_entry["body"] = current_entry["body"].strip()
+                entries.append(current_entry)
+                current_entry = None
+        elif current_entry is not None:
+            current_entry["body"] += line + "\n"
+        elif line.strip().startswith("### ") and current_entry is None:
+            print(
+                f'{{"warning": "Malformed change entry heading: {line.strip()!r}"}}',
+                file=sys.stderr
+            )
+
+    if current_entry is not None:
+        current_entry["body"] = current_entry["body"].strip()
+        entries.append(current_entry)
+
+    return entries
+
+
 def main():
     """CLI entry point."""
     if len(sys.argv) < 2:
