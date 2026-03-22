@@ -97,22 +97,30 @@ The `[description or elaborated body]` should be the description text as provide
 
 **5. Execute or defer**
 
-**If `--tactical` was passed**, execute the tactical flow immediately.
+**If `--tactical` was passed**, execute the two-stage tactical flow immediately:
 
-**Important:** Do NOT invoke the generation skill for this step. The generation skill's Phase 0c would re-consume the entry you just wrote, causing double processing. Instead, directly apply the change:
+**Stage A (Architect -- current session):**
+1. Read the current spec, `.unslop/principles.md` (if it exists), and the file tree (`python ${CLAUDE_PLUGIN_ROOT}/scripts/orchestrator.py file-tree .`). Do NOT read the managed source file.
+2. Based on the change intent, propose a spec update that captures the change in the spec's constraints/behavior language. Do not describe implementation -- describe intent.
+3. Present the draft spec update to the user for approval.
+4. If approved: apply the spec update to the spec file, stage it (`git add <spec_path>`). Do NOT commit.
+5. If rejected: stop. The entry remains in `<file>.change.md` for manual resolution.
 
-1. Save a copy of the current managed file content (for revert on failure).
-2. Read the current spec file and the current managed file. Read `.unslop/principles.md` if it exists. Apply principles as constraints alongside the spec when patching the managed file. The tactical change must not violate any project principle.
-3. Patch the managed file directly based on the change intent, using incremental mode discipline (targeted edits only, no restructuring). Follow the unslop/generation skill's header format and idiomatic output guidance, but do not trigger Phase 0a/0b/0c.
-4. Read the test command from `.unslop/config.json` (or `.unslop/config.md` as legacy fallback). Run the test suite.
-5. If tests pass:
-   a. Draft a spec update that captures the change -- describe what was changed in the spec's intent/constraints language, not in implementation terms.
-   b. Present the draft spec update to the user for approval.
-   c. If the user approves: delete the entry from `<file>.change.md` (if the file is now empty after deletion -- containing only the format marker or nothing -- delete the sidecar file entirely). Update the `spec-hash`, `output-hash`, and `principles-hash` (if `.unslop/principles.md` exists) in the `@unslop-managed` header to reflect the new state. Commit the managed file, spec update, and sidecar deletion/update.
-   d. If the user rejects the spec update: revert the managed file to the saved copy, inform the user:
-   > "Code change reverted. The entry remains in `<file>.change.md` for manual resolution."
-6. If tests fail: revert the managed file to the saved copy. Report the failures and stop. Tell the user:
-   > "Tests failed after applying the tactical change. Code reverted. The entry remains in `<file>.change.md`."
+**Stage B (Builder -- worktree isolation):**
+6. Dispatch a Builder Agent using the generation skill's two-stage execution model. Use test_policy: `"Extend tests if the spec update introduced new constraints that lack coverage. Do not modify existing assertions"`.
+7. The Builder implements from the updated spec in an isolated worktree, runs tests.
+
+**Verification (back in controlling session):**
+8. If Builder succeeds (DONE, green tests):
+   a. Worktree merges automatically.
+   b. Compute `output-hash` on the merged code, update `@unslop-managed` header (including `spec-hash`, `output-hash`, `principles-hash`).
+   c. Delete the tactical entry from `<file>.change.md` (if file is now empty, delete the sidecar entirely).
+   d. Commit the spec update + generated code + sidecar change as a single atomic commit.
+9. If Builder fails (BLOCKED or tests fail):
+   a. Discard the worktree.
+   b. Revert the staged spec update: `git checkout -- <spec_path>`.
+   c. Report the Builder's failure report (failing tests, what was attempted, suspected spec gaps).
+   d. The entry remains in `<file>.change.md`.
 
 **If `[pending]` (default, no `--tactical` flag)**, inform the user:
 
