@@ -1,6 +1,6 @@
 ---
 description: Regenerate one specific managed file from its spec
-argument-hint: <file-path>
+argument-hint: <file-path> [--force-ambiguous] [--incremental]
 ---
 
 The argument `$ARGUMENTS` is the path to the managed file (e.g., `src/retry.py`).
@@ -18,6 +18,8 @@ First, check if the managed file has an `@unslop-managed` header — if so, read
 Check that the spec file exists. If it does not exist, stop and tell the user:
 
 > "No spec found at `<spec-path>`. Run `/unslop:spec <file-path>` to create one first."
+
+**Check for `--force-ambiguous` flag:** If `$ARGUMENTS` contains `--force-ambiguous`, note this for the generation skill. When present, ambiguity detection reports warnings instead of blocking.
 
 **2b. Check dependencies**
 

@@ -1,6 +1,6 @@
 ---
 description: Run the takeover pipeline on an existing file, directory, or glob
-argument-hint: <file-path|directory|glob>
+argument-hint: <file-path|directory|glob> [--force-ambiguous]
 ---
 
 The argument `$ARGUMENTS` is the path to the target source file, a directory, or a glob pattern.
@@ -24,6 +24,8 @@ Check that `.unslop/` exists in the current working directory. If it does not ex
 Check that the file at `$ARGUMENTS` exists. If it does not exist, stop and tell the user:
 
 > "File not found. If you want to create a new managed file from scratch, use `/unslop:spec` instead."
+
+**Check for `--force-ambiguous` flag:** If `$ARGUMENTS` contains `--force-ambiguous`, note this for the generation skill. When present, ambiguity detection reports warnings instead of blocking.
 
 ---
 
