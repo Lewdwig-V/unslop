@@ -118,6 +118,21 @@ For `generate` and `sync`, there is no Architect stage for spec authoring -- the
 - Every generation starts with a clean context
 - File system isolation is the default
 
+### Orphaned Worktree Cleanup
+
+On each generation command invocation, before dispatching any Builder, check for orphaned unslop worktrees:
+
+1. Run `git worktree list --porcelain`
+2. Look for worktrees on branches matching `unslop/builder/*`
+3. If any are found, report them to the user:
+
+> "Found N orphaned unslop worktree(s) from previous runs. Clean up? (y/n)"
+
+4. If the user confirms: run `git worktree remove <path>` for each, then `git branch -D <branch>` for each
+5. If the user declines: proceed without cleanup
+
+Only worktrees matching the `unslop/builder/*` pattern are flagged. User-created worktrees are never touched.
+
 ---
 
 ## 0. Pre-Generation Validation
