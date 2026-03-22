@@ -223,3 +223,43 @@ When a spec has a `## Files` section listing multiple output files, you are gene
 - Generate files in the order listed in the `## Files` section — earlier files may define types/interfaces that later files use
 - Each file must be complete and independently parseable — no stubs or forward references that require manual assembly
 - The spec describes the whole unit's behavior; distribute implementation across files according to the responsibilities listed in `## Files`
+
+---
+
+## 7. Post-Generation Completeness Review
+
+After successful generation and green tests, review the spec for completeness. This is advisory — it never blocks.
+
+### Timing
+
+- **For generate/sync:** Run once after the single generation pass produces green tests.
+- **For takeover:** Run once after the convergence loop completes successfully (final green tests), before the commit. Do NOT run on each convergence iteration.
+
+### Post-takeover mode (spec was machine-drafted)
+
+Ask:
+- Are there behavioral aspects of the generated code not constrained by the spec? A future regeneration might produce different behavior in those areas.
+- Are there constraints added during convergence that could be stated more precisely?
+- Does the spec leave behavioral choices open that should be pinned down for reproducibility?
+
+Frame suggestions as: "Consider adding: [constraint]" with a brief rationale.
+
+### Post-generate/sync mode (spec was user-written)
+
+Ask:
+- Are there internal contradictions? (e.g., "max 5 retries" in one place, "retries indefinitely" in another)
+- Do constraints conflict with `depends-on` specs?
+- Does the spec reference behavior or concepts not defined anywhere in the spec?
+
+Only flag clear contradictions or inconsistencies. Do NOT suggest additions or tightening — the user wrote this spec deliberately.
+
+### Result handling
+
+- **No issues found:** Report "Spec review: no issues."
+- **Issues found:** Surface as suggestions:
+
+> "Post-generation spec review found N suggestions:
+> 1. Consider adding: [constraint] — [rationale]
+> 2. Possible inconsistency: [quoted phrase A] vs [quoted phrase B]"
+
+**Never block on completeness review.** The generation succeeded, tests are green. These are improvement suggestions.
