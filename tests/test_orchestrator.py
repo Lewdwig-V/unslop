@@ -5,7 +5,7 @@ import sys
 import os
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'unslop', 'scripts'))
 
-from orchestrator import compute_hash, parse_header, parse_frontmatter, topo_sort, discover_files, build_order_from_dir, resolve_deps
+from orchestrator import compute_hash, parse_header, parse_frontmatter, topo_sort, discover_files, build_order_from_dir, resolve_deps, classify_file, check_freshness
 
 
 def test_compute_hash_deterministic():
@@ -274,6 +274,125 @@ def test_missing_dependency_warning(tmp_path, capsys):
     captured = capsys.readouterr()
     assert "Missing dependency specs" in captured.err
     assert "nonexistent.py.spec.md" in captured.err
+
+
+# --- classify_file tests ---
+
+def test_classify_fresh(tmp_path):
+    spec_content = "# retry spec\n\n## Behavior\nRetries stuff.\nWith backoff.\n"
+    body = "def retry(): pass\n"
+    sh = compute_hash(spec_content)
+    oh = compute_hash(body)
+    header = f"# @unslop-managed — do not edit directly. Edit retry.py.spec.md instead.\n# spec-hash:{sh} output-hash:{oh} generated:2026-03-22T14:32:00Z\n"
+    (tmp_path / "retry.py.spec.md").write_text(spec_content)
+    (tmp_path / "retry.py").write_text(header + body)
+    result = classify_file(str(tmp_path / "retry.py"), str(tmp_path / "retry.py.spec.md"))
+    assert result["state"] == "fresh"
+
+def test_classify_stale(tmp_path):
+    old_spec = "# old spec\n\n## Behavior\nOld behavior.\nMore detail.\n"
+    body = "def retry(): pass\n"
+    sh = compute_hash(old_spec)
+    oh = compute_hash(body)
+    header = f"# @unslop-managed — do not edit directly. Edit retry.py.spec.md instead.\n# spec-hash:{sh} output-hash:{oh} generated:2026-03-22T14:32:00Z\n"
+    (tmp_path / "retry.py.spec.md").write_text("# new spec\n\n## Behavior\nNew behavior.\nDifferent.\n")
+    (tmp_path / "retry.py").write_text(header + body)
+    result = classify_file(str(tmp_path / "retry.py"), str(tmp_path / "retry.py.spec.md"))
+    assert result["state"] == "stale"
+
+def test_classify_modified(tmp_path):
+    spec = "# spec\n\n## Behavior\nRetries stuff.\nWith backoff.\n"
+    original_body = "def retry(): pass\n"
+    sh = compute_hash(spec)
+    oh = compute_hash(original_body)
+    header = f"# @unslop-managed — do not edit directly. Edit retry.py.spec.md instead.\n# spec-hash:{sh} output-hash:{oh} generated:2026-03-22T14:32:00Z\n"
+    (tmp_path / "retry.py.spec.md").write_text(spec)
+    (tmp_path / "retry.py").write_text(header + "def retry(): return True  # hotfix\n")
+    result = classify_file(str(tmp_path / "retry.py"), str(tmp_path / "retry.py.spec.md"))
+    assert result["state"] == "modified"
+
+def test_classify_conflict(tmp_path):
+    old_spec = "# old\n\n## Behavior\nOld.\nMore.\n"
+    original_body = "def retry(): pass\n"
+    sh = compute_hash(old_spec)
+    oh = compute_hash(original_body)
+    header = f"# @unslop-managed — do not edit directly. Edit retry.py.spec.md instead.\n# spec-hash:{sh} output-hash:{oh} generated:2026-03-22T14:32:00Z\n"
+    (tmp_path / "retry.py.spec.md").write_text("# new\n\n## Behavior\nNew.\nDifferent.\n")
+    (tmp_path / "retry.py").write_text(header + "def retry(): return True\n")
+    result = classify_file(str(tmp_path / "retry.py"), str(tmp_path / "retry.py.spec.md"))
+    assert result["state"] == "conflict"
+
+def test_classify_no_header(tmp_path):
+    (tmp_path / "retry.py.spec.md").write_text("# spec\n\n## Behavior\nStuff.\nMore.\n")
+    (tmp_path / "retry.py").write_text("def retry(): pass\n")
+    result = classify_file(str(tmp_path / "retry.py"), str(tmp_path / "retry.py.spec.md"))
+    assert result["state"] == "unmanaged"
+
+def test_classify_old_header(tmp_path):
+    (tmp_path / "retry.py.spec.md").write_text("# spec\n\n## Behavior\nStuff.\nMore.\n")
+    (tmp_path / "retry.py").write_text(
+        "# @unslop-managed — do not edit directly. Edit retry.py.spec.md instead.\n"
+        "# Generated from spec at 2026-03-22T14:32:00Z\n"
+        "def retry(): pass\n"
+    )
+    result = classify_file(str(tmp_path / "retry.py"), str(tmp_path / "retry.py.spec.md"))
+    assert result["state"] == "old_format"
+
+def test_classify_spec_missing(tmp_path):
+    (tmp_path / "retry.py").write_text(
+        "# @unslop-managed — do not edit directly. Edit retry.py.spec.md instead.\n"
+        "# spec-hash:abc123def456 output-hash:789012345678 generated:2026-03-22T14:32:00Z\n"
+        "def retry(): pass\n"
+    )
+    result = classify_file(str(tmp_path / "retry.py"), str(tmp_path / "retry.py.spec.md"))
+    assert result["state"] == "error"
+
+
+# --- check_freshness tests ---
+
+def test_check_freshness_all_fresh(tmp_path):
+    spec = "# spec\n\n## Behavior\nDoes stuff.\nMore detail.\n"
+    body = "def thing(): pass\n"
+    sh = compute_hash(spec)
+    oh = compute_hash(body)
+    (tmp_path / "thing.py.spec.md").write_text(spec)
+    (tmp_path / "thing.py").write_text(
+        f"# @unslop-managed — do not edit directly. Edit thing.py.spec.md instead.\n"
+        f"# spec-hash:{sh} output-hash:{oh} generated:2026-03-22T14:32:00Z\n" + body
+    )
+    result = check_freshness(str(tmp_path))
+    assert result["status"] == "pass"
+
+def test_check_freshness_has_stale(tmp_path):
+    old_spec = "# old\n\n## Behavior\nOld.\nMore.\n"
+    body = "def thing(): pass\n"
+    sh = compute_hash(old_spec)
+    oh = compute_hash(body)
+    (tmp_path / "thing.py.spec.md").write_text("# new\n\n## Behavior\nNew.\nDifferent.\n")
+    (tmp_path / "thing.py").write_text(
+        f"# @unslop-managed — do not edit directly. Edit thing.py.spec.md instead.\n"
+        f"# spec-hash:{sh} output-hash:{oh} generated:2026-03-22T14:32:00Z\n" + body
+    )
+    result = check_freshness(str(tmp_path))
+    assert result["status"] == "fail"
+
+def test_cli_check_freshness(tmp_path):
+    spec = "# spec\n\n## Behavior\nDoes stuff.\nMore detail.\n"
+    body = "def thing(): pass\n"
+    sh = compute_hash(spec)
+    oh = compute_hash(body)
+    (tmp_path / "thing.py.spec.md").write_text(spec)
+    (tmp_path / "thing.py").write_text(
+        f"# @unslop-managed — do not edit directly. Edit thing.py.spec.md instead.\n"
+        f"# spec-hash:{sh} output-hash:{oh} generated:2026-03-22T14:32:00Z\n" + body
+    )
+    r = subprocess.run(
+        [sys.executable, "unslop/scripts/orchestrator.py", "check-freshness", str(tmp_path)],
+        capture_output=True, text=True
+    )
+    assert r.returncode == 0
+    output = json.loads(r.stdout)
+    assert output["status"] == "pass"
 
 
 # --- CLI integration tests ---

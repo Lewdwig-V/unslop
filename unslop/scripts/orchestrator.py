@@ -287,10 +287,134 @@ def discover_files(
     return results
 
 
+def get_body_below_header(content: str) -> str:
+    """Extract managed file content below the @unslop-managed header."""
+    lines = content.split("\n")
+    body_start = 0
+    for i, line in enumerate(lines):
+        if "@unslop-managed" in line or "spec-hash:" in line or "output-hash:" in line or "Generated from spec at" in line:
+            body_start = i + 1
+        else:
+            if body_start > 0:
+                break
+    return "\n".join(lines[body_start:])
+
+
+def classify_file(managed_path: str, spec_path: str) -> dict:
+    """Classify a managed file's staleness using content hashing.
+
+    4-state: fresh, stale, modified, conflict.
+    Plus edge cases: unmanaged, old_format, error.
+    """
+    managed = Path(managed_path)
+    spec = Path(spec_path)
+
+    managed_content = managed.read_text(encoding="utf-8")
+
+    if not spec.exists():
+        return {"managed": str(managed_path), "spec": str(spec_path), "state": "error",
+                "hint": "Spec file not found — the managed file references a spec that no longer exists."}
+
+    spec_content = spec.read_text(encoding="utf-8")
+    header = parse_header(managed_content, managed.suffix)
+
+    if header is None:
+        return {"managed": str(managed_path), "spec": str(spec_path), "state": "unmanaged"}
+
+    if header.get("old_format"):
+        return {"managed": str(managed_path), "spec": str(spec_path), "state": "old_format",
+                "warning": "Old header format (no hashes). Regenerate to update."}
+
+    current_spec_hash = compute_hash(spec_content)
+    body = get_body_below_header(managed_content)
+    current_output_hash = compute_hash(body)
+
+    spec_match = (current_spec_hash == header["spec_hash"])
+    output_match = (current_output_hash == header["output_hash"])
+
+    if spec_match and output_match:
+        return {"managed": str(managed_path), "spec": str(spec_path), "state": "fresh"}
+    elif spec_match and not output_match:
+        return {"managed": str(managed_path), "spec": str(spec_path), "state": "modified",
+                "hint": "Code was edited directly while spec is unchanged."}
+    elif not spec_match and output_match:
+        return {"managed": str(managed_path), "spec": str(spec_path), "state": "stale"}
+    else:
+        return {"managed": str(managed_path), "spec": str(spec_path), "state": "conflict",
+                "hint": "Spec and code have both diverged. Resolve manually or use --force to overwrite edits."}
+
+
+def check_freshness(directory: str) -> dict:
+    """Check freshness of all managed files in directory."""
+    from collections import Counter
+    root = Path(directory).resolve()
+    if not root.is_dir():
+        raise ValueError(f"Directory does not exist: {directory}")
+
+    specs = sorted(root.rglob("*.spec.md"))
+    files = []
+
+    for spec_path in specs:
+        rel_spec = str(spec_path.relative_to(root))
+
+        # Handle unit specs
+        if spec_path.name.endswith(".unit.spec.md"):
+            content = spec_path.read_text(encoding="utf-8")
+            unit_files = []
+            in_files = False
+            for line in content.split("\n"):
+                if re.match(r"^## Files", line):
+                    in_files = True
+                    continue
+                if in_files:
+                    if re.match(r"^## ", line):
+                        break
+                    m = re.match(r"^\s*-\s+`([^`]+)`", line)
+                    if m:
+                        unit_files.append(m.group(1))
+
+            worst_state = "fresh"
+            priority = {"fresh": 0, "old_format": 1, "stale": 2, "modified": 3, "conflict": 4, "unmanaged": 5, "error": 6}
+            for uf in unit_files:
+                mp = spec_path.parent / uf
+                if mp.exists():
+                    r = classify_file(str(mp), str(spec_path))
+                    if priority.get(r["state"], 0) > priority.get(worst_state, 0):
+                        worst_state = r["state"]
+                else:
+                    worst_state = "stale"
+
+            entry = {"managed": str(spec_path.parent.relative_to(root)), "spec": rel_spec, "state": worst_state}
+            if worst_state == "conflict":
+                entry["hint"] = "Spec and code have both diverged. Resolve manually or use --force to overwrite edits."
+            elif worst_state == "modified":
+                entry["hint"] = "Code was edited directly while spec is unchanged."
+            files.append(entry)
+            continue
+
+        # Per-file spec
+        managed_name = re.sub(r"\.spec\.md$", "", spec_path.name)
+        managed_path = spec_path.parent / managed_name
+        if not managed_path.exists():
+            files.append({"managed": str(managed_path.relative_to(root)), "spec": rel_spec, "state": "stale"})
+            continue
+
+        result = classify_file(str(managed_path), str(spec_path))
+        result["managed"] = str(managed_path.relative_to(root))
+        result["spec"] = rel_spec
+        files.append(result)
+
+    all_fresh = all(f["state"] == "fresh" for f in files)
+    counts = Counter(f["state"] for f in files)
+    summary = ", ".join(f"{v} {k}" for k, v in sorted(counts.items()))
+
+    return {"status": "pass" if all_fresh else "fail", "files": files, "summary": summary}
+
+
 def main():
     """CLI entry point."""
     if len(sys.argv) < 2:
-        print("Usage: orchestrator.py <discover|build-order|deps> [args]", file=sys.stderr)
+        print("Usage: orchestrator.py <discover|build-order|deps|check-freshness> [args]", file=sys.stderr)
         sys.exit(1)
 
     command = sys.argv[1]
@@ -307,8 +431,17 @@ def main():
             if not extensions:
                 print("Usage: orchestrator.py discover <directory> [--extensions .py .rs]", file=sys.stderr)
                 sys.exit(1)
+        # Read exclude_patterns from config.json if present
+        extra_excludes = None
+        config_path = Path(directory) / ".unslop" / "config.json"
+        if config_path.exists():
+            try:
+                config = json.loads(config_path.read_text(encoding="utf-8"))
+                extra_excludes = config.get("exclude_patterns", [])
+            except (json.JSONDecodeError, OSError):
+                pass
         try:
-            result = discover_files(directory, extensions=extensions)
+            result = discover_files(directory, extensions=extensions, extra_excludes=extra_excludes)
             print(json.dumps(result, indent=2))
         except (OSError, ValueError) as e:
             print(json.dumps({"error": str(e)}), file=sys.stderr)
@@ -342,6 +475,16 @@ def main():
             result = resolve_deps(spec_path, project_root)
             print(json.dumps(result, indent=2))
         except (ValueError, OSError, UnicodeDecodeError, RecursionError) as e:
+            print(json.dumps({"error": str(e)}), file=sys.stderr)
+            sys.exit(1)
+
+    elif command == "check-freshness":
+        directory = sys.argv[2] if len(sys.argv) > 2 else "."
+        try:
+            result = check_freshness(directory)
+            print(json.dumps(result, indent=2))
+            sys.exit(0 if result["status"] == "pass" else 1)
+        except (ValueError, OSError, UnicodeDecodeError) as e:
             print(json.dumps({"error": str(e)}), file=sys.stderr)
             sys.exit(1)
 
