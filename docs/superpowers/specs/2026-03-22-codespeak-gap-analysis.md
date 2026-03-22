@@ -179,13 +179,25 @@ This preserves all three states from the current mtime scheme while eliminating 
 4. If the change affects observable behavior, the model also proposes a spec update
 5. Both files are committed together
 
-**Invariant preservation:** The change file is a log of intentional deviations. When `/unslop:sync` runs next, it reads any `.change.md` files and incorporates their intent before regenerating. Changes are not lost; they become permanent spec enrichments.
+**Invariant preservation:** The change file is a log of intentional deviations that must survive regeneration. This requires that **every regeneration entry point** — not just sync — consumes change-request state before writing output.
+
+**Why this matters:** `/unslop:generate` is the primary bulk regeneration path (README.md:74-78). A user lands a change request, then later regenerates because the spec changed or an upstream dependency was rebuilt. If generate rewrites the managed file from the spec alone without reading the sidecar, the approved fix vanishes silently. The "changes are not lost" invariant holds only if all paths that produce managed files read the same change-request state.
+
+**Change-request lifecycle:**
+
+1. **Creation:** `/unslop:change` writes the sidecar and applies the surgical edit.
+2. **Pending state:** The `.change.md` file exists alongside the managed file. `status` flags it.
+3. **Absorption:** On any regeneration (generate, sync, or dependency-triggered rebuild), the generation skill reads all `*.change.md` sidecars for the target file, folds their intent into the generation context alongside the spec, and produces output that incorporates both the spec and the change requests.
+4. **Promotion:** After successful regeneration, the generation skill proposes a spec update that captures the change request's intent permanently. If the user accepts, the `.change.md` file is deleted — the change is now part of the spec. If the user declines, the sidecar is retained and continues to be read on future regenerations.
+5. **Conflict:** If a spec edit contradicts a pending change request (e.g., spec says "backoff base is 2", change request says "change to 1.5"), the generation skill flags the conflict and asks the user to resolve before proceeding.
+
+**Implementation:** The change-request consumption logic lives in the `generation` skill itself — not in individual commands. Since generate, sync, and dependency rebuilds all invoke the generation skill to produce output, a single integration point covers all entry paths. Individual commands do not need separate change-request handling.
 
 **What's needed:**
 - New command: `commands/change.md`
-- Update `generation` skill with change-request awareness
-- Update `sync` command to read and incorporate `.change.md` files before regenerating
-- Update `status` to flag files with pending unapplied change requests
+- Update `generation` skill to read `*.change.md` sidecars for every managed file before generating — this is the single integration point that covers generate, sync, and dependency rebuilds
+- Update `status` to flag files with pending change requests and show whether they've been promoted to the spec
+- Add a `## Change Requests` context section to the generation skill instructions: "Before generating, check for `<managed-file>.change.md` sidecars. If present, read them and treat their described intent as additional constraints alongside the spec. After generation, propose a spec edit that captures each change request permanently."
 
 ---
 
