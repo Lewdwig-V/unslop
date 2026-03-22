@@ -268,7 +268,50 @@ Domain skills are additive -- they augment the generation skill, not replace it.
 - Domain Skills (framework conventions -- defaults that the spec can override)
 - Generation Skill defaults (lowest)
 
-If no domain skills match, this phase is a no-op. Proceed to Section 1.
+If no domain skills match, this phase is a no-op. Proceed to Phase 0e.
+
+---
+
+### Phase 0e: Cross-Spec Coherence Check
+
+After domain skill loading, check for contract consistency between the target spec and its dependencies. Only runs if the target spec has `depends-on` frontmatter. If the spec has no dependencies, skip to Section 1.
+
+**1. Read the dependency list:**
+Parse the target spec's frontmatter for `depends-on` entries. For each listed dependency, read the dependency spec file.
+
+**2. For each dependency spec, check the shared interface:**
+
+> Review the target spec and this dependency spec for cross-spec incoherence. Focus on the boundary where the dependency's outputs become the target's inputs.
+>
+> Check for:
+> - **Type compatibility:** Do the specs agree on the shape of data crossing the boundary?
+> - **Constraint compatibility:** Do numeric bounds, cardinality limits, or ordering guarantees agree?
+> - **Error contract compatibility:** Do the specs agree on what constitutes an error and how it's signaled?
+> - **Naming consistency:** Do the specs use the same names for the same concepts?
+>
+> Only flag contradictions between what the two specs explicitly state. A missing constraint is an ambiguity problem (Phase 0b), not a coherence problem.
+>
+> Do NOT flag:
+> - Implementation details (algorithm choices, data structure preferences)
+> - Style differences ("returns" vs "yields" unless sync/async semantics differ)
+> - Constraints that don't cross the boundary between these two specs
+
+**3. For unit specs (`*.unit.spec.md`), also run an intra-unit coherence pass:**
+After checking external dependencies, check the contracts between files listed in the `## Files` section. For each pair of files that reference each other's outputs, apply the same coherence checks. This catches cross-file contradictions within a single unit spec that Phase 0b does not detect.
+
+**4. Result handling:**
+
+- **No incoherence found:** Report "Coherence check: specs are consistent." Proceed to Section 1.
+- **Incoherence found:** Report each issue with quoted text from both specs:
+
+> "Cross-spec incoherence between `<target-spec>` and `<dependency-spec>`:
+> - `<target-spec>` says: [quoted text]
+> - `<dependency-spec>` says: [quoted text]
+> - Issue: [type mismatch / constraint conflict / naming mismatch] -- [brief explanation of why this will break generated code].
+>
+> Fix one of the specs to resolve the contradiction, then re-run."
+
+**Stop generation** on incoherence. There is no `--force-incoherent` override -- coherence failures indicate real contract mismatches that will produce broken code.
 
 ---
 
