@@ -274,7 +274,7 @@ If no domain skills match, this phase is a no-op. Proceed to Phase 0e.
 
 ### Phase 0e: Cross-Spec Coherence Check
 
-After domain skill loading, check for contract consistency between the target spec and its dependencies. Only runs if the target spec has `depends-on` frontmatter. If the spec has no dependencies, skip to Section 1.
+After domain skill loading, check for contract consistency between the target spec and its dependencies. Runs if the target spec has `depends-on` frontmatter OR is a unit spec (`*.unit.spec.md`). If the spec has no dependencies and is not a unit spec, skip to Section 1.
 
 **1. Read the dependency list:**
 Parse the target spec's frontmatter for `depends-on` entries. For each listed dependency, read the dependency spec file.

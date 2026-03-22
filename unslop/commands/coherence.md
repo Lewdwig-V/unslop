@@ -11,13 +11,13 @@ Check that `.unslop/` exists in the current working directory. If it does not ex
 
 > "unslop is not initialized. Run `/unslop:init` first."
 
-**2. Build the dependency graph**
+**2. Scan for specs**
 
-Call `python ${CLAUDE_PLUGIN_ROOT}/scripts/orchestrator.py build-order .` to get the full dependency graph. If the orchestrator reports a cycle, stop and report the error.
+Find all `*.spec.md` files in the project tree (excluding `.unslop/` and `node_modules/`). For each spec, read its frontmatter to extract any `depends-on` entries. This builds an in-memory dependency map: spec -> list of dependency spec paths.
 
-If no specs have `depends-on` frontmatter, report:
+Also collect all `*.unit.spec.md` files separately for intra-unit checking.
 
-> "No dependency relationships found. Coherence checking requires specs with `depends-on` frontmatter."
+If the orchestrator reports a cycle during dependency resolution, stop and report the error.
 
 **3. Run coherence checks**
 
@@ -25,15 +25,19 @@ If no specs have `depends-on` frontmatter, report:
 
 1. Verify the spec file exists. If not, stop: "Spec not found at `<path>`."
 2. Resolve upstream dependencies: `python ${CLAUDE_PLUGIN_ROOT}/scripts/orchestrator.py deps <spec-path> --root .`
-3. Resolve reverse dependents: scan all `*.spec.md` files in the project for `depends-on` entries that reference the target spec path.
+3. Resolve reverse dependents: scan the dependency map for specs whose `depends-on` lists reference the target spec path.
 4. For each upstream dependency: read both specs and check for incoherence (same checks as Phase 0e in the generation skill -- type compatibility, constraint compatibility, error contract compatibility, naming consistency).
 5. For each reverse dependent: read both specs and check for incoherence.
 6. If the target is a unit spec (`*.unit.spec.md`): also run the intra-unit coherence pass on files listed in `## Files`.
 
 **Full mode** (no arguments):
 
-1. For each dependency edge in the build-order graph: read both specs and check for incoherence.
-2. For each unit spec: run the intra-unit coherence pass.
+1. For each spec with `depends-on` entries: read the spec and each of its direct dependencies, check each pair for incoherence.
+2. For each unit spec (`*.unit.spec.md`): run the intra-unit coherence pass on files listed in `## Files`, regardless of whether the unit spec has external dependencies.
+
+If no dependency relationships exist AND no unit specs exist, report:
+
+> "No dependency relationships or unit specs found. Coherence checking requires specs with `depends-on` frontmatter or `*.unit.spec.md` files."
 
 **4. Report results**
 
