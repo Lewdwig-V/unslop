@@ -15,7 +15,7 @@ You are working in a project managed by unslop. The spec is the source of truth 
 If the user wants a structural change, a new feature, or a refactor, do not suggest code edits. The spec must change first.
 
 **Pattern:** "Let's refactor X", "Add Y to Z", "We need to change how W works"
-**Route:** `/unslop:change <file> "description"` to record the change intent, then `/unslop:generate` or `/unslop:sync` to execute it.
+**Route:** `/unslop:change <file> "description"` to record the change intent, then `/unslop:generate` (all stale files) or `/unslop:sync <file>` (single file) to execute it.
 
 If the scope is large (multiple files, new module, architectural shift), suggest `/unslop:takeover` on the affected directory to extract the current intent before making changes.
 
@@ -33,7 +33,7 @@ Tactical means "do it now via spec-first flow" -- the spec still gets updated, b
 If the user asks about code quality, safety, edge cases, or robustness, route to the hardening command.
 
 **Pattern:** "Is this safe?", "What about edge cases?", "Could this break?", "Review the spec"
-**Route:** `/unslop:harden <file>` to stress-test the spec against edge cases and suggest tighter constraints.
+**Route:** `/unslop:harden <spec-path>` (e.g., `src/retry.py.spec.md`) to stress-test the spec against edge cases and suggest tighter constraints. Note: harden takes the spec path, not the managed file path.
 
 ## The Staleness Check
 
