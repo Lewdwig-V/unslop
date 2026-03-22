@@ -43,6 +43,13 @@ Classify each per-file spec as follows:
 
 ---
 
+If the managed file's `@unslop-managed` header contains a `principles-hash` field, compare it against the current hash of `.unslop/principles.md`. If the hashes don't match, add `(principles changed)` to the status annotation. This is additive — a file can show `modified (principles changed)` or `conflict (principles changed)`. If `principles.md` has been deleted but files still have `principles-hash`, annotate as `(principles removed)`.
+
+If a principles change makes many files stale, display a summary note:
+```
+Note: N files are stale due to project principle changes.
+```
+
 For files classified as fresh, check if any of their dependencies (from `depends-on` frontmatter in their spec) are stale or conflict. If so, reclassify as `stale*` with the note `(dependency stale)`. To detect transitive staleness, call `python ${CLAUDE_PLUGIN_ROOT}/scripts/orchestrator.py deps <spec-path> --root .` and check each dependency's classification using the hash-based method above. If Python is not available, skip transitive staleness checks and note: `(dependency checking unavailable — install Python 3.8+)`.
 
 ---

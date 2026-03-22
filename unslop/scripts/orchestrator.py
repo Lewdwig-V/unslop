@@ -29,6 +29,7 @@ def parse_header(content: str) -> dict | None:
     spec_path = None
     spec_hash = None
     output_hash = None
+    principles_hash = None
     generated = None
     old_format = False
 
@@ -53,6 +54,9 @@ def parse_header(content: str) -> dict | None:
             out_match = re.search(r"output-hash:([0-9a-f]{12})", stripped)
             if out_match:
                 output_hash = out_match.group(1)
+            prin_match = re.search(r"principles-hash:([0-9a-f]{12})", stripped)
+            if prin_match:
+                principles_hash = prin_match.group(1)
             gen_match = re.search(r"generated:(\S+)", stripped)
             if gen_match:
                 generated = gen_match.group(1)
@@ -70,6 +74,7 @@ def parse_header(content: str) -> dict | None:
         "spec_path": spec_path,
         "spec_hash": spec_hash,
         "output_hash": output_hash,
+        "principles_hash": principles_hash,
         "generated": generated,
         "old_format": old_format,
     }
@@ -305,7 +310,7 @@ def get_body_below_header(content: str) -> str:
     return "\n".join(lines[body_start:])
 
 
-def classify_file(managed_path: str, spec_path: str) -> dict:
+def classify_file(managed_path: str, spec_path: str, project_root: str | None = None) -> dict:
     """Classify a managed file's staleness using content hashing.
 
     4-state: fresh, stale, modified, conflict.
@@ -346,15 +351,43 @@ def classify_file(managed_path: str, spec_path: str) -> dict:
     output_match = (current_output_hash == header["output_hash"])
 
     if spec_match and output_match:
-        return {"managed": str(managed_path), "spec": str(spec_path), "state": "fresh"}
+        result = {"managed": str(managed_path), "spec": str(spec_path), "state": "fresh"}
     elif spec_match and not output_match:
-        return {"managed": str(managed_path), "spec": str(spec_path), "state": "modified",
-                "hint": "Code was edited directly while spec is unchanged."}
+        result = {"managed": str(managed_path), "spec": str(spec_path), "state": "modified",
+                  "hint": "Code was edited directly while spec is unchanged."}
     elif not spec_match and output_match:
-        return {"managed": str(managed_path), "spec": str(spec_path), "state": "stale"}
+        result = {"managed": str(managed_path), "spec": str(spec_path), "state": "stale"}
     else:
-        return {"managed": str(managed_path), "spec": str(spec_path), "state": "conflict",
-                "hint": "Spec and code have both diverged. Resolve manually or use --force to overwrite edits."}
+        result = {"managed": str(managed_path), "spec": str(spec_path), "state": "conflict",
+                  "hint": "Spec and code have both diverged. Resolve manually or use --force to overwrite edits."}
+
+    # Principles check (only when project_root is provided)
+    if project_root is not None and header.get("principles_hash") is not None:
+        principles_path = Path(project_root) / ".unslop" / "principles.md"
+        prin_changed = False
+        message = ""
+        if principles_path.exists():
+            try:
+                principles_content = principles_path.read_text(encoding="utf-8")
+            except (OSError, UnicodeDecodeError) as e:
+                prin_changed = True
+                message = f"Cannot read principles.md: {e}"
+            else:
+                current_prin_hash = compute_hash(principles_content)
+                if current_prin_hash != header["principles_hash"]:
+                    prin_changed = True
+                    message = "Principles changed."
+        else:
+            prin_changed = True
+            message = "Principles removed."
+
+        if prin_changed:
+            existing_hint = result.get("hint", "")
+            result["hint"] = (existing_hint + f" {message}").strip()
+            if result["state"] == "fresh":
+                result["state"] = "stale"
+
+    return result
 
 
 def check_freshness(directory: str) -> dict:
@@ -394,12 +427,16 @@ def check_freshness(directory: str) -> dict:
             worst_state = "fresh"
             priority = {"fresh": 0, "old_format": 1, "stale": 2, "modified": 3, "conflict": 4, "unmanaged": 5, "error": 6}
             missing_files = []
+            principles_hints = []
             for uf in unit_files:
                 mp = spec_path.parent / uf
                 if mp.exists():
-                    r = classify_file(str(mp), str(spec_path))
+                    r = classify_file(str(mp), str(spec_path), project_root=str(root))
                     if priority.get(r["state"], 0) > priority.get(worst_state, 0):
                         worst_state = r["state"]
+                    r_hint = r.get("hint", "")
+                    if "principles" in r_hint.lower() or "cannot read principles" in r_hint.lower():
+                        principles_hints.append(r_hint)
                 else:
                     missing_files.append(uf)
                     if priority.get("stale", 0) > priority.get(worst_state, 0):
@@ -412,6 +449,10 @@ def check_freshness(directory: str) -> dict:
                 entry["hint"] = "Spec and code have both diverged. Resolve manually or use --force to overwrite edits."
             elif worst_state == "modified":
                 entry["hint"] = "Code was edited directly while spec is unchanged."
+            if principles_hints:
+                prin_msg = principles_hints[0]
+                existing = entry.get("hint", "")
+                entry["hint"] = (existing + f" {prin_msg}").strip()
             files.append(entry)
             continue
 
@@ -422,7 +463,7 @@ def check_freshness(directory: str) -> dict:
             files.append({"managed": str(managed_path.relative_to(root)), "spec": rel_spec, "state": "stale"})
             continue
 
-        result = classify_file(str(managed_path), str(spec_path))
+        result = classify_file(str(managed_path), str(spec_path), project_root=str(root))
         result["managed"] = str(managed_path.relative_to(root))
         result["spec"] = rel_spec
         files.append(result)
