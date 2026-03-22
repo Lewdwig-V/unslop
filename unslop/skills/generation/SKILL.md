@@ -10,6 +10,63 @@ You are generating a managed source file from an unslop spec. These instructions
 
 ---
 
+## 0. Pre-Generation Validation
+
+Before generating any code, validate the spec. This section runs first — if validation fails, no code is written.
+
+### Phase 0a: Structural Validation
+
+Call the structural validator script:
+
+```
+python ${CLAUDE_PLUGIN_ROOT}/scripts/validate_spec.py <spec-path>
+```
+
+Read the JSON output:
+- **`"status": "pass"`** — proceed to Phase 0b.
+- **`"status": "warn"`** — surface warnings to the user, then proceed to Phase 0b.
+- **`"status": "fail"`** — **stop immediately.** Report the issues to the user. Do not generate code. Tell them: "Spec failed structural validation. Fix the issues above and re-run."
+
+There is no override for structural validation failures.
+
+### Phase 0b: Ambiguity Detection
+
+After structural validation passes, review the spec for semantic ambiguity.
+
+**Before reviewing**, scan the spec for Open Question exemptions:
+1. Collect all lines containing `[open]` — these phrases are exempt
+2. Collect all items listed under a `## Open Questions` section — these topics are exempt
+
+**Then review the spec** with this focus:
+
+> Review this spec for semantic ambiguity — places where a reasonable implementer could make two substantively different choices that both satisfy the spec text. Be specific: quote the ambiguous phrase and describe the two interpretations.
+>
+> Do NOT flag:
+> - Implementation choices left deliberately open (data structures, algorithms, variable names) — these are correctly vague
+> - Items marked with `[open]` inline
+> - Items listed in the `## Open Questions` section
+> - Topics that overlap with Open Questions items (match by topic, not exact string)
+>
+> DO flag:
+> - Behavioral ambiguity: "retries on failure" — what counts as failure?
+> - Constraint ambiguity: "handles large inputs" — what is large? No bound specified.
+> - Contract ambiguity: "returns an error" — what kind? Exception? Error code? None/null?
+
+**Result handling:**
+
+- **No ambiguities found:** Report "Spec passed ambiguity review." Proceed to Section 1.
+- **Ambiguities found, all covered by Open Questions:** Report "Spec has N open questions acknowledged. Proceeding." Proceed to Section 1.
+- **Ambiguities found, some NOT covered:**
+  - If `--force-ambiguous` was passed: report ambiguities as warnings, proceed to Section 1.
+  - Otherwise: **stop generation.** Report each uncovered ambiguity with the quoted phrase and two interpretations. Tell the user:
+
+> "Found N ambiguities not marked as open questions. Either:
+> 1. Resolve them by editing the spec to be more specific
+> 2. Mark them as intentionally open with `[open]` or add to `## Open Questions`
+> 3. Override with `--force-ambiguous` (not recommended)"
+
+---
+
 ## 1. Generation Mode Selection
 
 Generation operates in one of two modes. **The controlling agent or command selects the mode.** If no mode is specified, default to **full regeneration**.
