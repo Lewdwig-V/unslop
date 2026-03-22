@@ -179,9 +179,167 @@ Re-evaluate:
 * The Benefit: None yet. You need to nail the Domain Skill Infrastructure (how a skill is loaded from a local folder) before worrying about how others share them.
 * Verdict: Skip. Focus on the "Local Plugin" architecture first.
 
-The New Priority: The Subagent "Controller"
+---
+
+## The New Priority: The Subagent "Controller"
+
 If we bring back subagents, the orchestrator needs to evolve into a Controller. It doesn't just call a script; it decides which "context packet" to hand to a specialized agent.
 Does it make sense to define the "Context Packet" (the restricted set of files/info) that the Generation Subagent receives to ensure the "no-peeking" rule is enforced?
+
+## The Symphony Perspective on Unslop
+
+In a Symphony-like setup, you wouldn't just have an orchestrator.py that calls an LLM. You would have a Lead Developer (The Controller) managing two distinct Sub-agents:
+
+    The Spec-Writer (Persona A):
+        Input: retry.py.change.md + Current retry.py.spec.md.
+        Output: A proposed diff for the .spec.md.
+        Constraint: It cannot see the actual source code. It only cares about requirements.
+    The Implementer (Persona B):
+        Input: The newly updated retry.py.spec.md + Current retry.py.
+        Output: The code patch.
+        Constraint: It cannot see the change.md. It only knows what the Spec tells it to do.
+
+Why this re-evaluation changes Milestone D
+
+By adopting this "Symphony-lite" subagent approach, we will solve the Context Bloat problem. Instead of one massive 32k token context window where the model gets confused by conflicting instructions, we use three small 2k-4k windows.
+
+Re-evaluating the "Skips" based on this:
+
+    Subagent-per-task: Now a Must-Have. It’s the only way to enforce the "Spec-as-Source" integrity.
+    Sequential Phase Gates: These become the Hand-offs. The "Lead Developer" agent verifies the Spec-Writer's output before passing it to the Implementer.
+
+The "No-Peeking" Implementation
+To make this work, the orchestrator needs a Context Sandboxing utility. When it calls the Implementer subagent, it must physically (or via prompt-stripping) prevent any "intent" text from the .change.md from leaking in.
+
+To enforce the "No-Peeking" rule and prevent the model from taking shortcuts, we’ll define a Sandbox Manifest for each sub-agent persona. This ensures the Implementer can't "cheat" by reading the raw change request, and the Spec-Writer stays focused on requirements rather than existing code quirks.
+The Sandbox Manifest
+
+| Sub-Agent | Allowed Input (The "Lens") | Output Target | Goal |
+|---|---|---|---|
+| The Architect (Spec-Writer) | config.json, *.spec.md, *.change.md | *.spec.md (Update) | Translate user intent into a formal requirement change. |
+| The Builder (Implementer) | config.json, *.spec.md (Updated) | Managed File (Code) | Generate code that matches the spec exactly. Zero access to .change.md. |
+| The Auditor (Validator) | Managed File (New), *.spec.md | Pass/Fail + output-hash | Verify the code satisfies the spec and compute the final hash. |
+
+The "Symphony-lite" Execution Flow
+
+   1. Orchestrator initializes the Architect with the change.md.
+   2. Architect proposes a spec diff. Orchestrator presents this to the user for approval.
+   3. Once approved, Orchestrator "wipes the slate" and spawns the Builder.
+   4. Builder receives only the new spec and the existing code. It has no idea why the spec changed (the "intent" is hidden). It only knows what the spec now requires.
+   5. Auditor performs a final pass to ensure no hallucinations occurred and generates the 12-char hash.
+
+Implementation Detail: The "Wall of Silence"
+In the Builder's system prompt, we explicitly forbid it from searching for or assuming the existence of .change.md files. The Orchestrator enforces this by physically excluding those files from the Context Packet it sends to the LLM API.
+Why this solves Context Bloat
+Instead of one massive prompt containing the history of the file, the spec, and the change request, we use three tiny, high-precision prompts. This:
+
+* Reduces Costs: Fewer tokens per call.
+* Increases Accuracy: The model isn't distracted by "intent" when it should be focused on "implementation."
+* Enforces SDD: If the Architect misses a requirement in the spec update, the Builder won't include it in the code—immediately surfacing the gap.
+
+---
+
+To enforce the "No-Peeking" rule, the system prompts must act as the primary cognitive boundary for each sub-agent. By giving them distinct "identities" and restricted instructions, we ensure the Builder cannot hallucinate based on the original intent—only the final requirements.
+Here are the specific System Prompts for the Architect and Builder personas:
+1. The Architect (The Spec-Writer)
+Role: Requirements Engineer
+Input: .change.md (Intent), current.spec.md (Current State), config.json (Project Standards)
+No-Peeking Rule: Forbidden from looking at the implementation code to avoid "reverse-engineering" the spec from existing bugs.
+
+System Prompt:
+"You are an Expert Requirements Engineer. Your sole mission is to update the Markdown Specification (.spec.md) based on the provided Change Request (.change.md).
+Constraints:
+
+* Do NOT write or suggest code.
+* Focus strictly on 'What' the system must do, not 'How' it is implemented.
+* Ensure all business logic, edge cases, and constraints are explicitly defined in the spec.
+* If the Change Request is ambiguous, flag it for the Orchestrator rather than guessing.
+
+Output: Provide a precise diff or a full rewrite of the .spec.md only."
+
+------------------------------
+2. The Builder (The Implementer)
+Role: Senior Software Engineer
+Input: updated.spec.md (Source of Truth), current_file.py (Target)
+No-Peeking Rule: Physically blocked from seeing the .change.md. This forces the Builder to rely entirely on the Architect's work.
+
+System Prompt:
+"You are a Senior Software Engineer. Your goal is to implement the logic defined in the provided .spec.md into the target file.
+Constraints:
+
+* The .spec.md is your ABSOLUTE source of truth. If a feature isn't in the spec, it doesn't exist.
+* Do NOT assume intent beyond what is written in the spec.
+* Maintain existing architectural patterns found in the target file unless the spec dictates a change.
+* You must generate the entire body of the file (everything below the @unslop-managed header).
+
+Output: The complete, byte-exact content for the managed file."
+
+------------------------------
+The "Symphony" Orchestration Logic
+The Orchestrator acts as the silent mediator (the "Conductor"). To make this work:
+
+   1. It strips all mentions of "Change Requests" or "Jira tickets" when calling the Builder.
+   2. It treats the Architect's output as the only valid input for the Builder.
+   3. If the Builder produces code that fails the Auditor's hash-check (i.e., it hallucinated something not in the spec), the Orchestrator blames the Architect for a weak spec and restarts the loop.
+
+Why this matters for your "Heal" Step
+In a Tactical Fix (Code-First), the personas swap roles:
+
+   1. The Builder is given the .change.md (Intent) and the Code.
+   2. Once the code is patched, the Architect is given the New Code and told: "The code changed; update the Spec to reflect this reality."
+
+This ensures that even when we move fast, the Architect is forced to document the "why" after the fact.
+
+The Auditor is the final safety gate. Its job is to act as a "blind" reviewer—it compares the Builder's new code against the Architect's updated spec without knowing what the original change request was.
+If the Auditor finds a discrepancy, it triggers a "Spec-Code Mismatch" error, forcing the Architect or Builder to reconcile.
+3. The Auditor (The Validator)
+Role: Quality Assurance / Compliance
+Input: updated.spec.md (Requirements), new_code.py (Implementation)
+No-Peeking Rule: Forbidden from seeing the .change.md or the previous version of the code. It only sees the "proposed future."
+
+System Prompt:
+"You are a Senior Technical Auditor. Your task is to verify that the provided implementation (new_code.py) perfectly satisfies the requirements defined in the specification (updated.spec.md).
+Evaluation Criteria:
+
+   1. Completeness: Does the code implement EVERY requirement in the spec?
+   2. Constraint Check: Does the code respect all 'Do Not' or 'Must Not' constraints in the spec?
+   3. Purity: Is there logic in the code that is NOT defined in the spec? (Flag this as 'Spec Leakage').
+   4. Interface Match: Do function signatures and data structures match the spec exactly?
+
+Output:
+
+* If PASS: Return only 'STATUS: PASS' followed by the 12-char SHA-256 hash of the code body.
+* If FAIL: Provide a bulleted list of specific discrepancies (e.g., 'Requirement 4.2 missing from implementation')."
+
+The Orchestrator's "Conflict Resolution" Logic
+When the Auditor fails the build, the Orchestrator has a deterministic path:
+
+   1. Feedback Loop: It feeds the Auditor's "Discrepancy List" back to the Builder.
+   2. The "Who's at Fault?" Check: If the Builder insists the spec is impossible or ambiguous, the Orchestrator passes the feedback back to the Architect to refine the spec.
+   3. The Final Gate: The output-hash is only written to the file header once the Auditor returns a PASS.
+
+Why the Auditor is Essential
+By having a third, independent persona, you eliminate the "Lazy Model" bias where the Builder might say "Yeah, that looks right" to its own work. The Auditor provides the deterministic verification needed for a true Spec-Driven Development (SDD) pipeline.
+Using separate worktrees is the high-fidelity solution. It transforms the "locking" problem into a version control problem, which Git is already designed to solve.
+By giving each sub-agent its own ephemeral worktree, you create a physical sandbox that matches the cognitive sandbox of their prompts.
+The Worktree-Isolated Workflow
+
+   1. Orchestrator creates a hidden branch/worktree for the Architect (e.g., .unslop/worktrees/arch-retry-py).
+   2. Architect updates the spec in that worktree. Orchestrator runs Auditor against the spec's structure.
+   3. Upon "Spec Approval," the Orchestrator creates a second worktree for the Builder based on the Architect's branch.
+   4. Builder implements the code. Auditor verifies the code against the spec in that isolated tree.
+   5. Merge & Purge: Only once the Auditor returns PASS does the Orchestrator merge the worktree changes back to the main branch, update the output-hash, and delete the temporary worktrees.
+
+Why Worktrees Win
+
+* Parallelism: You can have multiple sub-agents working on different files simultaneously without them stepping on each other's import or sys.path.
+* Atomic Rollback: If a generation fails or the user rejects a proposal, you simply rm -rf the worktree. Your main working directory remains untouched and "clean."
+* No "Dirty State" Contamination: The Builder can run tests in its worktree without affecting the developer's local environment or test database.
+* Audit Trail: Each sub-agent's work exists as a discrete Git commit in a hidden ref, providing a perfect "black box" recording of how the code evolved.
+
+Implementation Detail: The "Shadow" Ref
+Instead of cluttering the user's branch list, the Orchestrator should use hidden Git refs (e.g., refs/unslop/agents/...) to manage these worktrees. This keeps the git branch output clean for the human developer.
+Should we define the "Cleanup" trigger—does the worktree vanish immediately after the merge, or do we keep it until the next unslop:status check confirms the hash is fresh?
 
 ---
 
