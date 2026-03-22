@@ -51,7 +51,7 @@ You read the spec, the current generated file, and an optional change descriptio
 - Change only what the spec delta or change description requires. Do not reformat, rename, or restructure code that is unrelated to the change.
 - Do not "improve" surrounding code. Gratuitous churn is a defect, not a feature.
 - If the change description is ambiguous about scope, default to the narrower interpretation.
-- The `@unslop-managed` header must still be updated (new timestamp and hashes).
+- The `@unslop-managed` header must still be updated with a new generation timestamp. (When dual-hash staleness from Gap 2 is implemented, update hashes too.)
 
 **When to use:** Small spec amendments, added constraints, absorbed change requests, bug fixes discovered during convergence — any case where the scope of the spec change is well-understood and localized.
 
