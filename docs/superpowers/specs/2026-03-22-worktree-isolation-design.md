@@ -31,11 +31,13 @@ Blocked from:
   - Reading test files
 
 Output:
-  - Updated *.spec.md (committed to main branch)
+  - Updated *.spec.md (staged, NOT committed)
   - User approves the spec update before Stage B
 ```
 
 The Architect thinks in requirements because it has no code to copy or anchor on. It knows what files exist (via the file tree) so it can reference correct paths, but it cannot see implementation details.
+
+**Commit atomicity**: The Architect's spec update is written to disk and staged (`git add`) but NOT committed. The spec and generated code are committed together as a single atomic commit after the Builder succeeds and the worktree is merged. If the Builder fails, the spec update is reverted (`git checkout -- <spec_path>`), leaving main truly untouched.
 
 **Exception**: During `/unslop:takeover`, the Architect reads the existing source code and tests — because the entire point of takeover is extracting intent FROM code. Stage B still runs in a clean worktree.
 
@@ -73,9 +75,9 @@ After the Builder Agent completes:
 1. Check the Agent's result status (DONE / DONE_WITH_CONCERNS / BLOCKED)
 2. If DONE with green tests: Claude Code handles the worktree merge automatically
 3. Compute `output-hash` on the merged code, update `@unslop-managed` header
-4. Commit the final state
+4. Commit the staged spec update + merged code together as a single atomic commit
 
-If BLOCKED or tests fail: discard the worktree. Main branch is untouched.
+If BLOCKED or tests fail: discard the worktree AND revert the staged spec update (`git checkout -- <spec_path>`). Main branch is untouched -- both spec and code remain at their pre-run state.
 
 ## Worktree Isolation is Mandatory
 
@@ -126,7 +128,7 @@ Agent(
     1. Read the spec at {spec_path}
     2. Read .unslop/principles.md if it exists
     3. Implement the code to match the spec exactly
-    4. Write or extend tests as needed
+    4. {test_policy}
     5. Run tests: {test_command}
     6. If tests pass, report DONE with the list of changed files
     7. If tests fail, iterate until green or report BLOCKED
@@ -135,6 +137,12 @@ Agent(
     any change requests. If the spec seems incomplete, report
     DONE_WITH_CONCERNS describing what appears to be missing."""
 )
+
+# test_policy is set per originating command:
+#   takeover:           "Write or extend tests as needed for newly explicit constraints"
+#   generate / sync:    "Do NOT create or modify test files. Use existing tests for validation only"
+#   change (tactical):  "Extend tests if the spec update introduced new constraints that lack coverage.
+#                        Do not modify existing assertions"
 ```
 
 Auto-merge on green tests. No manual diff confirmation — the user already approved the spec. Tests are the acceptance criteria.
@@ -203,13 +211,11 @@ For `/unslop:generate` processing pending changes: the controlling session runs 
 
 ## Builder Test-Writing Policy
 
-The Builder's test-writing permissions depend on the originating command:
+The Builder's test-writing permissions depend on the originating command and are enforced via the `{test_policy}` parameter in the Builder Agent's prompt (see Builder Agent Dispatch above):
 
 - **Takeover**: Builder may write or extend tests. The spec was just drafted from existing code and may need test coverage for newly explicit constraints.
-- **Generate/Sync**: Builder uses existing tests for validation. Does not create or modify test files. This preserves the existing policy.
-- **Change (tactical)**: Builder may extend tests if the spec update introduced new constraints that lack test coverage.
-
-The Builder Agent's prompt is adjusted based on the originating command to reflect the correct policy.
+- **Generate/Sync**: Builder uses existing tests for validation only. Does NOT create or modify test files. This prevents the Builder from weakening assertions to make bad code pass.
+- **Change (tactical)**: Builder may extend tests if the spec update introduced new constraints that lack coverage, but must not modify existing assertions.
 
 ## Unit Specs and Multi-File Generation
 
