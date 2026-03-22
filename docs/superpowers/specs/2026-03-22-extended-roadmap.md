@@ -34,12 +34,15 @@ The ambiguity linter (Phase 0b) catches per-spec ambiguity. Principles catch cro
 - `/unslop:init` creates a starter `principles.md` (or prompts the user to define key principles)
 - The generation skill reads `principles.md` as context alongside the spec, before Phase 0b
 - Phase 0b (ambiguity detection) checks spec constraints against principles for conflicts
-- `check-freshness` optionally hashes `principles.md` — if principles change, all managed files could be considered stale
+- `check-freshness` tracks a `principles-hash` in managed file headers (third hash alongside `spec-hash` and `output-hash`). When principles change, files generated under old principles are classified as stale. This requires a header format extension.
+- `/unslop:change --tactical` must also load and enforce principles — the tactical flow bypasses the generation skill, so principles enforcement needs to be explicit in the change command's instructions, not just in the skill.
 
 ### Scope
 
 - New file: `.unslop/principles.md`
 - Update: `init` command, generation skill, config.json schema
+- Update: `@unslop-managed` header format (add `principles-hash` field)
+- Update: `change.md` command (load principles during tactical flow)
 - No new commands needed — principles are edited directly
 
 ---
@@ -177,10 +180,11 @@ An on-demand command that runs the post-takeover completeness review (Section 7'
 
 ### What it does
 
-1. Reads the spec and the generated file
+1. Reads the spec and ALL generated files it manages (handles both per-file and unit specs — for `*.unit.spec.md`, reads every file listed in the `## Files` section)
 2. Asks: "What behavioral aspects of the generated code are NOT constrained by the spec?"
-3. Suggests specific additions to tighten the spec for reproducibility
-4. User reviews and accepts/rejects each suggestion
+3. For unit specs: also checks cross-file contracts — are internal interfaces between files constrained?
+4. Suggests specific additions to tighten the spec for reproducibility
+5. User reviews and accepts/rejects each suggestion
 
 ### Why
 
@@ -204,6 +208,16 @@ After a successful takeover, Section 7 already does this automatically. But user
 
 `/unslop:init` generates a `.github/workflows/unslop.yml` that runs `check-freshness` on every PR.
 
+### Implementation note: orchestrator availability in CI
+
+The orchestrator (`orchestrator.py`) lives in the unslop plugin, not in the user's project. CI runners don't have Claude Code plugins installed. Two options:
+
+1. **Vendor approach**: `/unslop:init` copies `orchestrator.py` and `validate_spec.py` into the project's `.unslop/scripts/` directory. The CI workflow references the vendored copy. This is self-contained but creates a maintenance burden (vendored copies can go stale).
+
+2. **pip install approach**: Publish the orchestrator as a pip-installable package (`pip install unslop-tools`). CI installs it. Cleaner but requires a PyPI package.
+
+**Recommended**: Option 1 for now (vendor). The scripts are small (~500 lines total), stable, and self-contained. Add a version marker so `/unslop:init` can detect and update stale vendored copies.
+
 ### Template
 
 ```yaml
@@ -215,14 +229,15 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: astral-sh/setup-uv@v6
-      - run: uv run python unslop/scripts/orchestrator.py check-freshness .
+      - run: uv run python .unslop/scripts/orchestrator.py check-freshness .
 ```
 
 ### Scope
 
-- Update: `init` command offers to generate the workflow
+- Update: `init` command offers to generate the workflow and vendor scripts
 - New template file generated into `.github/workflows/`
-- No changes to orchestrator — `check-freshness` already works
+- Vendored scripts copied to `.unslop/scripts/` with version marker
+- Update: `init` detects and refreshes stale vendored copies
 
 ---
 
