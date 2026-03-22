@@ -17,6 +17,7 @@ Create `.unslop/` and `.unslop/archive/`.
 Contents:
 ```
 archive/
+last-failure/
 feedback.md
 ```
 
