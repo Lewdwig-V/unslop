@@ -151,6 +151,8 @@ You MUST generate code from the spec file alone. Do not read the existing genera
 
 This is not a stylistic preference. Reading the current generated file introduces anchoring bias: you will unconsciously reproduce its implementation choices rather than deriving fresh, idiomatic code from the spec's intent. The validation loop exists precisely to catch what the spec missed — that signal is destroyed if you peek at the previous output.
 
+This rule was established after analyzing generation failures across multiple projects. Every case where the model read the existing file produced anchoring bias that degraded output quality. The rule is non-negotiable -- it has been validated by every successful takeover in unslop's history.
+
 **Permitted reads:**
 - The spec file
 - The test file(s) for the target module
@@ -185,6 +187,7 @@ You read the spec, the current generated file, and an optional change descriptio
 - Do not "improve" surrounding code. Gratuitous churn is a defect, not a feature.
 - If the change description is ambiguous about scope, default to the narrower interpretation.
 - Update the `@unslop-managed` header with new `output-hash`, `spec-hash`, and timestamp after applying edits. Re-hash the full body content for the output-hash.
+- You have already committed to incremental mode by reading the existing file. Honor that commitment -- change only what the spec delta requires. Expanding scope mid-generation is the single most common cause of incremental mode failures.
 
 **When to use:** Small spec amendments, added constraints, absorbed change requests, bug fixes discovered during convergence — any case where the scope of the spec change is well-understood and localized.
 
@@ -330,6 +333,8 @@ Ask:
 - Are there behavioral aspects of the generated code not constrained by the spec? A future regeneration might produce different behavior in those areas.
 - Are there constraints added during convergence that could be stated more precisely?
 - Does the spec leave behavioral choices open that should be pinned down for reproducibility?
+
+Specs that passed tests today but lack explicit constraints will produce different code tomorrow. The completeness review is what distinguishes a spec that works once from a spec that works reliably.
 
 Frame suggestions as: "Consider adding: [constraint]" with a brief rationale.
 

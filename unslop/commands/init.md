@@ -93,7 +93,42 @@ These are fields to merge into the existing config object, not a standalone file
 
 If no frameworks detected, skip. The `frameworks` field is optional.
 
-**7. Create `.unslop/alignment-summary.md`**
+**7. Generate CI workflow (optional)**
+
+Ask the user: "Would you like to generate a GitHub Actions workflow that checks managed file freshness on every PR?"
+
+If yes:
+
+1. Create `.github/workflows/` directory if it doesn't exist
+2. Write `.github/workflows/unslop-freshness.yml`:
+
+```yaml
+name: unslop freshness check
+on: [pull_request]
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+      - name: Set up Python
+        run: uv python install 3.11
+      - name: Check managed file freshness
+        run: uv run python .unslop/scripts/orchestrator.py check-freshness .
+```
+
+3. Copy the orchestrator script to `.unslop/scripts/` for CI availability:
+   - Copy `orchestrator.py` from the plugin to `.unslop/scripts/orchestrator.py`
+   - Add a version marker comment at the top: `# unslop orchestrator v0.8.0 -- vendored for CI`
+   - Note: Only `orchestrator.py` needs to be vendored -- `validate_spec.py` is used by the generation skill during interactive sessions, not by CI. The `check-freshness` command does not import from `validate_spec.py`.
+
+   If `.unslop/scripts/orchestrator.py` already exists (from a previous init), read its first line to check the version marker. If the version is older than `v0.8.0`, offer to update it. If the user agrees, overwrite the file with the current version. If the user declines, leave it unchanged.
+
+4. Inform the user: "CI workflow created at `.github/workflows/unslop-freshness.yml`. Commit it alongside `.unslop/scripts/` to enable freshness checks on PRs."
+
+If no, skip. The workflow is optional.
+
+**8. Create `.unslop/alignment-summary.md`**
 
 ```markdown
 # unslop alignment summary
@@ -104,6 +139,6 @@ If no frameworks detected, skip. The `frameworks` field is optional.
 No managed files yet. Use /unslop:takeover or /unslop:spec to get started.
 ```
 
-**8. Commit**
+**9. Commit**
 
-Stage the entire `.unslop/` directory and create a commit with the message: `chore: initialize unslop`
+Stage the entire `.unslop/` directory. If the CI workflow was generated in step 7, also stage `.github/workflows/unslop-freshness.yml`. Create a commit with the message: `chore: initialize unslop`
