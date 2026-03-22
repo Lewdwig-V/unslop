@@ -2,6 +2,8 @@
 
 > Surgical fixes and incremental mutations for managed files, with a structured lifecycle that reconciles every change back to the spec.
 
+**Closes:** Gap 4 (Code Change Requests) from `codespeak-gap-analysis.md`
+
 ## Problem
 
 Sometimes a managed file needs a targeted fix that doesn't warrant a full spec rewrite — a performance patch, a changed API endpoint, a discovered edge case. Currently, the only options are: edit the spec and regenerate (heavyweight for a one-line fix), or edit the managed file directly and accept a `modified`/`conflict` state (breaks the spec-driven invariant).
@@ -47,10 +49,32 @@ Update the base URL constant.
 
 ### Parsing contract
 
+- File format marker (first line): `<!-- unslop-changes v1 -->`
 - Entries are separated by `---`
 - Status is extracted from the heading: regex `\[(\w+)\]`
 - Entries are processed top-to-bottom (oldest first)
 - The body is NOT code patches, diffs, or implementation instructions — it describes intent
+
+### Deterministic parsing (Python)
+
+The orchestrator needs a `parse_change_file(content: str) -> list[dict]` function for `check-freshness` integration:
+
+```python
+def parse_change_file(content: str) -> list[dict]:
+    """Parse stacked change entries from a *.change.md file.
+
+    Returns list of dicts with: status, description, timestamp, body.
+    Malformed entries are skipped with a stderr warning.
+    """
+```
+
+Each entry dict contains:
+- `status`: `"pending"` or `"tactical"`
+- `description`: the heading text after the status marker
+- `timestamp`: ISO8601 string
+- `body`: the natural language intent (lines between heading and next `---`)
+
+Malformed entries (missing status marker, missing timestamp, unparseable heading) are skipped with a warning to stderr — the file is not rejected wholesale.
 
 ## Processing Flows
 
@@ -66,8 +90,10 @@ Update the base URL constant.
 
 ### Tactical flow (`[tactical]`)
 
+Tactical changes route through the generation skill in incremental mode (Mode B). This ensures Phase 0a/0b validation still runs — tactical is a fast path for *spec reconciliation*, not a bypass of quality gates.
+
 1. Model reads the entry + current spec + current code
-2. Model patches the managed file directly (incremental mode)
+2. Model patches the managed file via the generation skill (incremental mode — Phase 0a/0b run first)
 3. Tests run — must pass
 4. Model drafts a spec update that reflects the code change
 5. User reviews: "I've patched the code and updated the spec to match. Review and approve?"
@@ -80,9 +106,9 @@ When a file has both `[pending]` and `[tactical]` entries:
 
 1. Process all `[pending]` entries first (they update the spec, which the tactical entries need as context)
 2. Then process `[tactical]` entries
-3. After all entries processed, compute final output-hash once (atomic transaction)
-4. Delete all successfully promoted entries
-5. If any entry fails (tests break, user rejects), stop — remaining entries stay in the file
+3. Each entry is promoted individually after it passes tests — not atomic. If entry 2 fails, entry 1 (already promoted) stays promoted.
+4. On failure: stop processing. Remaining entries stay in the file. The user sees which entry failed and can fix or remove it.
+5. After all successful entries, compute final output-hash and update the header
 
 ## Generation Skill Integration
 
@@ -101,6 +127,7 @@ Section 7: Post-Generation Review         ← existing
 
 Phase 0c reads the `*.change.md` sidecar for the target file. If entries exist:
 - Classify entries by status (`[pending]` vs `[tactical]`)
+- **Conflict detection**: Before processing, check whether any pending entry's intent contradicts the current spec content (e.g., spec says "backoff base is 2", change says "change to 1.5"). If a conflict is detected, surface it to the user and ask them to resolve before proceeding. This is a model-driven check, not deterministic Python.
 - Inject change intent into the generation context with clear priority
 - Process in the order defined by mixed batch rules
 
@@ -166,29 +193,39 @@ For tactical entries:
 | `/unslop:generate` | Processes all pending changes across all managed files (Phase 0c) |
 | `/unslop:sync <file>` | Processes changes for that specific file only |
 | `/unslop:status` | Shows pending change count per file |
-| `/unslop:takeover` | Ignores change.md — takeover replaces everything |
+| `/unslop:takeover` | Warns if change.md exists: "This file has N pending changes that will be lost. Process them first or use `--force` to proceed." Requires `--force` to override. |
 | `check-freshness` | Files with pending changes are non-fresh (`pending_changes` state) |
 | `/unslop:change` | Creates/appends entries; executes immediately for `--tactical` |
 
 ## Status Integration
 
-`/unslop:status` shows pending changes:
+`/unslop:status` gains change.md awareness. After displaying the staleness classification for each file, check for a corresponding `*.change.md` sidecar. If present, display a summary line indented below the file entry:
 
 ```
 Managed files:
   fresh    src/retry.py        <- src/retry.py.spec.md
            Δ 2 pending changes [1 pending, 1 tactical]
   stale    src/parser.py       <- src/parser.py.spec.md (spec changed)
+           Δ 1 pending change [1 pending]
 ```
+
+The `Δ` indicator and change count appear regardless of the file's staleness state. A file can be both `fresh` and have pending changes — the changes represent intent not yet applied.
 
 ## check-freshness Integration
 
-The orchestrator's `check-freshness` subcommand detects `*.change.md` files. A managed file that is hash-fresh but has pending changes is reported as `pending_changes`:
+The orchestrator's `check-freshness` subcommand detects `*.change.md` files. `pending_changes` is an **overlay on the existing 4-state classification** — a file can be `fresh` with pending changes, or `stale` with pending changes. The JSON output includes a separate `pending_changes` field:
 
 ```json
-{"managed": "src/retry.py", "spec": "src/retry.py.spec.md", "state": "pending_changes",
- "hint": "1 pending, 1 tactical change request awaiting processing."}
+{"managed": "src/retry.py", "spec": "src/retry.py.spec.md", "state": "fresh",
+ "pending_changes": {"count": 2, "pending": 1, "tactical": 1},
+ "hint": "2 change requests awaiting processing."}
 ```
+
+A file without pending changes omits the `pending_changes` field entirely.
+
+**Exit code**: Any file with pending changes causes `status: "fail"` (exit 1), regardless of its hash state. Pending changes represent unreconciled intent.
+
+**Implementation in `check_freshness()`**: After the existing spec classification loop, scan for `*.change.md` files alongside discovered specs. For each, call `parse_change_file()` to count entries by status. Merge the counts into the corresponding file entry.
 
 This is non-fresh (exit 1) — pending changes represent unreconciled intent that CI should flag.
 
