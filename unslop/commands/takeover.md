@@ -35,15 +35,18 @@ Check for a `*.change.md` sidecar for the target file (same directory, same base
 
 **2. Load context**
 
-Read `.unslop/config.json` (or `.unslop/config.md` as legacy fallback) to obtain the test command. You will need it during the pipeline.
+Read `.unslop/config.json` (or `.unslop/config.md` as legacy fallback) to obtain the test command.
 
-**3. Run the takeover pipeline**
+**3. Run the takeover pipeline (two-stage)**
 
-Use the **unslop/takeover** skill to orchestrate the full pipeline. That skill owns all pipeline logic — discovery, spec drafting, archiving, generation, validation, and the convergence loop. Do not duplicate those steps here.
+Use the **unslop/takeover** skill. The pipeline now operates in two stages:
+- **Stage A (Architect -- current session):** Steps 1-3 of the takeover skill (Discover, Draft Spec, Archive). The Architect reads the existing code and tests to draft the spec. This is the exception where the Architect sees source code.
+- **Stage B (Builder -- worktree):** Steps 4-6 of the takeover skill (Generate, Validate, Convergence). Each Builder dispatch runs in an isolated worktree.
 
-Use the **unslop/spec-language** skill for guidance when drafting or reviewing the spec.
+The spec update is staged but not committed until the Builder succeeds. On convergence failure, the staged spec is reverted.
 
-Use the **unslop/generation** skill for code generation discipline.
+Use the **unslop/spec-language** skill for spec drafting guidance.
+Use the **unslop/generation** skill for the Builder's code generation discipline.
 
 **4. Update the alignment summary**
 
@@ -66,7 +69,7 @@ If multi-file mode was detected:
 
 1. Call `python ${CLAUDE_PLUGIN_ROOT}/scripts/orchestrator.py discover <directory> --extensions <detected-extensions>` to find source files. Detect the extensions from the directory contents (e.g., `.py` for Python, `.rs` for Rust, `.ts` for TypeScript).
 2. Present the discovered file list to the user for confirmation. They may add or remove files.
-3. After confirmation, use the **unslop/takeover** skill in multi-file mode, passing the confirmed file list.
+3. After confirmation, use the **unslop/takeover** skill in multi-file mode. Each Builder dispatch (Step 4) runs in an isolated worktree. For per-file mode, Builders are dispatched in build order. For per-unit mode, a single Builder generates all files in one worktree session.
 4. Use the **unslop/spec-language** skill for spec drafting guidance.
 5. Use the **unslop/generation** skill for code generation discipline.
 6. Read the test command from `.unslop/config.json` (or `.unslop/config.md` as legacy fallback).

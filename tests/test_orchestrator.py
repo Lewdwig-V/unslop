@@ -5,7 +5,7 @@ import sys
 import os
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'unslop', 'scripts'))
 
-from orchestrator import compute_hash, parse_header, parse_frontmatter, topo_sort, discover_files, build_order_from_dir, resolve_deps, classify_file, check_freshness, parse_change_file
+from orchestrator import compute_hash, parse_header, parse_frontmatter, topo_sort, discover_files, build_order_from_dir, resolve_deps, classify_file, check_freshness, parse_change_file, file_tree
 
 
 def test_compute_hash_deterministic():
@@ -879,3 +879,63 @@ def test_classify_no_project_root_skips_principles(tmp_path):
     (tmp_path / "thing.py").write_text(header + body)
     result = classify_file(str(tmp_path / "thing.py"), str(tmp_path / "thing.py.spec.md"))
     assert result["state"] == "fresh"
+
+
+def _git_commit_fixture(tmp_path):
+    """Helper: init git repo, add all files, commit. --no-gpg-sign: fixture only, GPG not guaranteed in CI."""
+    subprocess.run(["git", "init"], cwd=tmp_path, capture_output=True, check=True)
+    subprocess.run(["git", "add", "."], cwd=tmp_path, capture_output=True, check=True)
+    subprocess.run(
+        ["git", "commit", "-m", "init", "--no-gpg-sign"],
+        cwd=tmp_path, capture_output=True, check=True,
+        env={**os.environ, "GIT_AUTHOR_NAME": "test", "GIT_AUTHOR_EMAIL": "test@test.com",
+             "GIT_COMMITTER_NAME": "test", "GIT_COMMITTER_EMAIL": "test@test.com"},
+    )
+
+
+def test_file_tree_returns_tracked_files(tmp_path):
+    """file_tree should return git-tracked filenames as a sorted JSON-serializable list."""
+    (tmp_path / "src").mkdir()
+    (tmp_path / "src" / "main.py").write_text("print('hello')")
+    (tmp_path / "src" / "util.py").write_text("x = 1")
+    (tmp_path / "README.md").write_text("# readme")
+    _git_commit_fixture(tmp_path)
+
+    result = file_tree(str(tmp_path))
+    assert isinstance(result, list)
+    assert "src/main.py" in result
+    assert "src/util.py" in result
+    assert "README.md" in result
+    assert result == sorted(result)
+
+
+def test_file_tree_excludes_untracked(tmp_path):
+    """Untracked files should not appear in file_tree output."""
+    (tmp_path / "tracked.py").write_text("x = 1")
+    _git_commit_fixture(tmp_path)
+    (tmp_path / "untracked.py").write_text("y = 2")
+
+    result = file_tree(str(tmp_path))
+    assert "tracked.py" in result
+    assert "untracked.py" not in result
+
+
+def test_file_tree_empty_repo(tmp_path):
+    """An initialized repo with no tracked files returns empty list, not ['']."""
+    subprocess.run(["git", "init"], cwd=tmp_path, capture_output=True, check=True)
+    result = file_tree(str(tmp_path))
+    assert result == []
+
+
+def test_file_tree_nonexistent_directory():
+    """file_tree should raise ValueError for nonexistent directories."""
+    import pytest
+    with pytest.raises(ValueError, match="Directory does not exist"):
+        file_tree("/nonexistent/path")
+
+
+def test_file_tree_not_a_git_repo(tmp_path):
+    """file_tree should raise ValueError for non-git directories."""
+    import pytest
+    with pytest.raises(ValueError, match="Not a git repository"):
+        file_tree(str(tmp_path))

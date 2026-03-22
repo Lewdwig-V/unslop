@@ -13,7 +13,7 @@ Check that `.unslop/` exists in the current working directory. If it does not ex
 
 Use the **unslop/generation** skill for code generation discipline throughout this command.
 
-The generation skill's Phase 0c automatically processes any pending `*.change.md` entries for each file being regenerated. No additional command-level logic is needed — the skill handles change request consumption, conflict detection, and promotion.
+Pending `*.change.md` entries are processed in Step 3c (Stage A) before any Builder is dispatched.
 
 Read `.unslop/config.json` to obtain the test command. If `config.json` does not exist, fall back to `.unslop/config.md` (legacy format). You will need the test command when validating regenerated files.
 
@@ -35,18 +35,29 @@ Check if any of the found spec files have `depends-on` frontmatter (look for `--
 
 If no specs have `depends-on` frontmatter, or if Python is not available, process in the existing order (this preserves backwards compatibility).
 
+**3c. Stage A: Process pending changes (Architect)**
+
+Before dispatching any Builders, run Phase 0c for ALL files that have pending `*.change.md` entries:
+
+1. For each file with a `*.change.md` sidecar (in build order):
+   a. Run the generation skill's Phase 0c (Stage A behavior) -- propose spec updates for each pending/tactical entry, get user approval.
+   b. Stage approved spec updates (`git add`). Do NOT commit.
+2. After all Phase 0c processing is complete, proceed to classification and Builder dispatch.
+
+This ensures all spec updates are finalized before any code generation begins.
+
 **4. Classify each spec file**
 
-For each `*.spec.md` found, derive the managed file path by stripping the trailing `.spec.md` suffix (e.g., `src/retry.py.spec.md` → `src/retry.py`).
+For each `*.spec.md` found, derive the managed file path by stripping the trailing `.spec.md` suffix (e.g., `src/retry.py.spec.md` -> `src/retry.py`).
 
 Classify it as one of:
 
-- **New**: the managed file does not exist yet — must be generated unconditionally.
-- **Fresh**: stored spec-hash matches current spec hash AND stored output-hash matches current output hash — skip it.
-- **Stale**: stored spec-hash does NOT match current spec hash AND stored output-hash matches current output hash — the spec changed but code is untouched; regenerate.
-- **Modified**: stored spec-hash matches current spec hash AND stored output-hash does NOT match current output hash — the code was edited directly. Warn the user and require `--force` or explicit user confirmation before regenerating.
-- **Conflict**: both hashes mismatch — spec and code both changed. Block and require `--force` or explicit user confirmation before proceeding.
-- **Old format**: header is present but uses the old timestamp-based format (no `spec-hash`/`output-hash` fields) — treat as stale and regenerate.
+- **New**: the managed file does not exist yet -- must be generated unconditionally.
+- **Fresh**: stored spec-hash matches current spec hash AND stored output-hash matches current output hash -- skip it.
+- **Stale**: stored spec-hash does NOT match current spec hash AND stored output-hash matches current output hash -- the spec changed but code is untouched; regenerate.
+- **Modified**: stored spec-hash matches current spec hash AND stored output-hash does NOT match current output hash -- the code was edited directly. Warn the user and require `--force` or explicit user confirmation before regenerating.
+- **Conflict**: both hashes mismatch -- spec and code both changed. Block and require `--force` or explicit user confirmation before proceeding.
+- **Old format**: header is present but uses the old timestamp-based format (no `spec-hash`/`output-hash` fields) -- treat as stale and regenerate.
 
 Hash algorithm: SHA-256 of content, truncated to 12 hex characters. For spec hash: hash the full spec file content. For output hash: hash the managed file body below the `@unslop-managed` header block, stripped of leading/trailing whitespace.
 
@@ -54,25 +65,20 @@ For unit specs (`*.unit.spec.md`): derive managed file paths from the `## Files`
 
 Report the classification of every spec file before proceeding.
 
-**5. Process stale, new, modified, and conflict files**
+**5. Dispatch Builders (Stage B -- worktree isolation)**
 
-For **modified** files: warn the user that the managed file has been edited directly (output hash mismatch). If `--force` was passed, proceed with regeneration. Otherwise, ask the user to confirm before overwriting their edits. If the user declines, skip this file.
+For each file classified as new, stale, modified (confirmed), or conflict (confirmed), in build order:
 
-For **conflict** files: warn the user that both the spec and the managed file have changed. If `--force` was passed, proceed with regeneration. Otherwise, ask the user to confirm before proceeding. If the user declines, skip this file.
+1. **Select generation mode.** New files always use Mode A. For others, default is Mode A; use Mode B if `--incremental` was passed.
+2. **Dispatch a Builder Agent** using the generation skill's two-stage execution model:
+   - test_policy: `"Do NOT create or modify test files. Use existing tests for validation only"`
+   - Pass `--incremental` to the Builder prompt if Mode B was selected.
+3. **Verify result:**
+   - If DONE with green tests: worktree merges automatically. Compute `output-hash`, update header.
+   - If BLOCKED or tests fail: discard worktree, revert ALL staged spec updates from Step 3c (`git checkout HEAD -- <spec_path>` for every spec that was staged), not just the failing file's spec. Report failure and **stop immediately**. Do not process remaining files.
+4. If a dependency was regenerated in this run, mark its dependents as stale even if their own specs haven't changed.
 
-For each file classified as new, stale, modified (confirmed), or conflict (confirmed), in order:
-
-1. **Select generation mode.** Files classified as **new** always use full regeneration (Mode A) — there is no existing managed file to diff against. For **stale**, **modified**, and **conflict** files, default is full regeneration (Mode A); use incremental mode (Mode B) if the user passed `--incremental` or if the spec change is a small amendment (fewer than ~20% of spec lines changed, as estimated from the spec-hash delta). In incremental mode, read the spec AND the existing managed file.
-2. Generate the managed file. The file must begin with the `@unslop-managed` header as specified by the **unslop/generation** skill. In incremental mode, produce only the targeted edits needed to bring the file into conformance with the updated spec.
-3. Run the test command from `.unslop/config.json`.
-4. If tests pass: report success for this file and continue to the next.
-5. If tests fail: report the failure output and **stop immediately**. Do NOT attempt to fix the code, re-read the spec, or enter any convergence loop. Tell the user:
-
-> "Tests failed after regenerating `<file>`. The spec may have introduced breaking changes. Review the failures above and update the spec or downstream code as needed."
-
-If any file causes a stop, do not process remaining files.
-
-If a dependency was regenerated in this run, mark its dependents as stale even if their own specs haven't changed — the dependency's implementation may have changed. If cascading regeneration of a dependent (whose own spec did not change) causes test failures, stop and report: which upstream regeneration caused the failure, which dependent broke, and the test output. Do NOT attempt to fix or converge.
+If cascading regeneration of a dependent causes Builder failure, stop and report: which upstream regeneration caused the failure, which dependent broke, and the Builder's failure report.
 
 **6. Update the alignment summary**
 
@@ -89,4 +95,9 @@ Read the spec's first sentence or Purpose section to derive the intent summary.
 
 **7. Commit**
 
-After updating the alignment summary, commit the regenerated file(s) and the updated alignment summary.
+After all Builders have succeeded and worktrees are merged, commit all changes atomically:
+- All staged spec updates (from Phase 0c)
+- All merged generated code (from Builder worktrees)
+- Updated alignment summary
+
+This is a single atomic commit covering all files processed in this run.

@@ -10,6 +10,131 @@ You are generating a managed source file from an unslop spec. These instructions
 
 ---
 
+## Execution Model: Two-Stage Worktree Isolation
+
+All code generation uses a two-stage model with physical worktree isolation. No exceptions.
+
+### Stage A: Architect (Current Session)
+
+The Architect processes change intent and updates the spec. It runs in the user's current session.
+
+**Inputs:**
+- Change request intent (from `*.change.md` or user prompt)
+- Current `*.spec.md`
+- `.unslop/principles.md`
+- File tree (`python ${CLAUDE_PLUGIN_ROOT}/scripts/orchestrator.py file-tree .`) -- names only, no contents
+
+**Blocked from:**
+- Reading source code files
+- Reading test files
+
+**Output:**
+- Updated `*.spec.md` (staged via `git add`, NOT committed)
+- User approves the spec update before Stage B
+
+**Commit atomicity:** The Architect's spec update is written to disk and staged (`git add`) but NOT committed. The spec and generated code are committed together as a single atomic commit after the Builder succeeds and the worktree is merged. If the Builder fails, the spec update is reverted (`git checkout HEAD -- <spec_path>`), leaving main truly untouched.
+
+**Exception:** During `/unslop:takeover`, the Architect reads existing source code and tests -- the point of takeover is extracting intent FROM code. Stage B still runs in a clean worktree.
+
+### Stage B: Builder (Fresh Agent, Worktree Isolation)
+
+The Builder generates code from the spec. It runs as a fresh Agent in an isolated git worktree with zero conversation history.
+
+**Dispatch:**
+
+```python
+Agent(
+    description="Implement spec changes in isolated worktree",
+    isolation="worktree",
+    prompt="""You are implementing changes to managed files based on their specs.
+
+    Target spec: {spec_path}
+    Test command: {test_command}
+
+    Instructions:
+    1. Read the spec at {spec_path}
+    2. Read .unslop/principles.md if it exists
+    3. Implement the code to match the spec exactly
+    4. {test_policy}
+    5. Run tests: {test_command}
+    6. If tests pass, report DONE with the list of changed files
+    7. If tests fail, iterate until green or report BLOCKED
+
+    The spec is your sole source of truth. Do not look for or follow
+    any change requests. If the spec seems incomplete, report
+    DONE_WITH_CONCERNS describing what appears to be missing."""
+)
+```
+
+**`{test_policy}` values by originating command:**
+- **takeover:** `"Write or extend tests as needed for newly explicit constraints"`
+- **generate / sync:** `"Do NOT create or modify test files. Use existing tests for validation only"`
+- **change (tactical):** `"Extend tests if the spec update introduced new constraints that lack coverage. Do not modify existing assertions"`
+
+### Verification (Controlling Session)
+
+After the Builder Agent completes:
+1. Check result status: DONE / DONE_WITH_CONCERNS / BLOCKED
+2. If DONE with green tests: Claude Code handles worktree merge automatically
+3. Compute `output-hash` on merged code, update `@unslop-managed` header
+4. Commit the staged spec update + merged code as a single atomic commit
+
+If BLOCKED or tests fail: discard the worktree AND revert the staged spec update (`git checkout HEAD -- <spec_path>`). Main branch is untouched.
+
+### Builder Failure Reports
+
+When the Builder reports BLOCKED or test failures, it must provide a structured post-mortem:
+
+```markdown
+## Builder Failure Report
+
+### Failing Tests
+- <test_name>: <assertion message>
+
+### What Was Attempted
+<Builder's interpretation of the spec and what it implemented>
+
+### Suspected Spec Gaps
+- <What the spec is silent on that caused the failure>
+```
+
+The Builder identifies gaps only -- it does NOT suggest spec language. The Architect decides how to constrain gaps because it thinks in requirements, not code.
+
+### Convergence Loop
+
+For takeover, the convergence loop crosses the stage boundary:
+
+1. Stage A: Draft/enrich spec -> user approves
+2. Stage B: Generate in worktree -> tests fail -> structured failure report
+3. Stage A: Enrich spec based on failure report -> user approves
+4. Stage B: New fresh Agent, new worktree -> generate -> tests pass -> merge
+
+Each Stage B is a fresh Agent dispatch. Maximum 3 iterations.
+
+### Commands Without an Architect Stage
+
+For `generate` and `sync`, there is no Architect stage for spec authoring -- the spec is already the input. However, if pending `*.change.md` entries exist, the controlling command still runs Phase 0c (Stage A behavior) to absorb changes into the spec before dispatching the Builder. The Builder always runs in a worktree to ensure:
+- The model generating code never has conversation history
+- Every generation starts with a clean context
+- File system isolation is the default
+
+### Orphaned Worktree Cleanup
+
+On each generation command invocation, before dispatching any Builder, check for orphaned unslop worktrees:
+
+1. Run `git worktree list --porcelain`
+2. Look for worktrees on branches matching `unslop/builder/*`
+3. If any are found, report them to the user:
+
+> "Found N orphaned unslop worktree(s) from previous runs. Clean up? (y/n)"
+
+4. If the user confirms: run `git worktree remove <path>` for each, then `git branch -D <branch>` for each
+5. If the user declines: proceed without cleanup
+
+Only worktrees matching the `unslop/builder/*` pattern are flagged. User-created worktrees are never touched.
+
+---
+
 ## 0. Pre-Generation Validation
 
 Before generating any code, validate the spec. This section runs first — if validation fails, no code is written.
@@ -73,43 +198,44 @@ Before running ambiguity detection, check if `.unslop/principles.md` exists. If 
 
 ---
 
-### Phase 0c: Change Request Consumption
+### Phase 0c: Change Request Consumption (Stage A Only)
 
-After validation passes, check for a `*.change.md` sidecar file for the target managed file (same directory, same base name with `.change.md` extension).
+Under two-stage isolation, Phase 0c runs ONLY in Stage A (Architect). The Builder skips Phase 0c entirely -- by the time the Builder runs, all change requests have been absorbed into the spec.
+
+When running in worktree isolation (which is always), the Builder's generation skill omits Phase 0c.
+
+**Stage A behavior:**
+
+Check for a `*.change.md` sidecar file for the target managed file.
 
 If no change file exists, skip to Phase 0d.
 
 If change entries exist:
 
-**1. Conflict detection (model-driven):** Before processing, review each entry's intent against the current spec. If any entry contradicts the spec (e.g., spec says "backoff base is 2", entry says "change to 1.5"), surface the conflict to the user:
+**1. Conflict detection (model-driven):** Review each entry's intent against the current spec. If any entry contradicts the spec, surface the conflict:
 
-> "Change request conflicts with current spec: [quote entry] vs [quote spec]. Resolve by editing the spec or the change entry before proceeding."
+> "Change request conflicts with current spec: [quote entry] vs [quote spec]. Resolve before proceeding."
 
-Stop generation until the conflict is resolved.
+Stop until resolved.
 
-**2. Classify and order entries:**
-- Process `[pending]` entries first (they update the spec)
-- Then `[tactical]` entries (they patch code and propose spec updates)
-
-**3. For each `[pending]` entry:**
+**2. For each `[pending]` entry:**
 - Propose a spec update that captures the entry's intent
-- Present to the user: "This change request suggests updating the spec as follows: [diff]. Approve?"
-- On approval: apply the spec update, then generate code from the updated spec
-- On rejection: skip this entry, leave it in change.md
+- Present to user: "This change request suggests updating the spec as follows: [diff]. Approve?"
+- On approval: apply spec update, stage it (`git add`), continue
+- On rejection: skip this entry
 
-**4. For each `[tactical]` entry:**
-- Patch the managed file via incremental mode (Mode B) based on the entry's intent
-- Run tests
-- If green: propose a spec update reflecting the code change
-- Present to user: "I've patched the code and updated the spec to match. Review?"
-- On approval: entry is promoted
-- On rejection: revert code change, entry stays
+**3. For each `[tactical]` entry:**
+- Propose a spec update (tactical now means "do it now", not "code first")
+- Present to user for approval
+- On approval: apply spec update, stage it (`git add`), continue
+- On rejection: skip this entry
 
-**5. After processing:**
-- Delete each successfully promoted entry from the change.md file
-- If the file is now empty (no remaining entries), delete it entirely
-- Compute final output-hash from the managed file body
-- Each promoted entry is committed individually (sequential, not atomic)
+**4. After processing:**
+- Delete each promoted entry from the change.md file
+- If file is empty, delete it entirely
+- All spec updates are staged but NOT committed -- they commit atomically with the Builder's output
+
+**Note:** The controlling command (generate/sync/change) dispatches the Builder AFTER Phase 0c completes for all files with pending changes.
 
 ---
 
@@ -164,6 +290,8 @@ This rule was established after analyzing generation failures across multiple pr
 - The current generated source file
 - `.unslop/archive/` (original pre-takeover files)
 
+**Worktree context:** In worktree isolation (all generation), Mode A is the natural fit. The Builder starts with a clean context and generates from the spec. The worktree contains the current codebase state but the Builder is instructed not to read the existing managed file.
+
 **When to use:** Takeover, major spec rewrites, periodic "defrag" regeneration (`/unslop:generate --force`), or whenever the controlling agent suspects accumulated implementation drift.
 
 ### Mode B: Incremental Generation
@@ -188,6 +316,10 @@ You read the spec, the current generated file, and an optional change descriptio
 - If the change description is ambiguous about scope, default to the narrower interpretation.
 - Update the `@unslop-managed` header with new `output-hash`, `spec-hash`, and timestamp after applying edits. Re-hash the full body content for the output-hash.
 - You have already committed to incremental mode by reading the existing file. Honor that commitment -- change only what the spec delta requires. Expanding scope mid-generation is the single most common cause of incremental mode failures.
+
+**Worktree context:** In worktree isolation, Mode B means the Builder reads the existing managed file in the worktree and produces targeted edits. The Builder still has no access to change request intent or conversation history. The `--incremental` flag is passed through to the Builder Agent's prompt:
+- Without `--incremental`: "Generate the managed file from the spec. Do not read the existing file."
+- With `--incremental`: "Update the managed file to match the updated spec. Read the existing file and make targeted edits only."
 
 **When to use:** Small spec amendments, added constraints, absorbed change requests, bug fixes discovered during convergence — any case where the scope of the spec change is well-understood and localized.
 
@@ -276,7 +408,10 @@ The discipline:
 
 Do not write implementation code before the tests exist. Do not skip this step because the spec "seems clear enough." The tests are the executable form of the spec's intent.
 
-**Note:** During takeover, write or extend tests as needed. During generate/sync, use existing tests for validation — do not create or modify test files.
+**Test-writing policy (enforced via `{test_policy}` in Builder prompt):**
+- **Takeover:** Builder may write or extend tests for newly explicit constraints.
+- **Generate/Sync:** Builder uses existing tests for validation only. Does NOT create or modify test files. This prevents the Builder from weakening assertions to make bad code pass.
+- **Change (tactical):** Builder may extend tests for new constraints but must not modify existing assertions.
 
 ---
 
@@ -315,6 +450,8 @@ When a spec has a `## Files` section listing multiple output files, you are gene
 - Generate files in the order listed in the `## Files` section — earlier files may define types/interfaces that later files use
 - Each file must be complete and independently parseable — no stubs or forward references that require manual assembly
 - The spec describes the whole unit's behavior; distribute implementation across files according to the responsibilities listed in `## Files`
+
+**Worktree context:** For unit specs, the Builder generates all files listed in `## Files` within the same worktree session. The worktree captures all changes as a single atomic diff.
 
 ---
 

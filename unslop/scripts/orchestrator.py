@@ -4,6 +4,7 @@ from __future__ import annotations
 import hashlib
 import json
 import re
+import subprocess
 import sys
 from pathlib import Path
 
@@ -594,10 +595,41 @@ def parse_change_file(content: str) -> list[dict]:
     return entries
 
 
+def file_tree(directory: str) -> list[str]:
+    """List git-tracked files in directory.
+
+    Returns sorted list of tracked filenames relative to the directory.
+    Used by the Architect stage to see file names without file contents.
+
+    An empty repo (no tracked files) returns [].
+    """
+    root = Path(directory).resolve()
+    if not root.is_dir():
+        raise ValueError(f"Directory does not exist: {directory}")
+
+    try:
+        result = subprocess.run(
+            ["git", "ls-files"],
+            cwd=str(root),
+            capture_output=True,
+            text=True,
+            check=True,
+        )
+    except FileNotFoundError:
+        raise ValueError("git executable not found on PATH. Install git and ensure it is available.")
+    except subprocess.CalledProcessError as exc:
+        stderr_detail = exc.stderr.strip() if exc.stderr else ""
+        detail = f" ({stderr_detail})" if stderr_detail else ""
+        raise ValueError(f"Not a git repository: {directory}{detail}") from exc
+
+    files = [f for f in result.stdout.strip().split("\n") if f]
+    return sorted(files)
+
+
 def main():
     """CLI entry point."""
     if len(sys.argv) < 2:
-        print("Usage: orchestrator.py <discover|build-order|deps|check-freshness> [args]", file=sys.stderr)
+        print("Usage: orchestrator.py <discover|build-order|deps|check-freshness|file-tree> [args]", file=sys.stderr)
         sys.exit(1)
 
     command = sys.argv[1]
@@ -679,6 +711,15 @@ def main():
         except (ValueError, OSError, UnicodeDecodeError) as e:
             print(json.dumps({"error": str(e)}), file=sys.stderr)
             sys.exit(2)
+
+    elif command == "file-tree":
+        directory = sys.argv[2] if len(sys.argv) > 2 else "."
+        try:
+            result = file_tree(directory)
+            print(json.dumps(result, indent=2))
+        except (ValueError, OSError) as e:
+            print(json.dumps({"error": str(e)}), file=sys.stderr)
+            sys.exit(1)
 
     else:
         print(f"Unknown command: {command}", file=sys.stderr)
