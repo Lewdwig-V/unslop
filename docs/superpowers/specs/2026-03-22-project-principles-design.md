@@ -8,6 +8,8 @@
 
 The ambiguity linter (Phase 0b) catches per-spec ambiguity. But cross-project consistency -- constraints that apply to every managed file -- requires repeating the same rules in every spec. A spec that says "handle errors" is ambiguous without a project-wide rule saying "errors must be typed." Principles provide that project-wide context once, enforced everywhere.
 
+**Design decision:** The extended roadmap mentioned `config.json` as an alternative location. Rejected: freeform markdown is a better fit for prose-heavy architectural constraints than a JSON field. `config.json` is for mechanics (paths, commands, excludes); `principles.md` is for intent.
+
 ## What
 
 `.unslop/principles.md` -- a freeform markdown file defining non-negotiable generation constraints. Committed to git. Hashed and tracked in every managed file's `@unslop-managed` header.
@@ -44,6 +46,7 @@ The `@unslop-managed` header gains an optional `principles-hash` field:
 
 - `principles-hash`: SHA-256 of `.unslop/principles.md` content, truncated to 12 hex chars
 - Computed at generation time, stored alongside `spec-hash` and `output-hash`
+- **Stays on line 2** -- appended to the same line as the other hashes, not a new line 3. The `get_body_below_header` function already matches `spec-hash:` on line 2, so `principles-hash:` on the same line requires no changes to body extraction.
 - If `principles.md` doesn't exist, the field is omitted (backwards compatible)
 
 ## Staleness Classification Update
@@ -66,6 +69,8 @@ Managed files:
 ```
 
 When principles change, most/all managed files will show as stale. This is intentional -- a principle change is a project-wide event that requires re-evaluation.
+
+**Interaction with other states:** Principles-staleness is shown alongside the underlying state, not instead of it. A file can be `modified (principles changed)` or `conflict (principles changed)`. The `(principles changed)` annotation is additive.
 
 ### In check-freshness
 
@@ -106,8 +111,8 @@ The tactical flow bypasses the generation skill. It must explicitly load and enf
 
 ### `orchestrator.py`
 
-- `classify_file`: Compare `principles-hash` from header against current `principles.md` hash
-- `check-freshness`: Same principles check, global across all files
+- `classify_file`: Gains an optional `project_root` parameter (default `None`). When provided, compares `principles-hash` from header against current `principles.md` hash. When `None` (backwards compatible), skips the principles check. `check_freshness` passes the root; other callers can omit it.
+- `check-freshness`: Passes project root to `classify_file`, enabling principles staleness check globally
 - `parse_header`: Extract `principles_hash` field from header line 2 (regex: `principles-hash:([0-9a-f]{12})`)
 
 ### `/unslop:status`
@@ -121,6 +126,7 @@ The tactical flow bypasses the generation skill. It must explicitly load and enf
 - **Projects without `principles.md`**: Everything works as before. No principles context injected, no principles hash computed, no staleness check.
 - **`init` on existing projects**: Offers to create principles.md but doesn't require it.
 - **Old `parse_header` callers**: The `principles_hash` field is `None` when not present -- same pattern as `spec_hash`/`output_hash` for old-format headers.
+- **Deleted `principles.md`**: If files have `principles-hash` in their headers but `principles.md` no longer exists, classify as `stale (principles removed)`. Regeneration will produce files without `principles-hash`, completing the transition. This treats principle removal as an intentional project-wide change that requires re-evaluation.
 
 ## Plugin Structure Changes
 
