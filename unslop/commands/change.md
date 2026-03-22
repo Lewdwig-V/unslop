@@ -102,7 +102,7 @@ The `[description or elaborated body]` should be the description text as provide
 **Important:** Do NOT invoke the generation skill for this step. The generation skill's Phase 0c would re-consume the entry you just wrote, causing double processing. Instead, directly apply the change:
 
 1. Save a copy of the current managed file content (for revert on failure).
-2. Read the current spec file and the current managed file.
+2. Read the current spec file and the current managed file. Read `.unslop/principles.md` if it exists. Apply principles as constraints alongside the spec when patching the managed file. The tactical change must not violate any project principle.
 3. Patch the managed file directly based on the change intent, using incremental mode discipline (targeted edits only, no restructuring). Follow the unslop/generation skill's header format and idiomatic output guidance, but do not trigger Phase 0a/0b/0c.
 4. Read the test command from `.unslop/config.json` (or `.unslop/config.md` as legacy fallback). Run the test suite.
 5. If tests pass:
