@@ -51,6 +51,33 @@ Over-specified specs break regeneration — every implementation detail becomes 
 
 Aim for the middle: the spec should be testable without being prescriptive.
 
+## Open Questions
+
+When a spec intentionally leaves a decision open, mark it explicitly. This prevents the ambiguity linter from blocking generation on deliberate flexibility.
+
+Two mechanisms:
+
+**Inline marker** — add `[open]` on the same line as the flexible statement:
+
+```
+Caching strategy uses an appropriate eviction policy [open]
+```
+
+**Dedicated section** — list broader open questions with rationale:
+
+```markdown
+## Open Questions
+- Whether to use LRU or LFU eviction — will benchmark after first deployment
+- Error retry backoff curve — depends on upstream SLA negotiations
+```
+
+Use Open Questions for decisions that:
+- Depend on information not yet available (benchmarks, SLA negotiations, API design not finalized)
+- Are genuinely implementation-preference (any reasonable choice is fine)
+- Will be resolved in a future spec revision
+
+Do NOT use Open Questions to dodge spec writing. If a constraint is knowable now, specify it. The ambiguity linter will flag abusive use of `[open]` on constraints that clearly need pinning down.
+
 ## Suggested Headings
 
 These are not required, but they cover the ground most specs need:
@@ -142,4 +169,7 @@ Use this when creating a spec for a file that has no existing spec. Fill in what
 
 ## Error Handling
 [How errors are surfaced, what fails visibly vs silently, recovery behavior]
+
+## Open Questions
+[Decisions intentionally deferred — remove this section if none]
 ```
