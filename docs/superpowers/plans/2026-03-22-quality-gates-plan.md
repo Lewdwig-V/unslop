@@ -74,12 +74,48 @@ Short.
     assert any(i["check"] == "minimum_length" for i in result["issues"])
 
 
+def test_fail_exactly_three_non_blank_lines():
+    content = """# spec
+
+## Purpose
+Does stuff.
+"""
+    result = validate_spec(content, "src/edge.py.spec.md")
+    assert result["status"] == "fail"
+    assert any(i["check"] == "minimum_length" for i in result["issues"])
+
+
+def test_pass_exactly_four_non_blank_lines():
+    content = """# spec
+
+## Purpose
+Does stuff.
+More detail here.
+"""
+    result = validate_spec(content, "src/edge.py.spec.md")
+    assert result["status"] in ("pass", "warn")
+
+
 def test_fail_no_substantive_section():
     content = """# retry.py spec
 
 This is just a title with some prose underneath it but no
 actual headings with content. It goes on for several lines
 but none of them are under a ## heading.
+"""
+    result = validate_spec(content, "src/retry.py.spec.md")
+    assert result["status"] == "fail"
+    assert any(i["check"] == "required_sections" for i in result["issues"])
+
+
+def test_fail_heading_with_only_one_content_line():
+    content = """# retry.py spec
+
+## Error Handling
+Raises RetryExhausted.
+
+This line is outside all headings so doesn't count.
+And this one too. And another to pass minimum length.
 """
     result = validate_spec(content, "src/retry.py.spec.md")
     assert result["status"] == "fail"
@@ -274,18 +310,10 @@ def validate_spec(content: str, spec_path: str) -> dict:
                     for pat in IMPLEMENTATION_PATTERNS
                 )
                 if has_impl:
-                    # Check if it's under an Examples heading
-                    under_examples = False
-                    for j in range(fence_start, -1, -1):
-                        if re.match(r'^## ', body_lines[j]):
-                            if re.match(r'^## [Ee]xamples?', body_lines[j]):
-                                under_examples = True
-                            break
-                    if not under_examples:
-                        warnings.append({
-                            "check": "code_fence_misuse",
-                            "message": f"Code fence at line {fence_start + 1} may contain implementation code rather than a data example"
-                        })
+                    warnings.append({
+                        "check": "code_fence_misuse",
+                        "message": f"Code fence at line {fence_start + 1} may contain implementation code rather than a data example"
+                    })
                 in_fence = False
                 fence_lines = []
         elif in_fence:
@@ -345,7 +373,7 @@ Note: The import in tests uses `validate_spec` (underscore) as the module name, 
 - [ ] **Step 4: Run tests to verify they pass**
 
 Run: `python -m pytest tests/test_validate_spec.py -v`
-Expected: all 10 tests PASS
+Expected: all 13 tests PASS
 
 - [ ] **Step 5: Test CLI**
 
