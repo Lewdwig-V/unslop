@@ -427,7 +427,38 @@ def check_freshness(directory: str) -> dict:
         result["spec"] = rel_spec
         files.append(result)
 
-    all_fresh = all(f["state"] == "fresh" for f in files)
+    # Scan for pending change requests
+    change_files = sorted(root.rglob("*.change.md"))
+    for change_path in change_files:
+        try:
+            content = change_path.read_text(encoding="utf-8")
+        except (OSError, UnicodeDecodeError):
+            continue
+        entries = parse_change_file(content)
+        if not entries:
+            continue
+
+        # Derive managed file path: strip .change.md
+        managed_name = re.sub(r"\.change\.md$", "", change_path.name)
+        managed_rel = str((change_path.parent / managed_name).relative_to(root))
+
+        counts = {"count": len(entries), "pending": 0, "tactical": 0}
+        for e in entries:
+            if e["status"] in counts:
+                counts[e["status"]] += 1
+
+        # Find and update the matching file entry
+        for f in files:
+            if f["managed"] == managed_rel:
+                f["pending_changes"] = counts
+                if "hint" not in f or f.get("state") == "fresh":
+                    f["hint"] = f"{counts['count']} change request(s) awaiting processing."
+                break
+
+    all_fresh = all(
+        f["state"] == "fresh" and "pending_changes" not in f
+        for f in files
+    )
     counts = Counter(f["state"] for f in files)
     summary = ", ".join(f"{v} {k}" for k, v in sorted(counts.items()))
 

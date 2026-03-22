@@ -612,3 +612,65 @@ why this matters and what constraints apply.
     assert len(result) == 1
     assert "First paragraph" in result[0]["body"]
     assert "Bullet point two" in result[0]["body"]
+
+
+def test_check_freshness_pending_changes(tmp_path):
+    from orchestrator import check_freshness, compute_hash, parse_change_file
+    spec = "# spec\n\n## Behavior\nDoes stuff.\nMore detail.\n"
+    body = "def thing(): pass\n"
+    sh = compute_hash(spec)
+    oh = compute_hash(body)
+    (tmp_path / "thing.py.spec.md").write_text(spec)
+    (tmp_path / "thing.py").write_text(
+        f"# @unslop-managed — do not edit directly. Edit thing.py.spec.md instead.\n"
+        f"# spec-hash:{sh} output-hash:{oh} generated:2026-03-22T14:32:00Z\n" + body
+    )
+    (tmp_path / "thing.py.change.md").write_text(
+        "<!-- unslop-changes v1 -->\n"
+        "### [pending] Add feature — 2026-03-22T15:00:00Z\n\nAdd a feature.\n\n---\n"
+    )
+    result = check_freshness(str(tmp_path))
+    assert result["status"] == "fail"  # pending changes = non-fresh
+    file_entry = result["files"][0]
+    assert file_entry["state"] == "fresh"  # hash state is fresh
+    assert "pending_changes" in file_entry
+    assert file_entry["pending_changes"]["count"] == 1
+    assert file_entry["pending_changes"]["pending"] == 1
+
+def test_check_freshness_no_changes_still_pass(tmp_path):
+    from orchestrator import check_freshness, compute_hash
+    spec = "# spec\n\n## Behavior\nDoes stuff.\nMore detail.\n"
+    body = "def thing(): pass\n"
+    sh = compute_hash(spec)
+    oh = compute_hash(body)
+    (tmp_path / "thing.py.spec.md").write_text(spec)
+    (tmp_path / "thing.py").write_text(
+        f"# @unslop-managed — do not edit directly. Edit thing.py.spec.md instead.\n"
+        f"# spec-hash:{sh} output-hash:{oh} generated:2026-03-22T14:32:00Z\n" + body
+    )
+    result = check_freshness(str(tmp_path))
+    assert result["status"] == "pass"
+    assert "pending_changes" not in result["files"][0]
+
+def test_check_freshness_mixed_changes(tmp_path):
+    from orchestrator import check_freshness, compute_hash
+    spec = "# spec\n\n## Behavior\nDoes stuff.\nMore detail.\n"
+    body = "def thing(): pass\n"
+    sh = compute_hash(spec)
+    oh = compute_hash(body)
+    (tmp_path / "thing.py.spec.md").write_text(spec)
+    (tmp_path / "thing.py").write_text(
+        f"# @unslop-managed — do not edit directly. Edit thing.py.spec.md instead.\n"
+        f"# spec-hash:{sh} output-hash:{oh} generated:2026-03-22T14:32:00Z\n" + body
+    )
+    (tmp_path / "thing.py.change.md").write_text(
+        "<!-- unslop-changes v1 -->\n"
+        "### [pending] Change 1 — 2026-03-22T15:00:00Z\n\nBody 1.\n\n---\n\n"
+        "### [tactical] Change 2 — 2026-03-22T16:00:00Z\n\nBody 2.\n\n---\n"
+    )
+    result = check_freshness(str(tmp_path))
+    assert result["status"] == "fail"
+    pc = result["files"][0]["pending_changes"]
+    assert pc["count"] == 2
+    assert pc["pending"] == 1
+    assert pc["tactical"] == 1
