@@ -4,7 +4,7 @@ description: Initialize unslop in the current project
 
 Check if `.unslop/` already exists in the current working directory.
 
-If it exists: inform the user that unslop is already initialized and ask if they want to re-detect the test command. If yes, skip to the detection step and overwrite `.unslop/config.md`. If no, stop.
+If it exists: inform the user that unslop is already initialized and ask if they want to re-detect the test command. If yes, skip to the detection step and overwrite `.unslop/config.json`. If no, stop.
 
 If it does not exist, proceed with the following steps:
 
@@ -31,13 +31,18 @@ Check for the following files in order:
 
 If multiple indicators are found, or none are found, ask the user which test command to use before continuing.
 
-**4. Write `.unslop/config.md`**
+**4. Write `.unslop/config.json`**
 
-```markdown
-# unslop configuration
-
-Test command: `<detected or user-provided command>`
+```json
+{
+  "test_command": "<detected or user-provided command>",
+  "test_command_note": "Detected from <source>",
+  "exclude_patterns": [],
+  "exclude_patterns_note": "Additional directory patterns to exclude from discovery, beyond defaults"
+}
 ```
+
+**Migration:** If `.unslop/config.md` exists, read its test command value, migrate to `config.json`, then delete `config.md`. Include the deletion in the commit.
 
 **5. Create `.unslop/alignment-summary.md`**
 
