@@ -81,62 +81,63 @@ This archive is a safety net. The user can manually recover the original from it
 
 ---
 
-## Step 4: Generate
+## Step 4: Generate (Stage B -- Builder in Worktree)
 
-Use the **unslop/generation** skill for code generation discipline.
+Use the **unslop/generation** skill's two-stage execution model.
 
-**CRITICAL: Takeover always uses full regeneration mode (Mode A). Do NOT read the archived original. Generate from the spec ONLY.**
+**CRITICAL: Takeover always uses full regeneration mode (Mode A). The Builder does NOT read the archived original.**
 
-The entire point of the takeover pipeline is that the spec becomes the source of truth. Reading the original would contaminate the generation with implementation details that were not captured in the spec. If the spec is missing something important, the convergence loop will surface it. Incremental mode (Mode B) is never appropriate during takeover — there is no trusted baseline to diff against.
+Dispatch a Builder Agent with:
+- test_policy: `"Write or extend tests as needed for newly explicit constraints"`
+- Mode A (full regeneration) -- always, no incremental for takeover
+- The spec path as the sole source of truth
 
-Write the generated file to the original path. Include the `@unslop-managed` header as specified by the generation skill.
-
----
-
-## Step 5: Validate
-
-Read the test command from `.unslop/config.json`.
-
-Run the tests.
-
-**If all tests pass:**
-
-- Commit the spec file and the generated file together
-- Report success to the calling command. The command handles alignment summary updates.
-
-**If any tests fail:**
-
-- Enter the convergence loop (Step 6)
+The Architect stage (Steps 1-2) already ran in the user's session -- it read the code, drafted the spec, and got user approval. The Builder starts fresh with zero knowledge of the original code.
 
 ---
 
-## Step 6: Convergence Loop
+## Step 5: Validate (Verification in Controlling Session)
+
+After the Builder Agent completes:
+
+**If DONE with green tests:**
+
+- Worktree merges automatically
+- Compute `output-hash` on merged code, update `@unslop-managed` header
+- Commit the spec file and the generated file together as a single atomic commit
+- Report success to the calling command
+
+**If BLOCKED or tests fail:**
+
+- Discard the worktree
+- Enter the convergence loop (Step 6) using the Builder's failure report
+
+---
+
+## Step 6: Convergence Loop (Cross-Stage)
 
 Maximum **3 iterations**. Track the iteration count.
 
 For each iteration:
 
-a. **Analyze test failures** — Read the test output carefully. What behavior is the test asserting that the generated code does not exhibit?
+a. **Read the Builder's failure report** -- failing test names, assertion messages, what was attempted, suspected spec gaps. Do NOT request raw test output or code snippets.
 
-b. **Identify the missing semantic constraint** — Trace the failure back to a gap in the spec. What does the spec fail to say about the expected behavior?
+b. **Enrich the spec (Stage A)** -- Based on the failure report's suspected spec gaps, add missing constraints in spec-language voice. The Architect identifies gaps only -- it does NOT copy implementation suggestions from the Builder.
 
-c. **Enrich the spec** — Add the missing constraint to the spec in spec-language voice: intent and observable behavior, not implementation. Do not add code-level detail.
+c. **Get user approval** -- Present the enriched spec to the user. Wait for approval.
 
-d. **Regenerate** — Generate the file again from the enriched spec using **full regeneration mode (Mode A)**. Still no peeking at the archived original.
+d. **Stage the spec update** -- `git add <spec_path>`. Do NOT commit.
 
-e. **Re-run tests** — Run the full test suite again.
+e. **Dispatch a new Builder (Stage B)** -- Fresh Agent, new worktree. The Builder never knows why the spec changed. test_policy: `"Write or extend tests as needed for newly explicit constraints"`.
 
-**If tests go green at any iteration:** done. Commit the enriched spec and the generated file. Report which constraints were added during convergence.
+f. **Verify** -- Same as Step 5. If green: commit atomically, done. If red: next iteration.
 
-**If maximum iterations are reached and tests are still red:** stop. Do not attempt another iteration. Present to the user:
-
-- Which tests are still failing
-- What constraints were added to the spec during the convergence loop
-- The location of the original file in the archive
+**If maximum iterations reached:** discard the worktree, revert the staged spec update. Present:
+- The Builder's latest failure report
+- What constraints were added during convergence
+- The archive location for manual recovery
 
 Then ask the user for guidance.
-
-**NEVER patch the generated code directly. Always enrich the spec and regenerate.** Patching the code directly breaks the invariant that the spec is the source of truth. A patched file will diverge from any future regeneration.
 
 ---
 
@@ -205,13 +206,15 @@ Archive ALL original files in the unit, not just one.
 
 Run tests once for the entire unit (not per-file). The test command from `.unslop/config.json` should cover the unit. If tests pass, commit ALL specs and generated files together.
 
-### Convergence Loop (Step 6 — updated)
+### Convergence Loop (Step 6 -- updated)
 
 The loop works the same as single-file mode with these changes:
-- Enrich whichever spec(s) are relevant to the failing tests
-- **Do NOT change `depends-on` frontmatter during convergence** — changing the dependency graph mid-loop creates cascading instability
-- Regenerate only files whose specs were enriched, plus files that depend on them (check the build order)
-- If the orchestrator reports an error during convergence (e.g., a cycle introduced despite the rule), abort immediately and surface the error
+- Each convergence iteration dispatches a fresh Builder Agent in a new worktree
+- Enrich whichever spec(s) are relevant to the failing tests (based on the Builder's failure report)
+- **Do NOT change `depends-on` frontmatter during convergence**
+- Regenerate only files whose specs were enriched, plus dependents (check build order)
+- For per-unit specs: the Builder generates all files in a single worktree session
+- On convergence failure: discard the worktree, revert all staged spec updates
 
 ### Abandonment State (updated)
 
