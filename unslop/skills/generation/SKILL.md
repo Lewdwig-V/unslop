@@ -334,6 +334,8 @@ Ask:
 - Are there constraints added during convergence that could be stated more precisely?
 - Does the spec leave behavioral choices open that should be pinned down for reproducibility?
 
+Specs that passed tests today but lack explicit constraints will produce different code tomorrow. The completeness review is what distinguishes a spec that works once from a spec that works reliably.
+
 Frame suggestions as: "Consider adding: [constraint]" with a brief rationale.
 
 ### Post-generate/sync mode (spec was user-written)
@@ -344,8 +346,6 @@ Ask:
 - Does the spec reference behavior or concepts not defined anywhere in the spec?
 
 Only flag clear contradictions or inconsistencies. Do NOT suggest additions or tightening — the user wrote this spec deliberately.
-
-This review catches the constraints that every future regeneration will depend on. Specs that passed tests today but lack explicit constraints will produce different code tomorrow. The completeness review is what distinguishes a spec that works once from a spec that works reliably.
 
 ### Result handling
 
