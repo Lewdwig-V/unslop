@@ -141,13 +141,6 @@ CLI + MCP dual-mode: `tessl init` → `tessl create --spec` → `tessl build` (s
 
 4. **Version-matched framework documentation** (from Tessl's Tiles Registry) — When domain skills reference a framework (FastAPI, React, etc.), pin the documentation to the version in the project's dependencies. Prevents the model from generating code for the wrong API version.
 
-### Ideas to Skip
-
-- **Subagent-per-task** (Superpowers) — adds orchestration complexity without clear quality gain over unslop's spec-isolated generation.
-- **Sequential phase gates** (Spec Kit) — unslop's simpler pipeline is appropriate for its scope. Phase gates add ceremony without proportional benefit at file-level granularity.
-- **MCP server mode** (Tessl) — deferred per existing roadmap. Current hooks + orchestrator architecture is sufficient.
-- **Tiles/plugin marketplace** — premature. Domain skills should prove value locally before building distribution infrastructure.
-
 ---
 
 ## Impact on Existing Roadmap
@@ -155,12 +148,40 @@ CLI + MCP dual-mode: `tessl init` → `tessl create --spec` → `tessl build` (s
 This analysis reinforces the existing gap roadmap priorities and adds two new items:
 
 | Priority | Item | Source |
-|---|---|---|
-| **Reinforce** | Ambiguity detection (Gap 1) | All three tools address this in different ways |
+
 | **Reinforce** | Domain skills (Gap 8) | Tessl's registry validates the concept at scale |
 | **New** | Project principles document | Spec Kit's constitution concept |
 | **New** | Skill evaluation framework | Tessl's eval approach |
-| **Defer** | MCP server, marketplace, subagents | Not needed at current scale |
+
+Re-evaluate:
+
+1. Subagent-per-task (The "No-Peeking" Enforcer)
+
+* Why Re-evaluate? You hit the nail on the head: Isolation. If a single context window sees the Spec, the Code, and the Change Request, it often takes "shortcuts" (hallucinating that the spec is already updated because it saw the intent in the change request).
+* The Benefit: A subagent can be spawned with only the Spec and the Target File. It literally cannot "peek" at the change request or other unrelated files. This forces the model to treat the Spec as the absolute source of truth.
+* Verdict: Don't skip. Implement a lightweight subagent wrapper for the Generation Skill to ensure strict input isolation.
+
+2. Sequential Phase Gates (The "Review" Checkpoints)
+
+* Why Re-evaluate? While "ceremony" sounds bad, automated validation between steps is vital.
+* The Benefit: In your Tactical Flow, the "Heal" step (updating the spec to match the code) is a perfect candidate for a gate. You don't want to calculate hashes if the spec update failed a structural linter.
+* Verdict: Keep it "Lite". Instead of heavy manual gates, use Automated Validation Gates (Linting, Spec-Parsing) between the "Spec Update" and "Code Generation" phases.
+
+3. MCP Server Mode (The "Tooling" Bridge)
+
+* Why Re-evaluate? MCP (Model Context Protocol) is becoming the standard for how IDEs (Claude Desktop, Cursor) talk to local tools.
+* The Benefit: If unslop is an MCP server, a developer can say to their IDE, "Use the unslop tool to apply a tactical change to this file," and the IDE handles the file reading/writing through your established orchestrator logic.
+* Verdict: Defer, but Prep. Stick to the CLI for Milestone C, but ensure your orchestrator functions are structured so they can be exposed as MCP "tools" in Milestone E without a total rewrite.
+
+4. Tiles/Plugin Marketplace (The "Ecosystem")
+
+* Why Re-evaluate? You're correct—this is premature.
+* The Benefit: None yet. You need to nail the Domain Skill Infrastructure (how a skill is loaded from a local folder) before worrying about how others share them.
+* Verdict: Skip. Focus on the "Local Plugin" architecture first.
+
+The New Priority: The Subagent "Controller"
+If we bring back subagents, the orchestrator needs to evolve into a Controller. It doesn't just call a script; it decides which "context packet" to hand to a specialized agent.
+Does it make sense to define the "Context Packet" (the restricted set of files/info) that the Generation Subagent receives to ensure the "no-peeking" rule is enforced?
 
 ---
 
