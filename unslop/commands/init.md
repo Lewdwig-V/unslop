@@ -70,7 +70,30 @@ Present the template to the user for editing.
 
 If no, skip. Principles are optional.
 
-**6. Create `.unslop/alignment-summary.md`**
+**6. Detect frameworks (optional)**
+
+Scan the project for known framework indicators:
+- `pyproject.toml` or `requirements.txt`: look for `fastapi`, `flask`, `django`, `sqlalchemy`, `pydantic`
+- `package.json`: look for `react`, `vue`, `next`, `express`
+- `Cargo.toml`: note `rust` as the ecosystem
+- `go.mod`: note `go` as the ecosystem
+- Terraform files (`.tf`): note `terraform`
+
+Only include frameworks that have a corresponding `unslop/domain/<framework>/SKILL.md` skill file. Currently shipped: `fastapi`. Other detected frameworks should be noted to the user but not added to `config.json` until their domain skill is available.
+
+Present detected frameworks to the user:
+> "Detected frameworks: [list]. Domain-specific generation rules will be loaded for these. Edit the `frameworks` field in `.unslop/config.json` to adjust."
+
+Add the following fields to the existing `.unslop/config.json` object:
+```json
+"frameworks": ["fastapi"],
+"frameworks_note": "Domain skills loaded for these frameworks during generation"
+```
+These are fields to merge into the existing config object, not a standalone file.
+
+If no frameworks detected, skip. The `frameworks` field is optional.
+
+**7. Create `.unslop/alignment-summary.md`**
 
 ```markdown
 # unslop alignment summary
@@ -81,6 +104,6 @@ If no, skip. Principles are optional.
 No managed files yet. Use /unslop:takeover or /unslop:spec to get started.
 ```
 
-**7. Commit**
+**8. Commit**
 
 Stage the entire `.unslop/` directory and create a commit with the message: `chore: initialize unslop`
