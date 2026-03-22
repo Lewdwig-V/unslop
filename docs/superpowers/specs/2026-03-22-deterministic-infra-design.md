@@ -89,7 +89,7 @@ Replaces the mtime-based three-state classification with content-hash-based four
 
 - **Header missing or malformed:** Classify as `unmanaged (no header)`. Treat the same as a file not yet managed by unslop.
 - **Spec file missing:** Report as an error — the managed file references a spec that no longer exists.
-- **New header format on old files:** Files with the old timestamp-only header (no hashes) fall back to mtime-based classification with a warning suggesting regeneration to update the header.
+- **New header format on old files:** Files with the old timestamp-only header (no hashes) are classified as `old_format` — a distinct edge case state. No mtime fallback is attempted (mtime is the very thing being replaced). Status displays `(old header — regenerate to update)`. Generate/sync treat `old_format` the same as `stale` — safe to regenerate, which updates the header to the new format.
 
 ## `config.json`
 

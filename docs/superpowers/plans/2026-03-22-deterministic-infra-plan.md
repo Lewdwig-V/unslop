@@ -322,6 +322,16 @@ def test_classify_old_header_format(tmp_path):
     result = classify_file(str(tmp_path / "retry.py"), str(tmp_path / "retry.py.spec.md"))
     assert result["state"] == "old_format"
     assert "warning" in result
+
+def test_classify_spec_missing(tmp_path):
+    (tmp_path / "retry.py").write_text(
+        "# @unslop-managed — do not edit directly. Edit retry.py.spec.md instead.\n"
+        "# spec-hash:abc123def456 output-hash:789012345678 generated:2026-03-22T14:32:00Z\n"
+        "def retry(): pass\n"
+    )
+    result = classify_file(str(tmp_path / "retry.py"), str(tmp_path / "retry.py.spec.md"))
+    assert result["state"] == "error"
+    assert "spec" in result.get("hint", "").lower()
 ```
 
 - [ ] **Step 2: Implement classify_file**
@@ -355,6 +365,11 @@ def classify_file(managed_path: str, spec_path: str) -> dict:
     ext = managed.suffix
 
     managed_content = managed.read_text(encoding="utf-8")
+
+    if not spec.exists():
+        return {"managed": str(managed_path), "spec": str(spec_path), "state": "error",
+                "hint": "Spec file not found — the managed file references a spec that no longer exists."}
+
     spec_content = spec.read_text(encoding="utf-8")
 
     header = parse_header(managed_content, ext)
@@ -523,6 +538,23 @@ def check_freshness(directory: str) -> dict:
     summary = ", ".join(f"{v} {k}" for k, v in sorted(counts.items()))
 
     return {"status": "pass" if all_fresh else "fail", "files": files, "summary": summary}
+```
+
+Also update the existing `discover` CLI branch to read `exclude_patterns` from `.unslop/config.json` if it exists:
+
+```python
+    if command == "discover":
+        # ... existing argument parsing ...
+        # NEW: read exclude_patterns from config.json if present
+        extra_excludes = None
+        config_path = Path(directory) / ".unslop" / "config.json"
+        if config_path.exists():
+            try:
+                config = json.loads(config_path.read_text(encoding="utf-8"))
+                extra_excludes = config.get("exclude_patterns", [])
+            except (json.JSONDecodeError, OSError):
+                pass  # ignore malformed config, use defaults
+        result = discover_files(directory, extensions=extensions, extra_excludes=extra_excludes)
 ```
 
 Add to `main()` CLI:
