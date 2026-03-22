@@ -615,7 +615,7 @@ why this matters and what constraints apply.
 
 
 def test_check_freshness_pending_changes(tmp_path):
-    from orchestrator import check_freshness, compute_hash, parse_change_file
+    from orchestrator import check_freshness, compute_hash
     spec = "# spec\n\n## Behavior\nDoes stuff.\nMore detail.\n"
     body = "def thing(): pass\n"
     sh = compute_hash(spec)
