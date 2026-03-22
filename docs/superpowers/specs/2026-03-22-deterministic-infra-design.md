@@ -43,7 +43,7 @@ Three changes, tightly coupled:
 - **Algorithm:** SHA-256, truncated to first 12 hex characters
 - **`spec-hash`:** Hash of the spec file content at generation time (entire file, including frontmatter)
 - **`output-hash`:** Hash of the managed file content *below the header* at generation time
-- **Hashing scope:** The output-hash excludes the header lines. Hash starts from the first character of actual code/content. Leading/trailing whitespace is stripped before hashing to avoid platform-dependent newline differences.
+- **Hashing scope:** The output-hash excludes the header lines. Hash starts from the first character of actual code/content. Apply Python `str.strip()` to the body content before hashing to normalize leading/trailing whitespace across platforms.
 - **Hash timing:** Hash the final byte-exact output after any post-processing (formatting, linting) to avoid stale-hash errors from invisible whitespace changes.
 - **`generated` timestamp:** Retained for human readability and relative-time display in status output. Not used for staleness classification.
 
@@ -60,7 +60,9 @@ This ordering ensures the output-hash is computed before the header is written �
 
 ## Four-State Staleness Classification
 
-Replaces the mtime-based three-state classification with content-hash-based four-state:
+Replaces the mtime-based three-state classification with content-hash-based four-state.
+
+**Deviation from gap analysis:** The gap analysis defined three states, treating the "spec changed AND code changed" case as a variant of Stale (`stale (modified)`). This spec promotes it to a distinct Conflict state because losing manual edits should require explicit acknowledgment — a developer's emergency hotfix shouldn't be silently overwritten just because a spec also changed. The four-state model turns a potential data loss scenario into a controlled interaction.
 
 ### Classification algorithm
 
@@ -93,7 +95,11 @@ Replaces the mtime-based three-state classification with content-hash-based four
 
 ### Format
 
-`.unslop/config.json` replaces `.unslop/config.md`:
+`.unslop/config.json` replaces `.unslop/config.md`.
+
+**Deviation from gap analysis:** The gap analysis proposed a dual-file approach (`config.md` for humans + `config.json` for scripts). This spec uses a single `config.json` with `_note` fields instead. Rationale: a dual-file strategy creates sync risk — editing `config.md` without updating `config.json` causes scripts to read stale data. Single source of truth eliminates this class of bugs. The `_note` fields provide the same contextual information the model would have gotten from prose.
+
+Schema:
 
 ```json
 {
@@ -104,7 +110,7 @@ Replaces the mtime-based three-state classification with content-hash-based four
 }
 ```
 
-- `_note` suffixed fields provide context for the model (the "why" behind the value)
+- **Naming rule:** Any field whose name ends with `_note` is informational and MUST NOT be read by scripts. Scripts ignore `*_note` fields; the model reads them for context.
 - Scripts read the data fields; the model reads both data and notes
 - Only fields that scripts actually consume are included — YAGNI
 
@@ -196,6 +202,14 @@ python3 "$(git rev-parse --show-toplevel)/unslop/scripts/orchestrator.py" \
     check-freshness "$(git rev-parse --show-toplevel)"
 ```
 
+### Unit spec handling
+
+For `*.unit.spec.md` files, the managed file paths come from the `## Files` section rather than filename derivation. The `check-freshness` subcommand reads the `## Files` section, resolves paths relative to the spec's directory, and checks each listed file's header. The unit is classified by its worst-case file state (if any file is conflict, the unit is conflict).
+
+### Exit behavior
+
+Files in `modified` or `conflict` state are treated as non-fresh and cause exit 1. A deliberately edited managed file will block CI — this is intentional. The developer must either revert the edit, update the spec to match, or regenerate with `--force`.
+
 ### What it does NOT do
 
 - Generate or regenerate files — that's the model's job
@@ -209,6 +223,8 @@ python3 "$(git rev-parse --show-toplevel)/unslop/scripts/orchestrator.py" \
 - Section 2 (header format): Update to write the new dual-hash header
 - Remove the placeholder comment about "when dual-hash staleness from Gap 2 is implemented"
 - Add the write-order instructions (generate body → hash → write header → write body)
+- **Incremental mode:** After applying targeted edits, re-hash the full body content and update the header with new `output-hash`, `spec-hash`, and timestamp. The body changes via diff, then the complete body is hashed for the header.
+- Update all references from `config.md` to `config.json` (Sections 1 and 5 reference `.unslop/config.md`)
 
 ### Status command
 
@@ -221,10 +237,12 @@ python3 "$(git rev-parse --show-toplevel)/unslop/scripts/orchestrator.py" \
 - Replace mtime staleness check with hash-based check
 - Add `--force` flag for overwriting modified/conflict files
 - Warn before overwriting modified files; block on conflict unless `--force`
+- Update references from `config.md` to `config.json`
 
 ### Sync command
 
 - Same changes as generate — hash-based staleness, `--force` for modified/conflict
+- Update references from `config.md` to `config.json`
 
 ### Init command
 
