@@ -1,17 +1,17 @@
 # Spec-Driven Development Tools: Landscape Analysis
 
-> Comparative analysis of Superpowers, GitHub Spec Kit, and Tessl — three spec-driven development tools — and what unslop can learn from each.
+> Comparative analysis of Superpowers, GitHub Spec Kit, and Tessl — three notable spec-driven development tools — and what unslop can learn from each. Note: unslop builds on Superpowers (it is a dependency, not a competitor); the comparison here is about methodology concepts worth adopting.
 
 ---
 
 ## Overview
 
-Three tools beyond CodeSpeak occupy the spec-driven development space, each with a distinct philosophy:
+Three notable tools beyond CodeSpeak occupy the spec-driven development space, each with a distinct philosophy. These were selected because they represent the three main architectural approaches (skills-based methodology, constitutional governance, and spec-as-source):
 
 | Tool | Philosophy | Primary Artifact | GitHub Stars |
 |---|---|---|---|
-| **Superpowers** | Senior-engineer methodology enforcement | Skills (methodology docs) | ~94K+ |
-| **GitHub Spec Kit** | Constitutional governance | Constitution + Specs | N/A (GitHub official) |
+| **Superpowers** | Senior-engineer methodology enforcement | Skills (methodology docs) | ~3K |
+| **GitHub Spec Kit** | Constitutional governance | Constitution + Specs | ~2K (GitHub project, covered by Microsoft DevDiv blog) |
 | **Tessl** | Spec-as-source | Spec files (`.spec.md`) | ~55 |
 
 ---
@@ -24,7 +24,7 @@ Three tools beyond CodeSpeak occupy the spec-driven development space, each with
 
 ### Core Workflow
 
-Seven-phase pipeline: **Brainstorm → Spec → Plan → TDD → Subagent Dev → Review → Finalize**. Skills activate automatically via natural language intent recognition — no slash commands.
+Seven-phase pipeline: **Brainstorm → Spec → Plan → TDD → Subagent Dev → Review → Finalize**. Skills activate automatically via natural language intent recognition. Legacy slash commands still exist (`/brainstorm`, `/write-plan`, `/execute-plan`) but are deprecated in favor of intent-based skill activation.
 
 ### Architecture
 
@@ -46,7 +46,7 @@ Seven-phase pipeline: **Brainstorm → Spec → Plan → TDD → Subagent Dev �
 | Superpowers Concept | unslop Equivalent | Gap/Opportunity |
 |---|---|---|
 | Fresh subagent per task | Generation runs in controlling agent context | **Low priority** — unslop's spec isolation achieves similar purity without subagent overhead |
-| Two-stage review gate | Convergence loop (test-based) | **Already stronger** — unslop's loop is automated; Superpowers requires manual review |
+| Two-stage review gate | Convergence loop (test-based) | **Already stronger when spec is unambiguous** — unslop's loop is automated; Superpowers requires manual review. However, the loop does not catch spec-level ambiguity (see Gap 1, now addressed by quality gates in v0.3.0) |
 | Enforced TDD (deletes pre-test code) | Tests required for convergence | **Consider adopting** — explicit rejection of code-before-test would strengthen discipline |
 | Skills as testable documents | Skills exist but aren't tested | **Medium priority** — a TDD approach to skill authoring could improve skill quality |
 | Persuasion principles in prompts | Standard instructional language | **Worth experimenting** — could improve model compliance with generation constraints |
@@ -57,12 +57,12 @@ Seven-phase pipeline: **Brainstorm → Spec → Plan → TDD → Subagent Dev �
 ## 2. GitHub Spec Kit
 
 **Repo:** [github.com/github/spec-kit](https://github.com/github/spec-kit)
-**Backed by:** GitHub
+**Backed by:** GitHub (a Microsoft subsidiary; covered by Microsoft Developer Blog)
 **License:** Open source
 
 ### Core Workflow
 
-Sequential slash commands: `/speckit.constitution` → `/speckit.specify` → `/speckit.plan` → `/speckit.tasks` → `/speckit.analyze`. Human drives each phase.
+Sequential slash commands: `/speckit.constitution` → `/speckit.specify` → `/speckit.plan` → `/speckit.tasks` → `/speckit.analyze` → `/speckit.implement`. The final step executes `tasks.md` and builds the feature. Human drives each phase transition.
 
 ### Architecture
 
@@ -116,7 +116,7 @@ CLI + MCP dual-mode: `tessl init` → `tessl create --spec` → `tessl build` (s
 | `tessl document` (reverse-engineer specs) | `/unslop:takeover` | **Already comparable** — unslop's approval gate is an advantage over Tessl's auto-generation |
 | Tiles Registry (3K+ skills) | No registry | **Long-term opportunity** — domain skills (Gap 8 in roadmap) are the first step toward this |
 | Eval framework for skills | No skill evaluation | **Medium priority** — measuring whether skills actually improve output would guide skill development |
-| `// GENERATED FROM SPEC - DO NOT EDIT` | `@unslop-managed` header | **Already equivalent** |
+| `// GENERATED FROM SPEC - DO NOT EDIT` | `@unslop-managed` header | **Already comparable** — unslop's header additionally includes the spec path, dual content hashes, and a generation timestamp |
 | MCP server mode | Hooks + orchestrator | **Deferred** — per roadmap, MCP server adds value only at scale (1000+ files) |
 | Version-matched dependency docs | No equivalent | **High value for domain skills** — version-aware framework documentation would significantly improve generation quality |
 
@@ -125,7 +125,7 @@ CLI + MCP dual-mode: `tessl init` → `tessl create --spec` → `tessl build` (s
 - Low adoption (55 GitHub stars)
 - Framework in flux — full Framework features paused during major rewrite
 - 1:1 spec-to-code limitation — doesn't scale well for cross-cutting concerns
-- Auto MCP setup only works for Claude Code and Cursor
+- MCP auto-configuration supports Claude Code, Cursor, Codex, Gemini, Copilot CLI, and Copilot in VSCode — broader than initially assessed
 
 ---
 
