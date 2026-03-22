@@ -1,9 +1,11 @@
 ---
 description: Regenerate one specific managed file from its spec
-argument-hint: <file-path> [--force-ambiguous] [--incremental]
+argument-hint: <file-path> [--force] [--force-ambiguous] [--incremental]
 ---
 
-**Parse arguments:** `$ARGUMENTS` may contain the file path and optional flags. Extract the file path (the first argument that does not start with `--`) and check for flags (`--force-ambiguous`, `--incremental`). Strip flags before using the path in subsequent steps.
+**Parse arguments:** `$ARGUMENTS` may contain the file path and optional flags. Extract the file path (the first argument that does not start with `--`) and check for flags (`--force`, `--force-ambiguous`, `--incremental`). Strip flags before using the path in subsequent steps.
+
+**Check for `--force` flag:** If `$ARGUMENTS` contains `--force`, note this — it allows regeneration to proceed on modified and conflict files without requiring user confirmation.
 
 **1. Verify prerequisites**
 
@@ -25,17 +27,24 @@ Check that the spec file exists. If it does not exist, stop and tell the user:
 
 If the spec has `depends-on` frontmatter, call `python ${CLAUDE_PLUGIN_ROOT}/scripts/orchestrator.py deps <spec-path> --root .` to find transitive dependencies.
 
-Check if any dependencies are stale (their spec mtime > their managed file's generation timestamp). If so, regenerate stale dependencies first, in dependency order, before regenerating the target file.
+Check if any dependencies are stale or conflict (using hash-based classification: compare stored spec-hash against current spec hash; if mismatch, the dependency is stale). If so, regenerate stale dependencies first, in dependency order, before regenerating the target file.
 
 If Python is not available and the spec has no `depends-on` frontmatter, proceed without dependency resolution (backwards compatible). If the spec has dependencies but Python is unavailable, report an error: "This spec has dependencies that require Python 3.8+ for resolution."
 
-**3. Generate**
+**3. Classify and generate**
+
+Classify the target file using hash-based logic (same as `/unslop:generate`):
+- Compute current spec hash (SHA-256 of spec content, truncated to 12 hex) and current output hash (SHA-256 of managed file body below the header, stripped, truncated to 12 hex).
+- Extract stored `spec-hash` and `output-hash` from the `@unslop-managed` header.
+- **Modified** (spec-hash match, output-hash mismatch): warn the user the file was edited directly. If `--force` was passed, proceed. Otherwise, ask for confirmation. If declined, stop.
+- **Conflict** (both hashes mismatch): warn that both spec and code changed. If `--force` was passed, proceed. Otherwise, ask for confirmation. If declined, stop.
+- **Old format** (no hash fields in header): treat as stale and proceed.
 
 Use the **unslop/generation** skill. If the managed file does not yet exist, always use full regeneration (Mode A) regardless of flags. Otherwise, default is full regeneration (Mode A); use incremental mode (Mode B) if the user passed `--incremental` — in that case, read both the spec and the existing managed file, and produce only the targeted edits. Generate the managed file with the `@unslop-managed` header.
 
 **4. Run tests**
 
-Read the test command from `.unslop/config.md`. Run the test suite.
+Read the test command from `.unslop/config.json`. Run the test suite.
 
 - If tests pass: report success and the file path.
 - If tests fail: report the failures and stop. Do not attempt to fix or retry.
