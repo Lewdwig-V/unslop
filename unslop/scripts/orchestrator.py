@@ -4,6 +4,7 @@ from __future__ import annotations
 import hashlib
 import json
 import re
+import subprocess
 import sys
 from pathlib import Path
 
@@ -599,23 +600,27 @@ def file_tree(directory: str) -> list[str]:
 
     Returns sorted list of tracked filenames relative to the directory.
     Used by the Architect stage to see file names without file contents.
-    """
-    import subprocess as _subprocess
 
+    An empty repo (no tracked files) returns [].
+    """
     root = Path(directory).resolve()
     if not root.is_dir():
         raise ValueError(f"Directory does not exist: {directory}")
 
     try:
-        result = _subprocess.run(
+        result = subprocess.run(
             ["git", "ls-files"],
             cwd=str(root),
             capture_output=True,
             text=True,
             check=True,
         )
-    except _subprocess.CalledProcessError:
-        raise ValueError(f"Not a git repository: {directory}")
+    except FileNotFoundError:
+        raise ValueError("git executable not found on PATH. Install git and ensure it is available.")
+    except subprocess.CalledProcessError as exc:
+        stderr_detail = exc.stderr.strip() if exc.stderr else ""
+        detail = f" ({stderr_detail})" if stderr_detail else ""
+        raise ValueError(f"Not a git repository: {directory}{detail}") from exc
 
     files = [f for f in result.stdout.strip().split("\n") if f]
     return sorted(files)
