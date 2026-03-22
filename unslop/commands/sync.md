@@ -31,7 +31,7 @@ Check if any dependencies are stale or conflict (using hash-based classification
 
 If Python is not available and the spec has no `depends-on` frontmatter, proceed without dependency resolution (backwards compatible). If the spec has dependencies but Python is unavailable, report an error: "This spec has dependencies that require Python 3.8+ for resolution."
 
-**3. Classify and generate**
+**3. Classify and dispatch**
 
 Classify the target file using hash-based logic (same as `/unslop:generate`):
 - Compute current spec hash (SHA-256 of spec content, truncated to 12 hex) and current output hash (SHA-256 of managed file body below the header, stripped, truncated to 12 hex).
@@ -40,16 +40,21 @@ Classify the target file using hash-based logic (same as `/unslop:generate`):
 - **Conflict** (both hashes mismatch): warn that both spec and code changed. If `--force` was passed, proceed. Otherwise, ask for confirmation. If declined, stop.
 - **Old format** (no hash fields in header): treat as stale and proceed.
 
-The generation skill's Phase 0c automatically processes any pending `*.change.md` entries for each file being regenerated. No additional command-level logic is needed — the skill handles change request consumption, conflict detection, and promotion.
+**Stage A (Architect -- if pending changes exist):**
+If a `*.change.md` sidecar exists for this file with pending entries, run the generation skill's Phase 0c (Stage A behavior):
+- Propose spec updates for each entry, get user approval.
+- Stage approved spec updates (`git add`). Do NOT commit.
 
-Use the **unslop/generation** skill. If the managed file does not yet exist, always use full regeneration (Mode A) regardless of flags. Otherwise, default is full regeneration (Mode A); use incremental mode (Mode B) if the user passed `--incremental` — in that case, read both the spec and the existing managed file, and produce only the targeted edits. Generate the managed file with the `@unslop-managed` header.
+**Stage B (Builder -- worktree isolation):**
+Dispatch a Builder Agent using the generation skill's two-stage execution model:
+- test_policy: `"Do NOT create or modify test files. Use existing tests for validation only"`
+- If `--incremental` was passed: pass through to Builder prompt for Mode B.
+- If the managed file does not yet exist: always Mode A.
 
-**4. Run tests**
+**4. Verify result**
 
-Read the test command from `.unslop/config.json` (or `.unslop/config.md` as legacy fallback). Run the test suite.
-
-- If tests pass: report success and the file path.
-- If tests fail: report the failures and stop. Do not attempt to fix or retry.
+- If DONE with green tests: worktree merges automatically. Compute `output-hash`, update `@unslop-managed` header.
+- If BLOCKED or tests fail: discard worktree, revert any staged spec update (`git checkout -- <spec_path>`). Report the Builder's failure report and stop. Do not attempt to fix or retry.
 
 **5. Update the alignment summary**
 
@@ -64,4 +69,7 @@ Read the spec's first sentence or Purpose section to derive the intent summary.
 
 **6. Commit**
 
-After updating the alignment summary, commit the regenerated file and the updated alignment summary.
+After Builder success and worktree merge, commit atomically:
+- Staged spec update (if Phase 0c ran)
+- Merged generated code
+- Updated alignment summary
