@@ -5,7 +5,7 @@ import sys
 import os
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'unslop', 'scripts'))
 
-from orchestrator import compute_hash, parse_header, parse_frontmatter, topo_sort, discover_files, build_order_from_dir, resolve_deps, classify_file, check_freshness
+from orchestrator import compute_hash, parse_header, parse_frontmatter, topo_sort, discover_files, build_order_from_dir, resolve_deps, classify_file, check_freshness, parse_change_file
 
 
 def test_compute_hash_deterministic():
@@ -491,3 +491,260 @@ def test_check_freshness_empty_unit_spec(tmp_path):
     (tmp_path / "module.unit.spec.md").write_text("# module spec\n\n## Behavior\nDoes stuff.\n")
     result = check_freshness(str(tmp_path))
     assert any(f["state"] == "error" for f in result["files"])
+
+
+# --- parse_change_file tests ---
+
+def test_parse_change_file_single_pending():
+    content = """<!-- unslop-changes v1 -->
+### [pending] Add jitter to backoff -- 2026-03-22T15:00:00Z
+
+Backoff should include random jitter.
+
+---
+"""
+    result = parse_change_file(content)
+    assert len(result) == 1
+    assert result[0]["status"] == "pending"
+    assert result[0]["description"] == "Add jitter to backoff"
+    assert result[0]["timestamp"] == "2026-03-22T15:00:00Z"
+    assert "jitter" in result[0]["body"]
+
+def test_parse_change_file_multiple_entries():
+    content = """<!-- unslop-changes v1 -->
+### [pending] Add jitter -- 2026-03-22T15:00:00Z
+
+Add jitter to backoff.
+
+---
+
+### [tactical] Fix API endpoint -- 2026-03-22T16:30:00Z
+
+Update base URL.
+
+---
+"""
+    result = parse_change_file(content)
+    assert len(result) == 2
+    assert result[0]["status"] == "pending"
+    assert result[1]["status"] == "tactical"
+
+def test_parse_change_file_empty():
+    content = "<!-- unslop-changes v1 -->\n"
+    result = parse_change_file(content)
+    assert result == []
+
+def test_parse_change_file_no_marker():
+    content = "### [pending] Something -- 2026-03-22T15:00:00Z\n\nBody.\n\n---\n"
+    result = parse_change_file(content)
+    assert result == []
+
+def test_parse_change_file_malformed_entry(capsys):
+    content = """<!-- unslop-changes v1 -->
+### Missing status marker -- 2026-03-22T15:00:00Z
+
+Body here.
+
+---
+
+### [pending] Valid entry -- 2026-03-22T16:00:00Z
+
+Valid body.
+
+---
+"""
+    result = parse_change_file(content)
+    assert len(result) == 1
+    assert result[0]["status"] == "pending"
+    captured = capsys.readouterr()
+    assert "warning" in captured.err.lower() or "malformed" in captured.err.lower()
+
+def test_parse_change_file_no_timestamp():
+    content = """<!-- unslop-changes v1 -->
+### [pending] No timestamp entry
+
+Body without timestamp.
+
+---
+"""
+    result = parse_change_file(content)
+    assert len(result) == 1
+    assert result[0]["timestamp"] is None
+
+def test_parse_change_file_unknown_status(capsys):
+    content = """<!-- unslop-changes v1 -->
+### [shipped] Already deployed -- 2026-03-22T15:00:00Z
+
+This was already deployed.
+
+---
+"""
+    result = parse_change_file(content)
+    assert len(result) == 0
+    captured = capsys.readouterr()
+    assert "warning" in captured.err.lower()
+
+def test_parse_change_file_trailing_entry_no_separator():
+    content = """<!-- unslop-changes v1 -->
+### [pending] Last entry -- 2026-03-22T15:00:00Z
+
+No trailing separator here.
+"""
+    result = parse_change_file(content)
+    assert len(result) == 1
+    assert result[0]["status"] == "pending"
+
+def test_parse_change_file_multiline_body():
+    content = """<!-- unslop-changes v1 -->
+### [pending] Complex change -- 2026-03-22T15:00:00Z
+
+First paragraph about the change.
+
+Second paragraph with more detail about
+why this matters and what constraints apply.
+
+- Bullet point one
+- Bullet point two
+
+---
+"""
+    result = parse_change_file(content)
+    assert len(result) == 1
+    assert "First paragraph" in result[0]["body"]
+    assert "Bullet point two" in result[0]["body"]
+
+
+def test_check_freshness_pending_changes(tmp_path):
+    from orchestrator import check_freshness, compute_hash
+    spec = "# spec\n\n## Behavior\nDoes stuff.\nMore detail.\n"
+    body = "def thing(): pass\n"
+    sh = compute_hash(spec)
+    oh = compute_hash(body)
+    (tmp_path / "thing.py.spec.md").write_text(spec)
+    (tmp_path / "thing.py").write_text(
+        f"# @unslop-managed — do not edit directly. Edit thing.py.spec.md instead.\n"
+        f"# spec-hash:{sh} output-hash:{oh} generated:2026-03-22T14:32:00Z\n" + body
+    )
+    (tmp_path / "thing.py.change.md").write_text(
+        "<!-- unslop-changes v1 -->\n"
+        "### [pending] Add feature -- 2026-03-22T15:00:00Z\n\nAdd a feature.\n\n---\n"
+    )
+    result = check_freshness(str(tmp_path))
+    assert result["status"] == "fail"  # pending changes = non-fresh
+    file_entry = result["files"][0]
+    assert file_entry["state"] == "fresh"  # hash state is fresh
+    assert "pending_changes" in file_entry
+    assert file_entry["pending_changes"]["count"] == 1
+    assert file_entry["pending_changes"]["pending"] == 1
+
+def test_check_freshness_no_changes_still_pass(tmp_path):
+    from orchestrator import check_freshness, compute_hash
+    spec = "# spec\n\n## Behavior\nDoes stuff.\nMore detail.\n"
+    body = "def thing(): pass\n"
+    sh = compute_hash(spec)
+    oh = compute_hash(body)
+    (tmp_path / "thing.py.spec.md").write_text(spec)
+    (tmp_path / "thing.py").write_text(
+        f"# @unslop-managed — do not edit directly. Edit thing.py.spec.md instead.\n"
+        f"# spec-hash:{sh} output-hash:{oh} generated:2026-03-22T14:32:00Z\n" + body
+    )
+    result = check_freshness(str(tmp_path))
+    assert result["status"] == "pass"
+    assert "pending_changes" not in result["files"][0]
+
+def test_check_freshness_mixed_changes(tmp_path):
+    from orchestrator import check_freshness, compute_hash
+    spec = "# spec\n\n## Behavior\nDoes stuff.\nMore detail.\n"
+    body = "def thing(): pass\n"
+    sh = compute_hash(spec)
+    oh = compute_hash(body)
+    (tmp_path / "thing.py.spec.md").write_text(spec)
+    (tmp_path / "thing.py").write_text(
+        f"# @unslop-managed — do not edit directly. Edit thing.py.spec.md instead.\n"
+        f"# spec-hash:{sh} output-hash:{oh} generated:2026-03-22T14:32:00Z\n" + body
+    )
+    (tmp_path / "thing.py.change.md").write_text(
+        "<!-- unslop-changes v1 -->\n"
+        "### [pending] Change 1 -- 2026-03-22T15:00:00Z\n\nBody 1.\n\n---\n\n"
+        "### [tactical] Change 2 -- 2026-03-22T16:00:00Z\n\nBody 2.\n\n---\n"
+    )
+    result = check_freshness(str(tmp_path))
+    assert result["status"] == "fail"
+    pc = result["files"][0]["pending_changes"]
+    assert pc["count"] == 2
+    assert pc["pending"] == 1
+    assert pc["tactical"] == 1
+
+
+def test_check_freshness_orphan_change_file(tmp_path, capsys):
+    """Change file with no matching managed file should appear as error."""
+    (tmp_path / "ghost.py.change.md").write_text(
+        "<!-- unslop-changes v1 -->\n"
+        "### [pending] Add feature -- 2026-03-22T15:00:00Z\n\nBody.\n\n---\n"
+    )
+    result = check_freshness(str(tmp_path))
+    assert result["status"] == "fail"
+    orphan = [f for f in result["files"] if f["managed"] == "ghost.py"]
+    assert len(orphan) == 1
+    assert orphan[0]["state"] == "error"
+    assert orphan[0]["spec"] is None
+    assert orphan[0]["pending_changes"]["count"] == 1
+    captured = capsys.readouterr()
+    assert "Orphan change file" in captured.err
+
+
+def test_check_freshness_unreadable_change_file(tmp_path, capsys):
+    """Unreadable change file should warn on stderr and not crash."""
+    spec = "# spec\n\n## Behavior\nDoes stuff.\nMore detail.\n"
+    body = "def thing(): pass\n"
+    sh = compute_hash(spec)
+    oh = compute_hash(body)
+    (tmp_path / "thing.py.spec.md").write_text(spec)
+    (tmp_path / "thing.py").write_text(
+        f"# @unslop-managed — do not edit directly. Edit thing.py.spec.md instead.\n"
+        f"# spec-hash:{sh} output-hash:{oh} generated:2026-03-22T14:32:00Z\n" + body
+    )
+    (tmp_path / "thing.py.change.md").write_bytes(b"\x80\x81\x82\xff\xfe")
+    result = check_freshness(str(tmp_path))
+    # Should not crash; the managed file itself is fresh
+    assert any(f["state"] == "fresh" for f in result["files"])
+    captured = capsys.readouterr()
+    assert "Cannot read change file" in captured.err
+
+
+def test_parse_change_file_double_hyphen_timestamp():
+    """Double-hyphen separator (canonical format) should parse correctly."""
+    content = "<!-- unslop-changes v1 -->\n### [pending] Fix bug -- 2026-03-22T15:00:00Z\n\nBody.\n\n---\n"
+    result = parse_change_file(content)
+    assert len(result) == 1
+    assert result[0]["timestamp"] == "2026-03-22T15:00:00Z"
+
+
+def test_check_freshness_hint_combined(tmp_path):
+    """Existing hint on a non-fresh file should be combined, not overwritten."""
+    old_spec = "# old\n\n## Behavior\nOld.\nMore.\n"
+    body = "def thing(): pass\n"
+    sh = compute_hash(old_spec)
+    oh = compute_hash(body)
+    (tmp_path / "thing.py.spec.md").write_text("# new\n\n## Behavior\nNew.\nDifferent.\n")
+    (tmp_path / "thing.py").write_text(
+        f"# @unslop-managed — do not edit directly. Edit thing.py.spec.md instead.\n"
+        f"# spec-hash:{sh} output-hash:{oh} generated:2026-03-22T14:32:00Z\n" + body
+    )
+    (tmp_path / "thing.py.change.md").write_text(
+        "<!-- unslop-changes v1 -->\n"
+        "### [pending] Add feature -- 2026-03-22T15:00:00Z\n\nBody.\n\n---\n"
+    )
+    result = check_freshness(str(tmp_path))
+    file_entry = [f for f in result["files"] if f["managed"] == "thing.py"][0]
+    # The stale file has no hint by default, so only change hint should appear
+    assert "change request(s) awaiting processing" in file_entry["hint"]
+
+
+def test_parse_change_file_unparseable_content_warns(capsys):
+    """File with marker but no valid entries and non-whitespace content should warn."""
+    content = "<!-- unslop-changes v1 -->\nSome random text here.\nMore text.\n"
+    result = parse_change_file(content)
+    assert result == []
+    captured = capsys.readouterr()
+    assert "no parseable entries" in captured.err

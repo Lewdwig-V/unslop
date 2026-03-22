@@ -27,6 +27,8 @@ Check that the file at `$ARGUMENTS` exists. If it does not exist, stop and tell 
 
 **Check for `--force-ambiguous` flag:** If `$ARGUMENTS` contains `--force-ambiguous`, note this for the generation skill. When present, ambiguity detection reports warnings instead of blocking.
 
+Check for a `*.change.md` sidecar for the target file (same directory, same base name with `.change.md` extension). If one exists with pending entries, warn: "This file has N pending changes that will be lost during takeover. Process them first with `/unslop:sync` or use `--force` to proceed." Require `--force` to continue.
+
 ---
 
 **Single-file mode**

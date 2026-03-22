@@ -64,6 +64,7 @@ Display results in this exact format:
 ```
 Managed files:
   fresh      src/auth/tokens.py       <- src/auth/tokens.py.spec.md
+             Δ 2 pending changes [1 pending, 1 tactical]
   fresh      src/auth/errors.py       <- src/auth/errors.py.spec.md
   stale      src/auth/handler.py      <- src/auth/handler.py.spec.md
                                          depends on: tokens.py.spec.md, errors.py.spec.md
@@ -90,6 +91,16 @@ Rules for the display:
 - For unit specs (`*.unit.spec.md`): display under a `Unit specs:` section showing the directory path, spec name, and file count rather than listing each managed file individually.
 - If there are no entries in a section, omit that section header entirely.
 - Sort entries within each section alphabetically by managed file path (or spec path for unmanaged specs).
+
+---
+
+After classifying each managed file, check for a corresponding `*.change.md` sidecar (same directory, same base name with `.change.md` extension). If present, read it and count entries by status. Display a summary line indented below the file entry:
+
+```
+           Δ N pending changes [X pending, Y tactical]
+```
+
+The Δ indicator appears regardless of the file's staleness state.
 
 ---
 

@@ -199,7 +199,7 @@ def build_order_from_dir(directory: str) -> list[str]:
                 missing[dep] = []
     if missing:
         missing_names = ", ".join(sorted(missing.keys()))
-        print(f'{{"warning": "Missing dependency specs: {missing_names}"}}', file=sys.stderr)
+        print(json.dumps({"warning": f"Missing dependency specs: {missing_names}"}), file=sys.stderr)
     graph.update(missing)
 
     return topo_sort(graph)
@@ -427,11 +427,130 @@ def check_freshness(directory: str) -> dict:
         result["spec"] = rel_spec
         files.append(result)
 
-    all_fresh = all(f["state"] == "fresh" for f in files)
+    # Scan for pending change requests
+    change_files = sorted(root.rglob("*.change.md"))
+    for change_path in change_files:
+        try:
+            content = change_path.read_text(encoding="utf-8")
+        except (OSError, UnicodeDecodeError) as exc:
+            print(json.dumps({"warning": f"Cannot read change file: {exc}"}), file=sys.stderr)
+            continue
+        entries = parse_change_file(content)
+        if not entries:
+            continue
+
+        # Derive managed file path: strip .change.md
+        managed_name = re.sub(r"\.change\.md$", "", change_path.name)
+        managed_rel = str((change_path.parent / managed_name).relative_to(root))
+
+        status_counts = Counter(e["status"] for e in entries)
+        counts = {
+            "count": len(entries),
+            "pending": status_counts.get("pending", 0),
+            "tactical": status_counts.get("tactical", 0),
+        }
+
+        # Find and update the matching file entry
+        # Check both exact match (per-file specs) and parent directory match (unit specs)
+        change_dir = str(change_path.parent.relative_to(root))
+        matched = False
+        for f in files:
+            if f["managed"] == managed_rel or f["managed"] == change_dir:
+                if "pending_changes" in f:
+                    # Accumulate counts for unit specs with multiple change files
+                    f["pending_changes"]["count"] += counts["count"]
+                    f["pending_changes"]["pending"] += counts["pending"]
+                    f["pending_changes"]["tactical"] += counts["tactical"]
+                else:
+                    f["pending_changes"] = counts
+                change_hint = f"{f['pending_changes']['count']} change request(s) awaiting processing."
+                if "hint" in f and "change request" not in f["hint"]:
+                    f["hint"] = f"{f['hint']} Additionally: {change_hint}"
+                else:
+                    f["hint"] = change_hint
+                matched = True
+                break
+        if not matched:
+            # Orphan change file -- no matching managed file
+            print(json.dumps({"warning": f"Orphan change file: no managed file found for {managed_rel}"}), file=sys.stderr)
+            files.append({
+                "managed": managed_rel,
+                "spec": None,
+                "state": "error",
+                "hint": f"Change file exists but no matching spec found for {managed_rel}",
+                "pending_changes": counts,
+            })
+
+    all_fresh = all(
+        f["state"] == "fresh" and "pending_changes" not in f
+        for f in files
+    )
     counts = Counter(f["state"] for f in files)
     summary = ", ".join(f"{v} {k}" for k, v in sorted(counts.items()))
 
     return {"status": "pass" if all_fresh else "fail", "files": files, "summary": summary}
+
+
+def parse_change_file(content: str) -> list[dict]:
+    """Parse stacked change entries from a *.change.md file.
+
+    Returns list of dicts with: status, description, timestamp, body.
+    Requires <!-- unslop-changes v1 --> format marker on first line.
+    Malformed entries are skipped with a stderr warning.
+    """
+    lines = content.split("\n")
+    if not lines or not re.match(r'^<!--\s*unslop-changes\s+v\d+\s*-->', lines[0]):
+        return []
+
+    entries = []
+    current_entry = None
+
+    for line in lines[1:]:
+        heading_match = re.match(
+            r'^### \[(\w+)\]\s+(.+?)(?:\s+--\s+(\S+))?\s*$', line
+        )
+        if heading_match:
+            if current_entry is not None:
+                current_entry["body"] = current_entry["body"].strip()
+                entries.append(current_entry)
+            status = heading_match.group(1)
+            if status not in ("pending", "tactical"):
+                print(
+                    json.dumps({"warning": f"Malformed change entry: unknown status [{status}]"}),
+                    file=sys.stderr
+                )
+                current_entry = None
+                continue
+            current_entry = {
+                "status": status,
+                "description": heading_match.group(2).strip(),
+                "timestamp": heading_match.group(3),
+                "body": "",
+            }
+        elif line.strip() == "---":
+            if current_entry is not None:
+                current_entry["body"] = current_entry["body"].strip()
+                entries.append(current_entry)
+                current_entry = None
+        elif current_entry is not None:
+            current_entry["body"] += line + "\n"
+        elif line.strip().startswith("### ") and current_entry is None:
+            print(
+                json.dumps({"warning": f"Malformed change entry heading: {line.strip()!r}"}),
+                file=sys.stderr
+            )
+
+    if current_entry is not None:
+        current_entry["body"] = current_entry["body"].strip()
+        entries.append(current_entry)
+
+    if not entries and any(line.strip() for line in lines[1:]):
+        print(json.dumps({
+            "warning": "Change file has format marker but no parseable entries. "
+            "Expected ### [pending] or ### [tactical] headings."
+        }), file=sys.stderr)
+
+    return entries
 
 
 def main():
@@ -469,9 +588,9 @@ def main():
                 config = json.loads(config_path.read_text(encoding="utf-8"))
                 extra_excludes = config.get("exclude_patterns", [])
             except json.JSONDecodeError as e:
-                print(f'{{"warning": "Ignoring malformed .unslop/config.json: {e}"}}', file=sys.stderr)
+                print(json.dumps({"warning": f"Ignoring malformed .unslop/config.json: {e}"}), file=sys.stderr)
             except OSError as e:
-                print(f'{{"warning": "Could not read .unslop/config.json: {e}"}}', file=sys.stderr)
+                print(json.dumps({"warning": f"Could not read .unslop/config.json: {e}"}), file=sys.stderr)
         try:
             result = discover_files(directory, extensions=extensions, extra_excludes=extra_excludes)
             print(json.dumps(result, indent=2))

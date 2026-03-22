@@ -40,6 +40,8 @@ Classify the target file using hash-based logic (same as `/unslop:generate`):
 - **Conflict** (both hashes mismatch): warn that both spec and code changed. If `--force` was passed, proceed. Otherwise, ask for confirmation. If declined, stop.
 - **Old format** (no hash fields in header): treat as stale and proceed.
 
+The generation skill's Phase 0c automatically processes any pending `*.change.md` entries for each file being regenerated. No additional command-level logic is needed — the skill handles change request consumption, conflict detection, and promotion.
+
 Use the **unslop/generation** skill. If the managed file does not yet exist, always use full regeneration (Mode A) regardless of flags. Otherwise, default is full regeneration (Mode A); use incremental mode (Mode B) if the user passed `--incremental` — in that case, read both the spec and the existing managed file, and produce only the targeted edits. Generate the managed file with the `@unslop-managed` header.
 
 **4. Run tests**
