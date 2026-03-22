@@ -31,16 +31,19 @@ Classify each per-file spec as follows:
   ```
   (Comment syntax varies by language — `#`, `//`, `<!-- -->`, `/* */`, `--`.)
 - If the header is missing or malformed, classify as `unmanaged (no header)` and list under "Managed files" with that label.
-- If the header is present, extract the generation timestamp from the second line and compare:
-  - Get the spec file's last-modified time (mtime).
-  - Get the managed file's last-modified time (mtime).
-  - **Fresh**: spec mtime <= generation timestamp AND managed file mtime <= generation timestamp
-  - **Stale**: spec mtime > generation timestamp (spec was edited after last generation)
-  - **Modified**: managed file mtime > generation timestamp AND spec mtime <= generation timestamp (managed file was edited directly)
+- If the header uses the old two-line format (no `spec-hash` or `output-hash` fields), classify as `old_format` and display with the note `(old header — regenerate to update)`.
+- If the header is present and contains `spec-hash` and `output-hash` fields, apply the 4-state hash-based classification:
+  - Compute the **current spec hash**: SHA-256 of the spec file's content, truncated to 12 hex characters.
+  - Compute the **current output hash**: SHA-256 of the managed file's body (everything below the `@unslop-managed` header block), with leading/trailing whitespace stripped, truncated to 12 hex characters.
+  - Extract `spec-hash` and `output-hash` from the header.
+  - **Fresh**: stored spec-hash matches current spec hash AND stored output-hash matches current output hash.
+  - **Modified**: stored spec-hash matches current spec hash AND stored output-hash does NOT match current output hash (code was edited directly, spec unchanged).
+  - **Stale**: stored spec-hash does NOT match current spec hash AND stored output-hash matches current output hash (spec changed, code untouched).
+  - **Conflict**: stored spec-hash does NOT match current spec hash AND stored output-hash does NOT match current output hash (both spec and code changed).
 
 ---
 
-For files classified as fresh, check if any of their dependencies (from `depends-on` frontmatter in their spec) are stale. If so, reclassify as `stale*` with the note `(dependency stale)`. To detect transitive staleness, call `python ${CLAUDE_PLUGIN_ROOT}/scripts/orchestrator.py deps <spec-path> --root .` and check each dependency's staleness. If Python is not available, skip transitive staleness checks and note: `(dependency checking unavailable — install Python 3.8+)`.
+For files classified as fresh, check if any of their dependencies (from `depends-on` frontmatter in their spec) are stale or conflict. If so, reclassify as `stale*` with the note `(dependency stale)`. To detect transitive staleness, call `python ${CLAUDE_PLUGIN_ROOT}/scripts/orchestrator.py deps <spec-path> --root .` and check each dependency's classification using the hash-based method above. If Python is not available, skip transitive staleness checks and note: `(dependency checking unavailable — install Python 3.8+)`.
 
 ---
 
@@ -49,8 +52,8 @@ For files classified as fresh, check if any of their dependencies (from `depends
 - Resolve file paths relative to the directory containing the unit spec
 - For each listed file, check if it exists and has an `@unslop-managed` header pointing to this unit spec
 - Classify the unit as:
-  - **Fresh**: all listed files exist, all have headers with generation timestamps >= spec mtime
-  - **Stale**: the unit spec mtime > the oldest generation timestamp among the listed files
+  - **Fresh**: all listed files exist, all have headers whose stored spec-hash matches the current spec hash
+  - **Stale**: any listed file's stored spec-hash does not match the current spec hash
   - **Partial**: some listed files exist with headers but others are missing — note which are missing
 - Display under the `Unit specs:` section with the directory path, spec name, and file count
 
@@ -60,12 +63,14 @@ Display results in this exact format:
 
 ```
 Managed files:
-  fresh    src/auth/tokens.py       <- src/auth/tokens.py.spec.md
-  fresh    src/auth/errors.py       <- src/auth/errors.py.spec.md
-  stale    src/auth/handler.py      <- src/auth/handler.py.spec.md (spec edited 2h ago)
-                                       depends on: tokens.py.spec.md, errors.py.spec.md
-  stale*   src/auth/middleware.py   <- src/auth/middleware.py.spec.md (dependency stale)
-                                       depends on: handler.py.spec.md
+  fresh      src/auth/tokens.py       <- src/auth/tokens.py.spec.md
+  fresh      src/auth/errors.py       <- src/auth/errors.py.spec.md
+  stale      src/auth/handler.py      <- src/auth/handler.py.spec.md
+                                         depends on: tokens.py.spec.md, errors.py.spec.md
+  stale*     src/auth/middleware.py   <- src/auth/middleware.py.spec.md (dependency stale)
+                                         depends on: handler.py.spec.md
+  conflict   src/adapter.py           <- src/adapter.py.spec.md (spec and code both changed)
+  old_fmt    src/legacy.py            <- src/legacy.py.spec.md (old header — regenerate to update)
 
 Unit specs:
   fresh    src/utils/               <- src/utils/utils.unit.spec.md (4 files)
@@ -76,8 +81,10 @@ Unmanaged specs:
 
 Rules for the display:
 - Align columns where reasonable.
-- For **stale** entries, include a human-readable relative time since the spec was last edited (e.g., `2h ago`, `3 days ago`).
+- For **stale** entries, the spec hash changed — no timestamp note needed (hash mismatch is self-explanatory).
 - For **modified** entries, include the note `(edited directly)` to make the situation clear.
+- For **conflict** entries, include the note `(spec and code both changed)`.
+- For **old_format** entries, include the note `(old header — regenerate to update)`.
 - For **stale\*** entries, include the note `(dependency stale)`.
 - If a spec has `depends-on` frontmatter, show the dependencies on an indented line below the entry.
 - For unit specs (`*.unit.spec.md`): display under a `Unit specs:` section showing the directory path, spec name, and file count rather than listing each managed file individually.
