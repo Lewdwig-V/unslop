@@ -1,5 +1,6 @@
 ---
 description: Regenerate all stale managed files from their specs
+argument-hint: "[--force-ambiguous] [--incremental]"
 ---
 
 **1. Verify prerequisites**
@@ -13,6 +14,8 @@ Check that `.unslop/` exists in the current working directory. If it does not ex
 Use the **unslop/generation** skill for code generation discipline throughout this command.
 
 Read `.unslop/config.md` to obtain the test command. You will need it when validating regenerated files.
+
+**Check for `--force-ambiguous` flag:** If `$ARGUMENTS` contains `--force-ambiguous`, note this for the generation skill. When this flag is present, the generation skill's ambiguity detection (Section 0, Phase 0b) reports ambiguities as warnings instead of blocking generation.
 
 **3. Scan for spec files**
 
