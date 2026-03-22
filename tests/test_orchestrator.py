@@ -1,10 +1,81 @@
+import hashlib
 import json
 import subprocess
 import sys
 import os
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'unslop', 'scripts'))
 
-from orchestrator import parse_frontmatter, topo_sort, discover_files, build_order_from_dir, resolve_deps
+from orchestrator import compute_hash, parse_header, parse_frontmatter, topo_sort, discover_files, build_order_from_dir, resolve_deps
+
+
+def test_compute_hash_deterministic():
+    result = compute_hash("hello world")
+    assert len(result) == 12
+    assert result == hashlib.sha256("hello world".encode()).hexdigest()[:12]
+
+def test_compute_hash_strips_whitespace():
+    result1 = compute_hash("hello world")
+    result2 = compute_hash("  hello world  \n\n")
+    assert result1 == result2
+
+def test_compute_hash_empty_string():
+    result = compute_hash("")
+    assert len(result) == 12
+
+def test_parse_header_python():
+    lines = [
+        "# @unslop-managed — do not edit directly. Edit src/retry.py.spec.md instead.",
+        "# spec-hash:a3f8c2e9b7d1 output-hash:4e2f1a8c9b03 generated:2026-03-22T14:32:00Z",
+        "",
+        "def retry():",
+    ]
+    result = parse_header("\n".join(lines), ".py")
+    assert result["spec_path"] == "src/retry.py.spec.md"
+    assert result["spec_hash"] == "a3f8c2e9b7d1"
+    assert result["output_hash"] == "4e2f1a8c9b03"
+    assert result["generated"] == "2026-03-22T14:32:00Z"
+
+def test_parse_header_typescript():
+    lines = [
+        "// @unslop-managed — do not edit directly. Edit src/api.ts.spec.md instead.",
+        "// spec-hash:abc123def456 output-hash:789012345678 generated:2026-03-22T14:32:00Z",
+    ]
+    result = parse_header("\n".join(lines), ".ts")
+    assert result["spec_path"] == "src/api.ts.spec.md"
+    assert result["spec_hash"] == "abc123def456"
+
+def test_parse_header_html():
+    lines = [
+        "<!-- @unslop-managed — do not edit directly. Edit src/index.html.spec.md instead. -->",
+        "<!-- spec-hash:abc123def456 output-hash:789012345678 generated:2026-03-22T14:32:00Z -->",
+    ]
+    result = parse_header("\n".join(lines), ".html")
+    assert result["spec_path"] == "src/index.html.spec.md"
+    assert result["spec_hash"] == "abc123def456"
+
+def test_parse_header_with_shebang():
+    lines = [
+        "#!/usr/bin/env python3",
+        "# @unslop-managed — do not edit directly. Edit src/cli.py.spec.md instead.",
+        "# spec-hash:abc123def456 output-hash:789012345678 generated:2026-03-22T14:32:00Z",
+    ]
+    result = parse_header("\n".join(lines), ".py")
+    assert result["spec_path"] == "src/cli.py.spec.md"
+
+def test_parse_header_missing():
+    result = parse_header("def hello():\n    pass\n", ".py")
+    assert result is None
+
+def test_parse_header_old_format():
+    lines = [
+        "# @unslop-managed — do not edit directly. Edit src/retry.py.spec.md instead.",
+        "# Generated from spec at 2026-03-22T14:32:00Z",
+    ]
+    result = parse_header("\n".join(lines), ".py")
+    assert result["spec_path"] == "src/retry.py.spec.md"
+    assert result["spec_hash"] is None
+    assert result["output_hash"] is None
+    assert result["old_format"] is True
 
 def test_parse_depends_on():
     content = """---

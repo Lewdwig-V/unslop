@@ -1,10 +1,78 @@
 """unslop orchestrator — dependency resolution and file discovery for multi-file takeover."""
 from __future__ import annotations
 
+import hashlib
 import json
 import re
 import sys
 from pathlib import Path
+
+
+def compute_hash(content: str) -> str:
+    """SHA-256 hash of content, truncated to 12 hex chars.
+
+    Content is stripped of leading/trailing whitespace before hashing
+    to normalize across platforms.
+    """
+    return hashlib.sha256(content.strip().encode("utf-8")).hexdigest()[:12]
+
+
+def parse_header(content: str, extension: str) -> dict | None:
+    """Parse @unslop-managed header from a managed file.
+
+    Reads the first 5 lines looking for the header markers.
+    Returns dict with spec_path, spec_hash, output_hash, generated, old_format
+    or None if no header found.
+    """
+    lines = content.split("\n")[:5]
+
+    spec_path = None
+    spec_hash = None
+    output_hash = None
+    generated = None
+    old_format = False
+
+    for line in lines:
+        stripped = line.strip()
+        for prefix in ["#", "//", "--", "/*", "<!--"]:
+            if stripped.startswith(prefix):
+                stripped = stripped[len(prefix):].strip()
+                break
+        for suffix in ["*/", "-->"]:
+            if stripped.endswith(suffix):
+                stripped = stripped[:-len(suffix)].strip()
+
+        if "@unslop-managed" in stripped:
+            m = re.search(r"Edit (.+?) instead", stripped)
+            if m:
+                spec_path = m.group(1).strip(".")
+
+        hash_match = re.search(r"spec-hash:(\w{12})", stripped)
+        if hash_match:
+            spec_hash = hash_match.group(1)
+            out_match = re.search(r"output-hash:(\w{12})", stripped)
+            if out_match:
+                output_hash = out_match.group(1)
+            gen_match = re.search(r"generated:(\S+)", stripped)
+            if gen_match:
+                generated = gen_match.group(1)
+
+        if "Generated from spec at" in stripped and spec_hash is None:
+            old_format = True
+            gen_match = re.search(r"Generated from spec at (\S+)", stripped)
+            if gen_match:
+                generated = gen_match.group(1)
+
+    if spec_path is None:
+        return None
+
+    return {
+        "spec_path": spec_path,
+        "spec_hash": spec_hash,
+        "output_hash": output_hash,
+        "generated": generated,
+        "old_format": old_format,
+    }
 
 
 def parse_frontmatter(content: str) -> list[str]:
