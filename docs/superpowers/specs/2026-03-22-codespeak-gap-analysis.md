@@ -45,7 +45,7 @@ CodeSpeak (codespeak.dev, v0.3.4, March 2026) is a spec-driven development tool 
 | **Deterministic tooling** | `codespeak build` is a CLI with defined inputs/outputs | Generation is entirely prompt-driven | **High** — "no peeking" rule enforced only by prompt |
 | **Code Change Requests** | `change-request.cs.md` for surgical patches | None — everything must go through spec edits | **Medium** — sometimes you need a targeted fix, not a spec rewrite |
 | **CI/CD integration** | GitHub Actions workflow, generates code as commits | None (planned Phase 4) | **Medium** — blocks adoption in team/CI contexts |
-| **Content-based staleness** | Implied by incremental approach | mtime comparison (fragile after git ops) | **Medium** — git checkouts, copies, and rebases break mtime |
+| **Content-based staleness** | Implied by incremental approach | mtime comparison (fragile after git ops); proposed dual-hash fix must preserve modified-file detection | **Medium** — git checkouts, copies, and rebases break mtime |
 | **Machine-readable config** | `codespeak.json` with structured fields | Freeform `.unslop/config.md` | **Low-Medium** — scripts must parse prose or rely on model |
 | **Pre-build validation** | Config validation, API balance check | None | **Low** — fails mid-run instead of early |
 | **Test generation** | Build pipeline generates and fixes tests | Assumes tests exist; convergence requires them | **Low** — unslop warns if tests missing, CodeSpeak creates them |
@@ -114,21 +114,36 @@ If ambiguities are found, surface them to the user before generating. Require ex
 
 **Problem:** mtime is fragile. Git operations, CI runners, and file copies silently corrupt staleness detection.
 
-**Solution:** Store a SHA-256 hash of the spec content in the managed file header instead of (or alongside) the generation timestamp.
+**Solution:** Store a **dual hash** in the managed file header: one for the spec content (detects staleness) and one for the generated output (detects direct edits).
+
+**Why dual hash is required:** A spec-hash-only scheme collapses the "modified" state into "fresh." If someone hotfixes a managed file, the spec hash in the header still matches the current spec, so a naive check reports "fresh" on drifted code. This silently removes the modified-file safeguard currently enforced by `status.md:34-39` and violates the invariant documented in `README.md:145` that direct edits must be treated as out-of-band.
 
 **New header format:**
 ```python
 # @unslop-managed — do not edit directly. Edit src/retry.py.spec.md instead.
-# Generated from spec sha256:a3f8c2... at 2026-03-22T14:32:00Z
+# spec-hash:a3f8c2e9... output-hash:b7d1e4f3... generated:2026-03-22T14:32:00Z
 ```
 
-**Staleness check:** Hash the current spec content. If it matches the header hash, the file is fresh — regardless of mtime. If not, it's stale.
+The `spec-hash` is the SHA-256 of the spec file content at generation time. The `output-hash` is the SHA-256 of the managed file content *below the header* at generation time. The timestamp is retained for human readability and relative-time display in status output.
+
+**Three-state staleness check:**
+1. Hash the current spec content. Compare to `spec-hash` in header.
+2. Hash the current managed file content below the header. Compare to `output-hash` in header.
+3. Classify:
+   - **Fresh**: spec hash matches AND output hash matches
+   - **Stale**: spec hash does NOT match (spec was edited; doesn't matter whether output was also edited)
+   - **Modified**: spec hash matches but output hash does NOT match (managed file was edited directly while spec is unchanged)
+
+This preserves all three states from the current mtime scheme while eliminating mtime fragility. The "modified" detection is strictly stronger: mtime can miss edits that restore the original mtime (e.g., `touch -r`), but content hashing catches any byte-level change.
+
+**Edge case — stale AND modified:** If the spec changed AND the managed file was also edited directly, classify as `stale (modified)`. The status display should warn that regenerating will overwrite direct edits. The generate command should require `--force` or user confirmation in this case.
 
 **What's needed:**
-- Update the `generation` skill header format to include spec hash
-- Update the `status` command to compare hashes, not timestamps
-- Update the `generate` and `sync` commands similarly
-- Add a `sha256sum`/`shasum` call to the orchestrator or a small helper in `hooks/scripts/`
+- Update the `generation` skill header format to write both hashes
+- Update the `status` command to compare dual hashes instead of mtime
+- Update the `generate` and `sync` commands to check output-hash before overwriting (warn on modified files)
+- Add hash computation to the orchestrator or a helper in `hooks/scripts/`
+- The generation skill must compute the output hash *after* writing the file body but *before* finalizing the header — or write the header with a placeholder, hash the body, then patch the header
 
 **What's unchanged:** The orchestrator's dependency logic is unaffected — it can use either hash or mtime for transitive staleness; hash is strictly more reliable.
 
@@ -272,7 +287,7 @@ Domain skills are the highest-leverage single contribution to generation quality
 | # | Change | Type | Closes Which Gap | Relative Effort |
 |---|---|---|---|---|
 | 1 | Spec ambiguity linter | Skill update + pre-gen check | Silent wrong code from ambiguous specs | Low |
-| 2 | Content-hash staleness | Header format + script | Fragile mtime detection | Low |
+| 2 | Dual-hash staleness (spec + output) | Header format + script | Fragile mtime detection + preserves modified-file detection | Low |
 | 3 | Spec completeness review post-convergence | Skill update | Reproducibility | Low |
 | 4 | Pre-spec validation hook | Hook script | Insufficient specs wasting generation cycles | Low |
 | 5 | Code Change Requests | New command + skill update | Surgical fixes without breaking invariant | Medium |
