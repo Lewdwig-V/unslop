@@ -497,7 +497,7 @@ def parse_change_file(content: str) -> list[dict]:
 
     for line in lines[1:]:
         heading_match = re.match(
-            r'^### \[(\w+)\]\s+(.+?)(?:\s+(?:—|–|--)\s+(\S+))?\s*$', line
+            r'^### \[(\w+)\]\s+(.+?)(?:\s+--\s+(\S+))?\s*$', line
         )
         if heading_match:
             if current_entry is not None:

@@ -497,7 +497,7 @@ def test_check_freshness_empty_unit_spec(tmp_path):
 
 def test_parse_change_file_single_pending():
     content = """<!-- unslop-changes v1 -->
-### [pending] Add jitter to backoff — 2026-03-22T15:00:00Z
+### [pending] Add jitter to backoff -- 2026-03-22T15:00:00Z
 
 Backoff should include random jitter.
 
@@ -512,13 +512,13 @@ Backoff should include random jitter.
 
 def test_parse_change_file_multiple_entries():
     content = """<!-- unslop-changes v1 -->
-### [pending] Add jitter — 2026-03-22T15:00:00Z
+### [pending] Add jitter -- 2026-03-22T15:00:00Z
 
 Add jitter to backoff.
 
 ---
 
-### [tactical] Fix API endpoint — 2026-03-22T16:30:00Z
+### [tactical] Fix API endpoint -- 2026-03-22T16:30:00Z
 
 Update base URL.
 
@@ -535,19 +535,19 @@ def test_parse_change_file_empty():
     assert result == []
 
 def test_parse_change_file_no_marker():
-    content = "### [pending] Something — 2026-03-22T15:00:00Z\n\nBody.\n\n---\n"
+    content = "### [pending] Something -- 2026-03-22T15:00:00Z\n\nBody.\n\n---\n"
     result = parse_change_file(content)
     assert result == []
 
 def test_parse_change_file_malformed_entry(capsys):
     content = """<!-- unslop-changes v1 -->
-### Missing status marker — 2026-03-22T15:00:00Z
+### Missing status marker -- 2026-03-22T15:00:00Z
 
 Body here.
 
 ---
 
-### [pending] Valid entry — 2026-03-22T16:00:00Z
+### [pending] Valid entry -- 2026-03-22T16:00:00Z
 
 Valid body.
 
@@ -573,7 +573,7 @@ Body without timestamp.
 
 def test_parse_change_file_unknown_status(capsys):
     content = """<!-- unslop-changes v1 -->
-### [shipped] Already deployed — 2026-03-22T15:00:00Z
+### [shipped] Already deployed -- 2026-03-22T15:00:00Z
 
 This was already deployed.
 
@@ -586,7 +586,7 @@ This was already deployed.
 
 def test_parse_change_file_trailing_entry_no_separator():
     content = """<!-- unslop-changes v1 -->
-### [pending] Last entry — 2026-03-22T15:00:00Z
+### [pending] Last entry -- 2026-03-22T15:00:00Z
 
 No trailing separator here.
 """
@@ -596,7 +596,7 @@ No trailing separator here.
 
 def test_parse_change_file_multiline_body():
     content = """<!-- unslop-changes v1 -->
-### [pending] Complex change — 2026-03-22T15:00:00Z
+### [pending] Complex change -- 2026-03-22T15:00:00Z
 
 First paragraph about the change.
 
@@ -627,7 +627,7 @@ def test_check_freshness_pending_changes(tmp_path):
     )
     (tmp_path / "thing.py.change.md").write_text(
         "<!-- unslop-changes v1 -->\n"
-        "### [pending] Add feature — 2026-03-22T15:00:00Z\n\nAdd a feature.\n\n---\n"
+        "### [pending] Add feature -- 2026-03-22T15:00:00Z\n\nAdd a feature.\n\n---\n"
     )
     result = check_freshness(str(tmp_path))
     assert result["status"] == "fail"  # pending changes = non-fresh
@@ -665,8 +665,8 @@ def test_check_freshness_mixed_changes(tmp_path):
     )
     (tmp_path / "thing.py.change.md").write_text(
         "<!-- unslop-changes v1 -->\n"
-        "### [pending] Change 1 — 2026-03-22T15:00:00Z\n\nBody 1.\n\n---\n\n"
-        "### [tactical] Change 2 — 2026-03-22T16:00:00Z\n\nBody 2.\n\n---\n"
+        "### [pending] Change 1 -- 2026-03-22T15:00:00Z\n\nBody 1.\n\n---\n\n"
+        "### [tactical] Change 2 -- 2026-03-22T16:00:00Z\n\nBody 2.\n\n---\n"
     )
     result = check_freshness(str(tmp_path))
     assert result["status"] == "fail"
@@ -680,7 +680,7 @@ def test_check_freshness_orphan_change_file(tmp_path, capsys):
     """Change file with no matching managed file should appear as error."""
     (tmp_path / "ghost.py.change.md").write_text(
         "<!-- unslop-changes v1 -->\n"
-        "### [pending] Add feature — 2026-03-22T15:00:00Z\n\nBody.\n\n---\n"
+        "### [pending] Add feature -- 2026-03-22T15:00:00Z\n\nBody.\n\n---\n"
     )
     result = check_freshness(str(tmp_path))
     assert result["status"] == "fail"
@@ -712,17 +712,12 @@ def test_check_freshness_unreadable_change_file(tmp_path, capsys):
     assert "Cannot read change file" in captured.err
 
 
-def test_parse_change_file_en_dash_timestamp():
-    """En-dash and double-hyphen separators should parse correctly."""
-    content_en = "<!-- unslop-changes v1 -->\n### [pending] Fix bug \u2013 2026-03-22T15:00:00Z\n\nBody.\n\n---\n"
-    result_en = parse_change_file(content_en)
-    assert len(result_en) == 1
-    assert result_en[0]["timestamp"] == "2026-03-22T15:00:00Z"
-
-    content_dh = "<!-- unslop-changes v1 -->\n### [pending] Fix bug -- 2026-03-22T15:00:00Z\n\nBody.\n\n---\n"
-    result_dh = parse_change_file(content_dh)
-    assert len(result_dh) == 1
-    assert result_dh[0]["timestamp"] == "2026-03-22T15:00:00Z"
+def test_parse_change_file_double_hyphen_timestamp():
+    """Double-hyphen separator (canonical format) should parse correctly."""
+    content = "<!-- unslop-changes v1 -->\n### [pending] Fix bug -- 2026-03-22T15:00:00Z\n\nBody.\n\n---\n"
+    result = parse_change_file(content)
+    assert len(result) == 1
+    assert result[0]["timestamp"] == "2026-03-22T15:00:00Z"
 
 
 def test_check_freshness_hint_combined(tmp_path):
@@ -738,7 +733,7 @@ def test_check_freshness_hint_combined(tmp_path):
     )
     (tmp_path / "thing.py.change.md").write_text(
         "<!-- unslop-changes v1 -->\n"
-        "### [pending] Add feature — 2026-03-22T15:00:00Z\n\nBody.\n\n---\n"
+        "### [pending] Add feature -- 2026-03-22T15:00:00Z\n\nBody.\n\n---\n"
     )
     result = check_freshness(str(tmp_path))
     file_entry = [f for f in result["files"] if f["managed"] == "thing.py"][0]

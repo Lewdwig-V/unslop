@@ -26,14 +26,14 @@ Change requests live in sidecar files alongside managed files: `src/retry.py.cha
 ### Entry structure
 
 ```markdown
-### [pending] Add jitter to backoff — 2026-03-22T15:00:00Z
+### [pending] Add jitter to backoff -- 2026-03-22T15:00:00Z
 
 Backoff should include random jitter (0-50% of delay) to prevent
 thundering herd when multiple clients retry simultaneously.
 
 ---
 
-### [tactical] Fix upstream API endpoint — 2026-03-22T16:30:00Z
+### [tactical] Fix upstream API endpoint -- 2026-03-22T16:30:00Z
 
 The payments API moved from api.v2.payments.com to api.v3.payments.com.
 Update the base URL constant.
@@ -41,7 +41,7 @@ Update the base URL constant.
 ---
 ```
 
-- **Heading**: `### [status] Description — ISO8601 timestamp`
+- **Heading**: `### [status] Description -- ISO8601 timestamp`
 - **Status markers**: `[pending]` (standard spec-first flow) or `[tactical]` (fast path — code first, spec reconciliation after)
 - **Body**: Natural language description of the change intent. Same register as specs — what, not how.
 - **Separator**: `---` between entries

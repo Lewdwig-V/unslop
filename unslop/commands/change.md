@@ -86,7 +86,7 @@ If the sidecar file does not exist, create it with the format marker as its firs
 Append the new entry to the sidecar file:
 
 ```
-### [status] description — ISO8601-UTC-timestamp
+### [status] description -- ISO8601-UTC-timestamp
 
 [description or elaborated body]
 
