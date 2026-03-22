@@ -264,7 +264,7 @@ Files in `modified` or `conflict` state are treated as non-fresh and cause exit 
 
 ## Backwards Compatibility
 
-- **Old headers without hashes:** Fall back to mtime-based classification with a warning. Suggest regenerating the file to update the header format.
+- **Old headers without hashes:** Classified as `old_format`. Generate/sync treat this as stale — regeneration updates the header to the new dual-hash format.
 - **`config.md` without `config.json`:** Commands read `config.md` as fallback. Suggest running `/unslop:init` to migrate.
 - **Both `config.md` and `config.json` present:** `config.json` takes precedence. Init deletes `config.md` during migration.
 - **No `jq` available:** `load-context.sh` falls back to reading `config.json` as plain text for context injection. The orchestrator doesn't need `jq` — it reads JSON via Python's `json` module.
