@@ -28,8 +28,11 @@ if [ -f "$summary_file" ]; then
   has_content=true
 fi
 
-# Load config if it exists
-config_file="$CLAUDE_PROJECT_DIR/.unslop/config.md"
+# Load config if it exists — prefer config.json, fall back to config.md (legacy)
+config_file="$CLAUDE_PROJECT_DIR/.unslop/config.json"
+if [ ! -f "$config_file" ]; then
+  config_file="$CLAUDE_PROJECT_DIR/.unslop/config.md"
+fi
 if [ -f "$config_file" ]; then
   config=$(cat "$config_file")
   output="$output

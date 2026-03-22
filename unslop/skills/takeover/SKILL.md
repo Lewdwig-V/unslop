@@ -95,7 +95,7 @@ Write the generated file to the original path. Include the `@unslop-managed` hea
 
 ## Step 5: Validate
 
-Read the test command from `.unslop/config.md`.
+Read the test command from `.unslop/config.json`.
 
 Run the tests.
 
@@ -203,7 +203,7 @@ Archive ALL original files in the unit, not just one.
 
 ### Validate (Step 5 — updated)
 
-Run tests once for the entire unit (not per-file). The test command from `.unslop/config.md` should cover the unit. If tests pass, commit ALL specs and generated files together.
+Run tests once for the entire unit (not per-file). The test command from `.unslop/config.json` should cover the unit. If tests pass, commit ALL specs and generated files together.
 
 ### Convergence Loop (Step 6 — updated)
 

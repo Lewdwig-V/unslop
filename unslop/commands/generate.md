@@ -1,6 +1,6 @@
 ---
 description: Regenerate all stale managed files from their specs
-argument-hint: "[--force-ambiguous] [--incremental]"
+argument-hint: "[--force] [--force-ambiguous] [--incremental]"
 ---
 
 **1. Verify prerequisites**
@@ -13,7 +13,9 @@ Check that `.unslop/` exists in the current working directory. If it does not ex
 
 Use the **unslop/generation** skill for code generation discipline throughout this command.
 
-Read `.unslop/config.md` to obtain the test command. You will need it when validating regenerated files.
+Read `.unslop/config.json` to obtain the test command. If `config.json` does not exist, fall back to `.unslop/config.md` (legacy format). You will need the test command when validating regenerated files.
+
+**Check for `--force` flag:** If `$ARGUMENTS` contains `--force`, note this — it allows regeneration to proceed on modified and conflict files without requiring user confirmation.
 
 **Check for `--force-ambiguous` flag:** If `$ARGUMENTS` contains `--force-ambiguous`, note this for the generation skill. When this flag is present, the generation skill's ambiguity detection (Section 0, Phase 0b) reports ambiguities as warnings instead of blocking generation.
 
@@ -38,20 +40,29 @@ For each `*.spec.md` found, derive the managed file path by stripping the traili
 Classify it as one of:
 
 - **New**: the managed file does not exist yet — must be generated unconditionally.
-- **Stale**: the managed file exists — read its `@unslop-managed` header, extract the generation timestamp from the second line, and compare against the spec file's modification time (mtime). If spec mtime > generation timestamp, the file is stale and must be regenerated.
-- **Fresh**: the managed file exists and the spec mtime <= generation timestamp — skip it.
+- **Fresh**: stored spec-hash matches current spec hash AND stored output-hash matches current output hash — skip it.
+- **Stale**: stored spec-hash does NOT match current spec hash AND stored output-hash matches current output hash — the spec changed but code is untouched; regenerate.
+- **Modified**: stored spec-hash matches current spec hash AND stored output-hash does NOT match current output hash — the code was edited directly. Warn the user and require `--force` or explicit user confirmation before regenerating.
+- **Conflict**: both hashes mismatch — spec and code both changed. Block and require `--force` or explicit user confirmation before proceeding.
+- **Old format**: header is present but uses the old timestamp-based format (no `spec-hash`/`output-hash` fields) — treat as stale and regenerate.
+
+Hash algorithm: SHA-256 of content, truncated to 12 hex characters. For spec hash: hash the full spec file content. For output hash: hash the managed file body below the `@unslop-managed` header block, stripped of leading/trailing whitespace.
 
 For unit specs (`*.unit.spec.md`): derive managed file paths from the `## Files` section in the spec rather than the naming convention.
 
 Report the classification of every spec file before proceeding.
 
-**5. Process stale and new files**
+**5. Process stale, new, modified, and conflict files**
 
-For each file classified as new or stale, in order:
+For **modified** files: warn the user that the managed file has been edited directly (output hash mismatch). If `--force` was passed, proceed with regeneration. Otherwise, ask the user to confirm before overwriting their edits. If the user declines, skip this file.
 
-1. **Select generation mode.** Files classified as **new** always use full regeneration (Mode A) — there is no existing managed file to diff against. For **stale** files, default is full regeneration (Mode A); use incremental mode (Mode B) if the user passed `--incremental` or if the spec change is a small amendment (fewer than ~20% of spec lines changed, as estimated from the spec-hash delta). In incremental mode, read the spec AND the existing managed file.
+For **conflict** files: warn the user that both the spec and the managed file have changed. If `--force` was passed, proceed with regeneration. Otherwise, ask the user to confirm before proceeding. If the user declines, skip this file.
+
+For each file classified as new, stale, modified (confirmed), or conflict (confirmed), in order:
+
+1. **Select generation mode.** Files classified as **new** always use full regeneration (Mode A) — there is no existing managed file to diff against. For **stale**, **modified**, and **conflict** files, default is full regeneration (Mode A); use incremental mode (Mode B) if the user passed `--incremental` or if the spec change is a small amendment (fewer than ~20% of spec lines changed, as estimated from the spec-hash delta). In incremental mode, read the spec AND the existing managed file.
 2. Generate the managed file. The file must begin with the `@unslop-managed` header as specified by the **unslop/generation** skill. In incremental mode, produce only the targeted edits needed to bring the file into conformance with the updated spec.
-3. Run the test command from `.unslop/config.md`.
+3. Run the test command from `.unslop/config.json`.
 4. If tests pass: report success for this file and continue to the next.
 5. If tests fail: report the failure output and **stop immediately**. Do NOT attempt to fix the code, re-read the spec, or enter any convergence loop. Tell the user:
 

@@ -1,6 +1,6 @@
 {
   "name": "unslop",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "description": "Spec-driven code management — extract intent, validate against tests, regenerate from specs",
   "author": {
     "name": "lewdwig"
