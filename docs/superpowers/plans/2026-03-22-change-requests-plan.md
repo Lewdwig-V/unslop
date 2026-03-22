@@ -115,6 +115,49 @@ Body without timestamp.
     result = parse_change_file(content)
     assert len(result) == 1
     assert result[0]["timestamp"] is None
+
+def test_parse_change_file_unknown_status(capsys):
+    content = """<!-- unslop-changes v1 -->
+### [shipped] Already deployed — 2026-03-22T15:00:00Z
+
+This was already deployed.
+
+---
+"""
+    result = parse_change_file(content)
+    assert len(result) == 0
+    captured = capsys.readouterr()
+    assert "warning" in captured.err.lower()
+
+def test_parse_change_file_trailing_entry_no_separator():
+    content = """<!-- unslop-changes v1 -->
+### [pending] Last entry — 2026-03-22T15:00:00Z
+
+No trailing separator here.
+"""
+    result = parse_change_file(content)
+    assert len(result) == 1
+    assert result[0]["status"] == "pending"
+    assert "trailing" not in result[0]["body"].lower() or "separator" not in result[0]["body"].lower()
+
+def test_parse_change_file_multiline_body():
+    content = """<!-- unslop-changes v1 -->
+### [pending] Complex change — 2026-03-22T15:00:00Z
+
+First paragraph about the change.
+
+Second paragraph with more detail about
+why this matters and what constraints apply.
+
+- Bullet point one
+- Bullet point two
+
+---
+"""
+    result = parse_change_file(content)
+    assert len(result) == 1
+    assert "First paragraph" in result[0]["body"]
+    assert "Bullet point two" in result[0]["body"]
 ```
 
 - [ ] **Step 2: Run tests to verify they fail**
@@ -127,7 +170,7 @@ Expected: FAIL — `parse_change_file` not importable
 Add to `unslop/scripts/orchestrator.py`:
 
 ```python
-def parse_change_file(content: str) -> list[str]:
+def parse_change_file(content: str) -> list[dict]:
     """Parse stacked change entries from a *.change.md file.
 
     Returns list of dicts with: status, description, timestamp, body.
@@ -325,6 +368,8 @@ Check that the target file exists and has an `@unslop-managed` header. If not ma
 Read the `@unslop-managed` header to get the spec path. Check that the spec file exists. If not: "Spec not found. The managed file references a spec that no longer exists."
 
 If the file is in `conflict` state (both spec-hash and output-hash don't match): "File has unresolved conflicts. Resolve with `/unslop:sync --force` before adding changes."
+
+If the file is in `modified` state (spec-hash matches but output-hash does not) AND `--tactical` was passed: Warn: "File was edited directly. The tactical change will be applied on top of direct edits. Proceed?" Wait for user confirmation before proceeding.
 
 **2. Check for existing changes**
 
