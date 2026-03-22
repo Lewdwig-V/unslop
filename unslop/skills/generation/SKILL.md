@@ -80,7 +80,7 @@ This is not a stylistic preference. Reading the current generated file introduce
 **Permitted reads:**
 - The spec file
 - The test file(s) for the target module
-- `.unslop/config.md` (for test command and project conventions)
+- `.unslop/config.json` (for test command and project conventions)
 - Language/framework documentation as needed
 
 **Prohibited reads:**
@@ -97,7 +97,7 @@ You read the spec, the current generated file, and an optional change descriptio
 - The spec file
 - The current generated source file
 - The test file(s) for the target module
-- `.unslop/config.md`
+- `.unslop/config.json`
 - `*.change.md` sidecars (if any)
 - Language/framework documentation as needed
 
@@ -108,7 +108,7 @@ You read the spec, the current generated file, and an optional change descriptio
 - Change only what the spec delta or change description requires. Do not reformat, rename, or restructure code that is unrelated to the change.
 - Do not "improve" surrounding code. Gratuitous churn is a defect, not a feature.
 - If the change description is ambiguous about scope, default to the narrower interpretation.
-- The `@unslop-managed` header must still be updated with a new generation timestamp. (When dual-hash staleness from Gap 2 is implemented, update hashes too.)
+- Update the `@unslop-managed` header with new `output-hash`, `spec-hash`, and timestamp after applying edits. Re-hash the full body content for the output-hash.
 
 **When to use:** Small spec amendments, added constraints, absorbed change requests, bug fixes discovered during convergence — any case where the scope of the spec change is well-understood and localized.
 
@@ -127,7 +127,7 @@ Incremental mode accumulates implementation drift over many small changes. The c
 Every generated file MUST begin with a two-line header using the correct comment syntax for the file's extension.
 
 **Line 1:** `@unslop-managed — do not edit directly. Edit <spec-path> instead.`
-**Line 2:** `Generated from spec at <ISO 8601 timestamp>`
+**Line 2:** `spec-hash:<12hex> output-hash:<12hex> generated:<ISO8601>`
 
 Use UTC for the timestamp. Format: `2026-03-20T14:32:00Z`
 
@@ -148,26 +148,38 @@ For unknown extensions, use `//` as the default.
 Python (`.py`):
 ```python
 # @unslop-managed — do not edit directly. Edit src/retry.py.spec.md instead.
-# Generated from spec at 2026-03-20T14:32:00Z
+# spec-hash:a3f8c2e9b7d1 output-hash:4e2f1a8c9b03 generated:2026-03-20T14:32:00Z
 ```
 
 TypeScript (`.ts`):
 ```typescript
 // @unslop-managed — do not edit directly. Edit src/api-client.ts.spec.md instead.
-// Generated from spec at 2026-03-20T14:32:00Z
+// spec-hash:a3f8c2e9b7d1 output-hash:4e2f1a8c9b03 generated:2026-03-20T14:32:00Z
 ```
 
 HTML (`.html`):
 ```html
 <!-- @unslop-managed — do not edit directly. Edit src/index.html.spec.md instead. -->
-<!-- Generated from spec at 2026-03-20T14:32:00Z -->
+<!-- spec-hash:a3f8c2e9b7d1 output-hash:4e2f1a8c9b03 generated:2026-03-20T14:32:00Z -->
 ```
 
 CSS (`.css`):
 ```css
 /* @unslop-managed — do not edit directly. Edit src/styles.css.spec.md instead. */
-/* Generated from spec at 2026-03-20T14:32:00Z */
+/* spec-hash:a3f8c2e9b7d1 output-hash:4e2f1a8c9b03 generated:2026-03-20T14:32:00Z */
 ```
+
+### Write Order
+
+When generating a file, follow this exact sequence:
+1. Generate the file body (everything below the header)
+2. Apply Python `str.strip()` to the body, then compute its SHA-256 hash truncated to 12 hex chars → `output-hash`
+3. Read the spec file content and compute its SHA-256 hash truncated to 12 hex chars → `spec-hash`
+4. Write header line 1 (spec path — unchanged)
+5. Write header line 2: `spec-hash:<hash> output-hash:<hash> generated:<ISO8601 UTC timestamp>`
+6. Write the body
+
+This ordering ensures the output-hash is computed before the header is written — the header is NOT included in the hash.
 
 ---
 
@@ -204,9 +216,9 @@ The spec constrains observable behavior. Implementation choices that satisfy the
 
 ## 5. Config Awareness
 
-Read `.unslop/config.md` for the project's test command before running tests.
+Read `.unslop/config.json` for the project's test command before running tests.
 
-If `.unslop/config.md` does not exist or does not specify a test command, infer it from the project's conventional tooling (e.g., `pytest` for Python projects with `pyproject.toml`, `npm test` for Node projects with `package.json`). Do not guess blindly — look at the project root before choosing a fallback.
+If `.unslop/config.json` does not exist or does not specify a test command, infer it from the project's conventional tooling (e.g., `pytest` for Python projects with `pyproject.toml`, `npm test` for Node projects with `package.json`). Do not guess blindly — look at the project root before choosing a fallback.
 
 Always run the test suite after generation to confirm the output is green before declaring the task complete.
 
