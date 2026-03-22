@@ -77,7 +77,7 @@ Before running ambiguity detection, check if `.unslop/principles.md` exists. If 
 
 After validation passes, check for a `*.change.md` sidecar file for the target managed file (same directory, same base name with `.change.md` extension).
 
-If no change file exists, skip to Section 1.
+If no change file exists, skip to Phase 0d.
 
 If change entries exist:
 

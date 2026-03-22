@@ -79,6 +79,8 @@ Scan the project for known framework indicators:
 - `go.mod`: note `go` as the ecosystem
 - Terraform files (`.tf`): note `terraform`
 
+Only include frameworks that have a corresponding `unslop/domain/<framework>/SKILL.md` skill file. Currently shipped: `fastapi`. Other detected frameworks should be noted to the user but not added to `config.json` until their domain skill is available.
+
 Present detected frameworks to the user:
 > "Detected frameworks: [list]. Domain-specific generation rules will be loaded for these. Edit the `frameworks` field in `.unslop/config.json` to adjust."
 

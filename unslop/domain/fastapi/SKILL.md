@@ -49,7 +49,7 @@ The `Annotated` form is composable, IDE-friendly, and aligns with current FastAP
 
 Three non-negotiables:
 
-1. Every endpoint decorator must include `response_model`.
+1. Endpoints returning JSON should define `response_model`. Endpoints that return non-JSON responses (`FileResponse`, `StreamingResponse`, `Response` with status 204, etc.) should NOT use `response_model` — the response type itself is the schema.
 2. Request bodies use Pydantic `BaseModel` subclasses — never raw `dict`.
 3. Response schemas are separate from database models — do not expose ORM objects directly.
 
@@ -70,7 +70,7 @@ async def list_users(db: DbSession) -> list[UserResponse]:
     ...
 ```
 
-If the spec does not name the response fields, infer a minimal schema from context. If the spec is genuinely ambiguous about response shape, flag it in Phase 0b — do not silently omit `response_model`.
+If the spec does not name the response fields, infer a minimal schema from context. If the spec is genuinely ambiguous about response shape, flag it in Phase 0b — do not silently omit `response_model` for JSON-returning endpoints.
 
 ---
 
