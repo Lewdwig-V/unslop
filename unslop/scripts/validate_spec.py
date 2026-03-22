@@ -50,43 +50,20 @@ def validate_spec(content: str, spec_path: str) -> dict:
             "message": f"Spec body has only {len(non_blank)} non-blank lines (minimum 4)"
         })
 
-    # Check 2: Required sections — at least one ## heading with substantive content.
-    # "Substantive" means: a contiguous block of >1 non-blank lines directly under
-    # the heading (blank line ends the block), OR a ## Open Questions heading with
-    # >=1 list item (its item count is validated separately by check 4).
+    # Check 2: Required sections — at least one ## heading with >1 non-blank
+    # content lines anywhere below it (until the next ## heading).
+    # Blank lines do NOT reset the count — multi-paragraph sections are valid.
     has_substantive_section = False
     current_heading = None
-    current_heading_is_oq = False
     content_lines_under_heading = 0
-    in_content_block = False  # True while inside the contiguous block after heading
-    in_section_fence = False  # True while inside a code fence under a heading
     for line in body_lines:
-        if re.match(r'^## ', line) and not in_section_fence:
+        if re.match(r'^## ', line):
             if current_heading and content_lines_under_heading > 1:
                 has_substantive_section = True
             current_heading = line
-            current_heading_is_oq = bool(re.match(r'^## Open Questions', line))
             content_lines_under_heading = 0
-            in_content_block = True
-            in_section_fence = False
-        elif current_heading:
-            if line.strip().startswith("```"):
-                # Code fence opener/closer counts as content; resume block after fence
-                in_section_fence = not in_section_fence
-                in_content_block = True
-                content_lines_under_heading += 1
-            elif line.strip():
-                if in_content_block or in_section_fence:
-                    content_lines_under_heading += 1
-                    # For Open Questions, a single list item is enough
-                    if current_heading_is_oq and re.match(r'^\s*-\s+\S', line):
-                        has_substantive_section = True
-            else:
-                # Blank line ends the contiguous content block, but not inside a fence
-                if not in_section_fence:
-                    if in_content_block and content_lines_under_heading > 1:
-                        has_substantive_section = True
-                    in_content_block = False
+        elif current_heading and line.strip():
+            content_lines_under_heading += 1
     if current_heading and content_lines_under_heading > 1:
         has_substantive_section = True
 
@@ -175,11 +152,39 @@ def main():
         sys.exit(1)
 
     spec_path = sys.argv[1]
+    file_path = Path(spec_path)
+
+    # Size guard — spec files should be small text documents
+    MAX_SPEC_SIZE = 1_000_000  # 1 MB
     try:
-        content = Path(spec_path).read_text(encoding="utf-8")
-    except (OSError, UnicodeDecodeError) as e:
+        size = file_path.stat().st_size
+        if size > MAX_SPEC_SIZE:
+            print(json.dumps({"status": "fail", "spec_path": spec_path,
+                              "issues": [{"check": "file_too_large",
+                                          "message": f"File is {size} bytes (max {MAX_SPEC_SIZE}). Spec files should be small text documents."}]}))
+            sys.exit(1)
+    except FileNotFoundError:
         print(json.dumps({"status": "fail", "spec_path": spec_path,
-                          "issues": [{"check": "read_error", "message": str(e)}]}))
+                          "issues": [{"check": "file_not_found",
+                                      "message": f"Spec file not found: {spec_path}"}]}))
+        sys.exit(1)
+    except OSError as e:
+        print(json.dumps({"status": "fail", "spec_path": spec_path,
+                          "issues": [{"check": "read_error",
+                                      "message": f"Cannot read spec file: {e}"}]}))
+        sys.exit(1)
+
+    try:
+        content = file_path.read_text(encoding="utf-8")
+    except UnicodeDecodeError as e:
+        print(json.dumps({"status": "fail", "spec_path": spec_path,
+                          "issues": [{"check": "encoding_error",
+                                      "message": f"Cannot read spec file as text. Is this UTF-8? Detail: {e}"}]}))
+        sys.exit(1)
+    except OSError as e:
+        print(json.dumps({"status": "fail", "spec_path": spec_path,
+                          "issues": [{"check": "read_error",
+                                      "message": f"Cannot read spec file: {e}"}]}))
         sys.exit(1)
 
     if "\x00" in content:

@@ -3,7 +3,7 @@ description: Regenerate one specific managed file from its spec
 argument-hint: <file-path> [--force-ambiguous] [--incremental]
 ---
 
-The argument `$ARGUMENTS` is the path to the managed file (e.g., `src/retry.py`).
+**Parse arguments:** `$ARGUMENTS` may contain the file path and optional flags. Extract the file path (the first argument that does not start with `--`) and check for flags (`--force-ambiguous`, `--incremental`). Strip flags before using the path in subsequent steps.
 
 **1. Verify prerequisites**
 

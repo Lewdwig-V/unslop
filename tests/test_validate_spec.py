@@ -56,7 +56,22 @@ Does stuff.
 More detail here.
 """
     result = validate_spec(content, "src/edge.py.spec.md")
-    assert result["status"] in ("pass", "warn")
+    assert result["status"] == "pass"
+
+
+def test_pass_multi_paragraph_section():
+    """Blank lines between paragraphs should NOT break section content counting."""
+    content = """# retry.py spec
+
+## Behavior
+First paragraph about retry behavior.
+
+Second paragraph with more detail about jitter.
+
+Third paragraph about error conditions.
+"""
+    result = validate_spec(content, "src/retry.py.spec.md")
+    assert result["status"] == "pass"
 
 
 def test_fail_no_substantive_section():
@@ -77,8 +92,30 @@ def test_fail_heading_with_only_one_content_line():
 ## Error Handling
 Raises RetryExhausted.
 
-This line is outside all headings so doesn't count.
-And this one too. And another to pass minimum length.
+## Another Section
+Also just one line.
+
+## Yet Another
+Single line here too.
+And one more line to pass minimum length.
+"""
+    result = validate_spec(content, "src/retry.py.spec.md")
+    # Each heading has only 1 content line, except the last which has 2
+    # The last section ("Yet Another") has 2 lines, so it passes
+    # But let's make ALL have exactly 1:
+    content = """# retry.py spec
+
+## Error Handling
+Raises RetryExhausted.
+
+## Dependencies
+Uses stdlib only.
+
+## Purpose
+A thing.
+
+## Constraints
+None yet.
 """
     result = validate_spec(content, "src/retry.py.spec.md")
     assert result["status"] == "fail"
@@ -149,6 +186,7 @@ def test_pass_open_questions_with_items():
 
 ## Behavior
 Retries failed operations up to 5 times.
+Backoff with jitter to prevent thundering herd.
 
 ## Open Questions
 - Whether to use linear or exponential backoff — will benchmark

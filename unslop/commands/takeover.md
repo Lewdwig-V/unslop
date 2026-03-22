@@ -3,7 +3,7 @@ description: Run the takeover pipeline on an existing file, directory, or glob
 argument-hint: <file-path|directory|glob> [--force-ambiguous]
 ---
 
-The argument `$ARGUMENTS` is the path to the target source file, a directory, or a glob pattern.
+**Parse arguments:** `$ARGUMENTS` may contain the target path and optional flags. Extract the target path (the first argument that does not start with `--`) and check for flags (`--force-ambiguous`). Strip flags before using the path in subsequent steps.
 
 **0. Detect mode**
 
