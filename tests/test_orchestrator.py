@@ -748,3 +748,95 @@ def test_parse_change_file_unparseable_content_warns(capsys):
     assert result == []
     captured = capsys.readouterr()
     assert "no parseable entries" in captured.err
+
+
+# --- principles-hash tests ---
+
+def test_parse_header_with_principles_hash():
+    lines = [
+        "# @unslop-managed -- do not edit directly. Edit src/retry.py.spec.md instead.",
+        "# spec-hash:a3f8c2e9b7d1 output-hash:4e2f1a8c9b03 principles-hash:7f2e1b8a9c04 generated:2026-03-22T14:32:00Z",
+    ]
+    result = parse_header("\n".join(lines))
+    assert result["spec_hash"] == "a3f8c2e9b7d1"
+    assert result["output_hash"] == "4e2f1a8c9b03"
+    assert result["principles_hash"] == "7f2e1b8a9c04"
+
+def test_parse_header_without_principles_hash():
+    lines = [
+        "# @unslop-managed -- do not edit directly. Edit src/retry.py.spec.md instead.",
+        "# spec-hash:a3f8c2e9b7d1 output-hash:4e2f1a8c9b03 generated:2026-03-22T14:32:00Z",
+    ]
+    result = parse_header("\n".join(lines))
+    assert result["principles_hash"] is None
+
+def test_classify_principles_stale(tmp_path):
+    spec = "# spec\n\n## Behavior\nDoes stuff.\nMore detail.\n"
+    body = "def thing(): pass\n"
+    principles = "# Principles\n\n## Style\n- Use typed errors\n"
+    old_prin_hash = compute_hash("old principles content")
+    sh = compute_hash(spec)
+    oh = compute_hash(body)
+    header = (
+        f"# @unslop-managed -- do not edit directly. Edit thing.py.spec.md instead.\n"
+        f"# spec-hash:{sh} output-hash:{oh} principles-hash:{old_prin_hash} generated:2026-03-22T14:32:00Z\n"
+    )
+    (tmp_path / "thing.py.spec.md").write_text(spec)
+    (tmp_path / "thing.py").write_text(header + body)
+    (tmp_path / ".unslop").mkdir()
+    (tmp_path / ".unslop" / "principles.md").write_text(principles)
+    result = classify_file(str(tmp_path / "thing.py"), str(tmp_path / "thing.py.spec.md"),
+                           project_root=str(tmp_path))
+    assert result["state"] == "stale"
+    assert "principles" in result.get("hint", "").lower()
+
+def test_classify_principles_fresh(tmp_path):
+    spec = "# spec\n\n## Behavior\nDoes stuff.\nMore detail.\n"
+    body = "def thing(): pass\n"
+    principles = "# Principles\n\n## Style\n- Use typed errors\n"
+    prin_hash = compute_hash(principles)
+    sh = compute_hash(spec)
+    oh = compute_hash(body)
+    header = (
+        f"# @unslop-managed -- do not edit directly. Edit thing.py.spec.md instead.\n"
+        f"# spec-hash:{sh} output-hash:{oh} principles-hash:{prin_hash} generated:2026-03-22T14:32:00Z\n"
+    )
+    (tmp_path / "thing.py.spec.md").write_text(spec)
+    (tmp_path / "thing.py").write_text(header + body)
+    (tmp_path / ".unslop").mkdir()
+    (tmp_path / ".unslop" / "principles.md").write_text(principles)
+    result = classify_file(str(tmp_path / "thing.py"), str(tmp_path / "thing.py.spec.md"),
+                           project_root=str(tmp_path))
+    assert result["state"] == "fresh"
+
+def test_classify_principles_deleted(tmp_path):
+    spec = "# spec\n\n## Behavior\nDoes stuff.\nMore detail.\n"
+    body = "def thing(): pass\n"
+    sh = compute_hash(spec)
+    oh = compute_hash(body)
+    header = (
+        f"# @unslop-managed -- do not edit directly. Edit thing.py.spec.md instead.\n"
+        f"# spec-hash:{sh} output-hash:{oh} principles-hash:abc123def456 generated:2026-03-22T14:32:00Z\n"
+    )
+    (tmp_path / "thing.py.spec.md").write_text(spec)
+    (tmp_path / "thing.py").write_text(header + body)
+    (tmp_path / ".unslop").mkdir()
+    result = classify_file(str(tmp_path / "thing.py"), str(tmp_path / "thing.py.spec.md"),
+                           project_root=str(tmp_path))
+    assert result["state"] == "stale"
+    assert "principles" in result.get("hint", "").lower()
+
+def test_classify_no_project_root_skips_principles(tmp_path):
+    spec = "# spec\n\n## Behavior\nDoes stuff.\nMore detail.\n"
+    body = "def thing(): pass\n"
+    old_prin_hash = compute_hash("old principles")
+    sh = compute_hash(spec)
+    oh = compute_hash(body)
+    header = (
+        f"# @unslop-managed -- do not edit directly. Edit thing.py.spec.md instead.\n"
+        f"# spec-hash:{sh} output-hash:{oh} principles-hash:{old_prin_hash} generated:2026-03-22T14:32:00Z\n"
+    )
+    (tmp_path / "thing.py.spec.md").write_text(spec)
+    (tmp_path / "thing.py").write_text(header + body)
+    result = classify_file(str(tmp_path / "thing.py"), str(tmp_path / "thing.py.spec.md"))
+    assert result["state"] == "fresh"
