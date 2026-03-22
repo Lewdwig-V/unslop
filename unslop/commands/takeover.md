@@ -35,7 +35,7 @@ Check for a `*.change.md` sidecar for the target file (same directory, same base
 
 **2. Load context**
 
-Read `.unslop/config.json` to obtain the test command.
+Read `.unslop/config.json` (or `.unslop/config.md` as legacy fallback) to obtain the test command.
 
 **3. Run the takeover pipeline (two-stage)**
 

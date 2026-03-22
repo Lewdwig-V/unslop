@@ -32,7 +32,7 @@ The Architect processes change intent and updates the spec. It runs in the user'
 - Updated `*.spec.md` (staged via `git add`, NOT committed)
 - User approves the spec update before Stage B
 
-**Commit atomicity:** The Architect's spec update is written to disk and staged (`git add`) but NOT committed. The spec and generated code are committed together as a single atomic commit after the Builder succeeds and the worktree is merged. If the Builder fails, the spec update is reverted (`git checkout -- <spec_path>`), leaving main truly untouched.
+**Commit atomicity:** The Architect's spec update is written to disk and staged (`git add`) but NOT committed. The spec and generated code are committed together as a single atomic commit after the Builder succeeds and the worktree is merged. If the Builder fails, the spec update is reverted (`git checkout HEAD -- <spec_path>`), leaving main truly untouched.
 
 **Exception:** During `/unslop:takeover`, the Architect reads existing source code and tests -- the point of takeover is extracting intent FROM code. Stage B still runs in a clean worktree.
 
@@ -79,7 +79,7 @@ After the Builder Agent completes:
 3. Compute `output-hash` on merged code, update `@unslop-managed` header
 4. Commit the staged spec update + merged code as a single atomic commit
 
-If BLOCKED or tests fail: discard the worktree AND revert the staged spec update (`git checkout -- <spec_path>`). Main branch is untouched.
+If BLOCKED or tests fail: discard the worktree AND revert the staged spec update (`git checkout HEAD -- <spec_path>`). Main branch is untouched.
 
 ### Builder Failure Reports
 

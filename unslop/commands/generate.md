@@ -75,7 +75,7 @@ For each file classified as new, stale, modified (confirmed), or conflict (confi
    - Pass `--incremental` to the Builder prompt if Mode B was selected.
 3. **Verify result:**
    - If DONE with green tests: worktree merges automatically. Compute `output-hash`, update header.
-   - If BLOCKED or tests fail: discard worktree, revert any staged spec update for this file (`git checkout -- <spec_path>`). Report failure and **stop immediately**. Do not process remaining files.
+   - If BLOCKED or tests fail: discard worktree, revert ALL staged spec updates from Step 3c (`git checkout HEAD -- <spec_path>` for every spec that was staged), not just the failing file's spec. Report failure and **stop immediately**. Do not process remaining files.
 4. If a dependency was regenerated in this run, mark its dependents as stale even if their own specs haven't changed.
 
 If cascading regeneration of a dependent causes Builder failure, stop and report: which upstream regeneration caused the failure, which dependent broke, and the Builder's failure report.

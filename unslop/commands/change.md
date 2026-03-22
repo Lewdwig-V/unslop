@@ -118,7 +118,7 @@ The `[description or elaborated body]` should be the description text as provide
    d. Commit the spec update + generated code + sidecar change as a single atomic commit.
 9. If Builder fails (BLOCKED or tests fail):
    a. Discard the worktree.
-   b. Revert the staged spec update: `git checkout -- <spec_path>`.
+   b. Revert the staged spec update: `git checkout HEAD -- <spec_path>`.
    c. Report the Builder's failure report (failing tests, what was attempted, suspected spec gaps).
    d. The entry remains in `<file>.change.md`.
 
