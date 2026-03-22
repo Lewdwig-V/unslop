@@ -190,10 +190,10 @@ Before running ambiguity detection, check if `.unslop/principles.md` exists. If 
 
 **Result handling:**
 
-- **No ambiguities found:** Report "Spec passed ambiguity review." Proceed to Section 1.
-- **Ambiguities found, all covered by Open Questions:** Report "Spec has N open questions acknowledged. Proceeding." Proceed to Section 1.
+- **No ambiguities found:** Report "Spec passed ambiguity review." Proceed to Phase 0c.
+- **Ambiguities found, all covered by Open Questions:** Report "Spec has N open questions acknowledged. Proceeding." Proceed to Phase 0c.
 - **Ambiguities found, some NOT covered:**
-  - If `--force-ambiguous` was passed: report ambiguities as warnings, proceed to Section 1.
+  - If `--force-ambiguous` was passed: report ambiguities as warnings, proceed to Phase 0c.
   - Otherwise: **stop generation.** Report each uncovered ambiguity with the quoted phrase and two interpretations. Tell the user:
 
 > "Found N ambiguities not marked as open questions. Either:
