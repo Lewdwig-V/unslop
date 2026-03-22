@@ -201,22 +201,26 @@ This preserves all three states from the current mtime scheme while eliminating 
 
 ---
 
-### Gap 5: Pre-Generation Spec Validation Hook (Medium Impact, Low Cost)
+### Gap 5: Pre-Generation Spec Validation (Medium Impact, Low Cost)
 
 **Problem:** No pre-flight check catches obviously insufficient specs before wasting a generation cycle.
 
-**Solution:** A PostToolUse hook on spec file edits that runs lightweight validation:
+**Solution (original, flawed):** ~~A PostToolUse hook on spec file edits.~~ A PostToolUse hook only fires when Claude performs a Write/Edit inside the current session. It does not fire when a user runs `/unslop:generate` on a spec pulled from git, edits the spec in an external editor, or retries generation on a previously failing spec. In those common paths — which are the *majority* of generation triggers — the hook never runs, so the wasted cycle it's trying to prevent still happens.
 
+**Corrected solution:** Spec validation runs inside the generation skill itself, as a pre-generation gate — the same pattern used for change-request consumption (Gap 4) and ambiguity detection (Gap 1). Since generate, sync, and takeover all flow through the generation skill before writing code, a single validation step there covers every entry path.
+
+**Validation checks (fast, no LLM call needed):**
 - Does the spec have at least one Behavior or Constraints section?
-- Is it longer than 3 lines? (catches accidental empty saves)
-- Does it contain any obviously over-specified content (code snippets, variable names, algorithm descriptions)?
+- Is it longer than 3 lines? (catches accidental empty saves or placeholder specs)
+- Does it contain obviously over-specified content? Heuristic: code fences with non-example content, or lines that look like pseudocode rather than behavioral descriptions.
 
-Over-specification check uses a simple heuristic: if the spec contains code fences with non-example content, or lines that look like pseudocode, warn the user.
+**What happens on failure:** Validation failures block generation and surface the specific issue to the user. The generation skill stops before any code is written and reports what needs to change. No `--force` override — a spec that fails these basic checks will produce bad code regardless.
+
+**Optional editor-time warning (supplement, not replacement):** A PostToolUse hook on `*.spec.md` edits can *additionally* surface warnings at edit time as a convenience — catching problems earlier in the workflow. But this is a UX polish layer, not the validation gate. The gate lives in the generation skill.
 
 **What's needed:**
-- A `hooks/scripts/validate-spec.sh` that runs the above checks
-- Add the hook to `hooks.json` as a PostToolUse on Write/Edit matching `*.spec.md`
-- The hook outputs a `systemMessage` warning if validation fails — same pattern as `regenerate-summary.sh`
+- Add a "Spec Validation" section to the `generation` skill instructions, before the code generation step: "Before generating code, validate the spec. If it has fewer than 3 non-blank lines, has no Behavior/Constraints/Requirements section, or contains code fences that are not explicitly marked as examples, stop and report the issue. Do not generate."
+- Optionally, a `hooks/scripts/validate-spec.sh` for edit-time warnings (same checks, `systemMessage` output) — but this is supplementary
 
 ---
 
@@ -301,7 +305,7 @@ Domain skills are the highest-leverage single contribution to generation quality
 | 1 | Spec ambiguity linter | Skill update + pre-gen check | Silent wrong code from ambiguous specs | Low |
 | 2 | Dual-hash staleness (spec + output) | Header format + script | Fragile mtime detection + preserves modified-file detection | Low |
 | 3 | Spec completeness review post-convergence | Skill update | Reproducibility | Low |
-| 4 | Pre-spec validation hook | Hook script | Insufficient specs wasting generation cycles | Low |
+| 4 | Pre-generation spec validation | Generation skill gate | Insufficient specs wasting generation cycles | Low |
 | 5 | Code Change Requests | New command + skill update | Surgical fixes without breaking invariant | Medium |
 | 6 | Machine-readable config | Init update + `config.json` | Tooling reliability | Low |
 | 7 | Pre-push staleness check | Hook script | CI gap (lightweight) | Low |
