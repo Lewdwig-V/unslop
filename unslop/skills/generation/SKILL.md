@@ -37,7 +37,11 @@ After structural validation passes, review the spec for semantic ambiguity.
 1. Collect all lines containing `[open]` — these phrases are exempt
 2. Collect all items listed under a `## Open Questions` section — these topics are exempt
 
-Before running ambiguity detection, check if `.unslop/principles.md` exists. If it does, read it and use it as additional context. Check whether the spec's constraints conflict with any principle. A spec phrase that would be ambiguous without principles may be unambiguous with them (e.g., 'handle errors' is ambiguous alone, but if principles say 'errors must be typed', the ambiguity is resolved).
+Before running ambiguity detection, check if `.unslop/principles.md` exists. If it does, read it and use it as additional context:
+
+1. **Principle conflict check**: If the spec directly contradicts a principle (e.g., spec says "use module-level mutable state" but principles say "no global mutable state"), **stop generation** and report the conflict. Tell the user: "Spec contradicts project principle: [quote spec] vs [quote principle]. Edit the spec to comply with principles, or update principles if the constraint no longer applies."
+
+2. **Ambiguity resolution**: A spec phrase that would be ambiguous without principles may be unambiguous with them (e.g., "handle errors" is ambiguous alone, but if principles say "errors must be typed", the ambiguity is resolved). Use principles to narrow the interpretation space.
 
 **Then review the spec** with this focus:
 
