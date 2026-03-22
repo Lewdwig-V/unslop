@@ -29,7 +29,7 @@ def test_parse_header_python():
         "",
         "def retry():",
     ]
-    result = parse_header("\n".join(lines), ".py")
+    result = parse_header("\n".join(lines))
     assert result["spec_path"] == "src/retry.py.spec.md"
     assert result["spec_hash"] == "a3f8c2e9b7d1"
     assert result["output_hash"] == "4e2f1a8c9b03"
@@ -40,7 +40,7 @@ def test_parse_header_typescript():
         "// @unslop-managed — do not edit directly. Edit src/api.ts.spec.md instead.",
         "// spec-hash:abc123def456 output-hash:789012345678 generated:2026-03-22T14:32:00Z",
     ]
-    result = parse_header("\n".join(lines), ".ts")
+    result = parse_header("\n".join(lines))
     assert result["spec_path"] == "src/api.ts.spec.md"
     assert result["spec_hash"] == "abc123def456"
 
@@ -49,7 +49,7 @@ def test_parse_header_html():
         "<!-- @unslop-managed — do not edit directly. Edit src/index.html.spec.md instead. -->",
         "<!-- spec-hash:abc123def456 output-hash:789012345678 generated:2026-03-22T14:32:00Z -->",
     ]
-    result = parse_header("\n".join(lines), ".html")
+    result = parse_header("\n".join(lines))
     assert result["spec_path"] == "src/index.html.spec.md"
     assert result["spec_hash"] == "abc123def456"
 
@@ -59,11 +59,11 @@ def test_parse_header_with_shebang():
         "# @unslop-managed — do not edit directly. Edit src/cli.py.spec.md instead.",
         "# spec-hash:abc123def456 output-hash:789012345678 generated:2026-03-22T14:32:00Z",
     ]
-    result = parse_header("\n".join(lines), ".py")
+    result = parse_header("\n".join(lines))
     assert result["spec_path"] == "src/cli.py.spec.md"
 
 def test_parse_header_missing():
-    result = parse_header("def hello():\n    pass\n", ".py")
+    result = parse_header("def hello():\n    pass\n")
     assert result is None
 
 def test_parse_header_old_format():
@@ -71,7 +71,7 @@ def test_parse_header_old_format():
         "# @unslop-managed — do not edit directly. Edit src/retry.py.spec.md instead.",
         "# Generated from spec at 2026-03-22T14:32:00Z",
     ]
-    result = parse_header("\n".join(lines), ".py")
+    result = parse_header("\n".join(lines))
     assert result["spec_path"] == "src/retry.py.spec.md"
     assert result["spec_hash"] is None
     assert result["output_hash"] is None
@@ -466,3 +466,28 @@ def test_cli_cycle_error_json(tmp_path):
     err_obj = json.loads(err_lines[-1])
     assert "error" in err_obj
     assert "cycle" in err_obj["error"].lower()
+
+
+def test_classify_unreadable_managed_file(tmp_path):
+    """Binary/unreadable managed file should return error, not crash."""
+    (tmp_path / "thing.py.spec.md").write_text("# spec\n\n## Behavior\nDoes stuff.\nMore.\n")
+    (tmp_path / "thing.py").write_bytes(b"\x80\x81\x82\x83\xff\xfe")  # invalid UTF-8
+    result = classify_file(str(tmp_path / "thing.py"), str(tmp_path / "thing.py.spec.md"))
+    assert result["state"] == "error"
+
+def test_classify_missing_hashes_in_header(tmp_path):
+    """Header with @unslop-managed but no hashes should be old_format, not conflict."""
+    (tmp_path / "thing.py.spec.md").write_text("# spec\n\n## Behavior\nDoes stuff.\nMore.\n")
+    (tmp_path / "thing.py").write_text(
+        "# @unslop-managed — do not edit directly. Edit thing.py.spec.md instead.\n"
+        "# Some other comment without hashes\n"
+        "def thing(): pass\n"
+    )
+    result = classify_file(str(tmp_path / "thing.py"), str(tmp_path / "thing.py.spec.md"))
+    assert result["state"] == "old_format"
+
+def test_check_freshness_empty_unit_spec(tmp_path):
+    """Unit spec with no ## Files section should report error."""
+    (tmp_path / "module.unit.spec.md").write_text("# module spec\n\n## Behavior\nDoes stuff.\n")
+    result = check_freshness(str(tmp_path))
+    assert any(f["state"] == "error" for f in result["files"])

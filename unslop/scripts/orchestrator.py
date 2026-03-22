@@ -17,7 +17,7 @@ def compute_hash(content: str) -> str:
     return hashlib.sha256(content.strip().encode("utf-8")).hexdigest()[:12]
 
 
-def parse_header(content: str, extension: str) -> dict | None:
+def parse_header(content: str) -> dict | None:
     """Parse @unslop-managed header from a managed file.
 
     Reads the first 5 lines looking for the header markers.
@@ -45,12 +45,12 @@ def parse_header(content: str, extension: str) -> dict | None:
         if "@unslop-managed" in stripped:
             m = re.search(r"Edit (.+?) instead", stripped)
             if m:
-                spec_path = m.group(1).strip(".")
+                spec_path = m.group(1)
 
-        hash_match = re.search(r"spec-hash:(\w{12})", stripped)
+        hash_match = re.search(r"spec-hash:([0-9a-f]{12})", stripped)
         if hash_match:
             spec_hash = hash_match.group(1)
-            out_match = re.search(r"output-hash:(\w{12})", stripped)
+            out_match = re.search(r"output-hash:([0-9a-f]{12})", stripped)
             if out_match:
                 output_hash = out_match.group(1)
             gen_match = re.search(r"generated:(\S+)", stripped)
@@ -288,15 +288,20 @@ def discover_files(
 
 
 def get_body_below_header(content: str) -> str:
-    """Extract managed file content below the @unslop-managed header."""
+    """Extract managed file content below the @unslop-managed header.
+
+    Scans the first 5 lines for header markers, skipping blank lines.
+    Returns everything after the last header line.
+    """
     lines = content.split("\n")
+    header_markers = ("@unslop-managed", "spec-hash:", "output-hash:", "Generated from spec at")
     body_start = 0
-    for i, line in enumerate(lines):
-        if "@unslop-managed" in line or "spec-hash:" in line or "output-hash:" in line or "Generated from spec at" in line:
+    for i in range(min(5, len(lines))):
+        stripped = lines[i].strip()
+        if any(m in stripped for m in header_markers) or stripped == "":
             body_start = i + 1
         else:
-            if body_start > 0:
-                break
+            break
     return "\n".join(lines[body_start:])
 
 
@@ -309,14 +314,18 @@ def classify_file(managed_path: str, spec_path: str) -> dict:
     managed = Path(managed_path)
     spec = Path(spec_path)
 
-    managed_content = managed.read_text(encoding="utf-8")
+    try:
+        managed_content = managed.read_text(encoding="utf-8")
+    except (OSError, UnicodeDecodeError) as e:
+        return {"managed": str(managed_path), "spec": str(spec_path), "state": "error",
+                "hint": f"Cannot read managed file: {e}"}
 
     if not spec.exists():
         return {"managed": str(managed_path), "spec": str(spec_path), "state": "error",
                 "hint": "Spec file not found — the managed file references a spec that no longer exists."}
 
     spec_content = spec.read_text(encoding="utf-8")
-    header = parse_header(managed_content, managed.suffix)
+    header = parse_header(managed_content)
 
     if header is None:
         return {"managed": str(managed_path), "spec": str(spec_path), "state": "unmanaged"}
@@ -324,6 +333,10 @@ def classify_file(managed_path: str, spec_path: str) -> dict:
     if header.get("old_format"):
         return {"managed": str(managed_path), "spec": str(spec_path), "state": "old_format",
                 "warning": "Old header format (no hashes). Regenerate to update."}
+
+    if header["spec_hash"] is None or header["output_hash"] is None:
+        return {"managed": str(managed_path), "spec": str(spec_path), "state": "old_format",
+                "warning": "Header is missing hash fields. Regenerate to update."}
 
     current_spec_hash = compute_hash(spec_content)
     body = get_body_below_header(managed_content)
@@ -373,8 +386,14 @@ def check_freshness(directory: str) -> dict:
                     if m:
                         unit_files.append(m.group(1))
 
+            if not unit_files:
+                files.append({"managed": str(spec_path.parent.relative_to(root)), "spec": rel_spec,
+                              "state": "error", "hint": "Unit spec has no files listed in ## Files section."})
+                continue
+
             worst_state = "fresh"
             priority = {"fresh": 0, "old_format": 1, "stale": 2, "modified": 3, "conflict": 4, "unmanaged": 5, "error": 6}
+            missing_files = []
             for uf in unit_files:
                 mp = spec_path.parent / uf
                 if mp.exists():
@@ -382,9 +401,13 @@ def check_freshness(directory: str) -> dict:
                     if priority.get(r["state"], 0) > priority.get(worst_state, 0):
                         worst_state = r["state"]
                 else:
-                    worst_state = "stale"
+                    missing_files.append(uf)
+                    if priority.get("stale", 0) > priority.get(worst_state, 0):
+                        worst_state = "stale"
 
             entry = {"managed": str(spec_path.parent.relative_to(root)), "spec": rel_spec, "state": worst_state}
+            if missing_files:
+                entry["missing"] = missing_files
             if worst_state == "conflict":
                 entry["hint"] = "Spec and code have both diverged. Resolve manually or use --force to overwrite edits."
             elif worst_state == "modified":
@@ -438,8 +461,10 @@ def main():
             try:
                 config = json.loads(config_path.read_text(encoding="utf-8"))
                 extra_excludes = config.get("exclude_patterns", [])
-            except (json.JSONDecodeError, OSError):
-                pass
+            except json.JSONDecodeError as e:
+                print(f'{{"warning": "Ignoring malformed .unslop/config.json: {e}"}}', file=sys.stderr)
+            except OSError as e:
+                print(f'{{"warning": "Could not read .unslop/config.json: {e}"}}', file=sys.stderr)
         try:
             result = discover_files(directory, extensions=extensions, extra_excludes=extra_excludes)
             print(json.dumps(result, indent=2))
@@ -486,7 +511,7 @@ def main():
             sys.exit(0 if result["status"] == "pass" else 1)
         except (ValueError, OSError, UnicodeDecodeError) as e:
             print(json.dumps({"error": str(e)}), file=sys.stderr)
-            sys.exit(1)
+            sys.exit(2)
 
     else:
         print(f"Unknown command: {command}", file=sys.stderr)
