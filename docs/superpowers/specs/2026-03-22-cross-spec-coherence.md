@@ -102,15 +102,22 @@ This is model-driven (the LLM reads and compares specs), not deterministic. Cost
 /unslop:coherence [spec-path]
 ```
 
-- With a spec path: checks that spec against all its transitive dependencies (using `orchestrator.py deps`)
+- With a spec path: checks that spec in **both directions** -- against its upstream dependencies (using `orchestrator.py deps`) AND against all specs that depend on it (reverse dependents). This catches the common case of editing an upstream contract provider and needing to verify downstream consumers are still coherent.
 - Without arguments: checks all specs in the project against their dependencies
 
 ### What it does
 
+**Targeted mode** (`/unslop:coherence <spec-path>`):
+1. Resolve upstream dependencies: `orchestrator.py deps <spec-path> --root .`
+2. Resolve reverse dependents: scan all `*.spec.md` files for `depends-on` entries referencing the target spec
+3. Check coherence between the target and each upstream dependency
+4. Check coherence between the target and each reverse dependent
+5. Report all incoherences found
+
+**Full mode** (`/unslop:coherence`):
 1. Build the full dependency graph (`orchestrator.py build-order .`)
-2. For each spec with dependencies, run the same coherence check as Phase 0e
-3. Also check **reverse dependencies** -- if A changed, check that all specs depending on A are still coherent with A
-4. Report all incoherences found across the project
+2. For each dependency edge in the graph, run the coherence check on that pair
+3. Report all incoherences found across the project
 
 ### Output format
 
@@ -146,13 +153,35 @@ If coherence checking becomes a latency concern, the orchestrator could store a 
 
 ## Unit Specs
 
-For unit specs (`*.unit.spec.md`), coherence checking works differently:
+For unit specs (`*.unit.spec.md`), coherence checking has two aspects:
 
-- Unit specs don't use `depends-on` for their internal files (the files are described in `## Files`, not as separate specs)
-- Coherence checking applies when a unit spec depends on another spec (unit or per-file)
-- Internal consistency within a unit spec is already covered by Phase 0b (ambiguity detection) since the entire unit is one document
+### External coherence (unit spec <-> other specs)
 
-If a per-file spec depends on a file that's part of a unit spec, the coherence check reads the unit spec and extracts the relevant file's description from the `## Files` section.
+- Coherence checking applies when a unit spec has `depends-on` entries referencing other specs (unit or per-file)
+- Works identically to per-file coherence: check the shared interface between the unit spec and each dependency
+
+### Intra-unit coherence (files within a unit spec)
+
+Phase 0b checks ambiguity within a single document but does NOT check cross-file contract consistency. A unit spec can describe File A returning `user_id` and File B consuming `userId` without Phase 0b flagging it, because neither description is ambiguous in isolation.
+
+Phase 0e adds an **intra-unit coherence pass** for unit specs: after checking external dependencies, also check the contracts between files listed in `## Files`. For each pair of files described in the unit spec that reference each other's outputs, apply the same coherence checks (type compatibility, constraint compatibility, naming consistency).
+
+This only fires for unit specs -- per-file specs don't have internal file boundaries to check.
+
+### Mixed dependencies (per-file spec depends on a file inside a unit spec)
+
+When a per-file spec needs to declare a dependency on a file that lives inside a unit spec, the `depends-on` entry references the **unit spec path**, not the individual file (which has no standalone spec):
+
+```markdown
+---
+depends-on:
+  - src/auth/auth.unit.spec.md
+---
+```
+
+The coherence check then reads the unit spec and identifies the relevant file's description from `## Files` based on which file the dependent spec actually references in its behavior/constraints sections. This is model-driven: the LLM reads both specs and identifies the shared interface, just as it does for per-file spec pairs.
+
+This requires no orchestrator changes -- `depends-on` already supports any `*.spec.md` path, including `*.unit.spec.md`. The orchestrator's `deps` and `build-order` commands resolve unit spec paths the same way they resolve per-file spec paths.
 
 ## What This Does NOT Replace
 
