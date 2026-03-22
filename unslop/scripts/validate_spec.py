@@ -8,7 +8,7 @@ from pathlib import Path
 
 IMPLEMENTATION_PATTERNS = [
     re.compile(r'^\s*(def |class |import |from .+ import |if |for |while |try:|except |return )'),
-    re.compile(r'^\s*(function |const |let |var |export |async )'),
+    re.compile(r'^\s*(function |const |let |var |export (default |{)|async )'),
     re.compile(r'^\s*(fn |pub |use |mod |impl |struct |enum )'),
     re.compile(r'^\s*(func |package |type .+ struct)'),
 ]
@@ -17,6 +17,11 @@ IMPLEMENTATION_PATTERNS = [
 def validate_spec(content: str, spec_path: str) -> dict:
     issues = []
     warnings = []
+
+    if not content.strip():
+        return {"status": "fail", "spec_path": spec_path,
+                "issues": [{"check": "empty_file",
+                            "message": "Spec file is empty or contains only whitespace"}]}
 
     # Strip frontmatter
     body = content
@@ -29,6 +34,11 @@ def validate_spec(content: str, spec_path: str) -> dict:
                 break
         if end != -1:
             body = "\n".join(lines[end + 1:])
+        if end == -1:
+            warnings.append({
+                "check": "malformed_frontmatter",
+                "message": "File starts with '---' but no closing '---' found. Frontmatter may be malformed."
+            })
 
     body_lines = body.split("\n")
     non_blank = [l for l in body_lines if l.strip()]
@@ -111,6 +121,23 @@ def validate_spec(content: str, spec_path: str) -> dict:
         elif in_fence:
             fence_lines_content.append(line)
 
+    # Warn on unclosed fence
+    if in_fence:
+        has_impl = any(
+            pat.search(fl) for fl in fence_lines_content
+            for pat in IMPLEMENTATION_PATTERNS
+        )
+        if has_impl:
+            warnings.append({
+                "check": "code_fence_misuse",
+                "message": f"Unclosed code fence at line {fence_start + 1} may contain implementation code"
+            })
+        else:
+            warnings.append({
+                "check": "unclosed_code_fence",
+                "message": f"Code fence opened at line {fence_start + 1} is never closed"
+            })
+
     # Check 4: Open Questions validity
     in_open_questions = False
     has_oq_items = False
@@ -129,12 +156,17 @@ def validate_spec(content: str, spec_path: str) -> dict:
             "message": "## Open Questions section exists but has no list items"
         })
 
+    result = {"spec_path": spec_path}
     if issues:
-        return {"status": "fail", "spec_path": spec_path, "issues": issues}
+        result["status"] = "fail"
+        result["issues"] = issues
     elif warnings:
-        return {"status": "warn", "spec_path": spec_path, "warnings": warnings}
+        result["status"] = "warn"
     else:
-        return {"status": "pass", "spec_path": spec_path}
+        result["status"] = "pass"
+    if warnings:
+        result["warnings"] = warnings
+    return result
 
 
 def main():
@@ -144,10 +176,16 @@ def main():
 
     spec_path = sys.argv[1]
     try:
-        content = Path(spec_path).read_text()
+        content = Path(spec_path).read_text(encoding="utf-8")
     except (OSError, UnicodeDecodeError) as e:
         print(json.dumps({"status": "fail", "spec_path": spec_path,
                           "issues": [{"check": "read_error", "message": str(e)}]}))
+        sys.exit(1)
+
+    if "\x00" in content:
+        print(json.dumps({"status": "fail", "spec_path": spec_path,
+                          "issues": [{"check": "binary_file",
+                                      "message": "File appears to be binary, not a text spec"}]}))
         sys.exit(1)
 
     result = validate_spec(content, spec_path)

@@ -8,7 +8,7 @@ Ambiguous specs silently produce wrong code. Insufficient specs waste generation
 
 ## Scope
 
-Three quality gates added to the generation skill as a pre-flight checklist (Section 0) and a post-generation review (Section 7). One new script (`validate-spec.py`) handles the deterministic checks. Commands receive minor updates to pass `--force-ambiguous` through to the generation skill. The ambiguity detection prompt lives in the generation skill (not the spec-language skill as the gap analysis originally suggested) to keep the entire pre-generation pipeline in one place.
+Three quality gates added to the generation skill as a pre-flight checklist (Section 0) and a post-generation review (Section 7). One new script (`validate_spec.py`) handles the deterministic checks. Commands receive minor updates to pass `--force-ambiguous` through to the generation skill. The ambiguity detection prompt lives in the generation skill (not the spec-language skill as the gap analysis originally suggested) to keep the entire pre-generation pipeline in one place.
 
 ## Architecture
 
@@ -29,12 +29,12 @@ Every entry path (generate, sync, takeover) flows through the generation skill, 
 
 ## Phase 0a: Structural Validation
 
-A deterministic Python script at `unslop/scripts/validate-spec.py`. Same pattern as `orchestrator.py` — pure function, JSON output, zero dependencies.
+A deterministic Python script at `unslop/scripts/validate_spec.py`. Same pattern as `orchestrator.py` — pure function, JSON output, zero dependencies.
 
 ### Interface
 
 ```bash
-python validate-spec.py <spec-path>
+python validate_spec.py <spec-path>
 # Exit 0 + JSON: validation passed
 # Exit 1 + JSON: validation failed
 ```
@@ -75,7 +75,7 @@ Fail (blocking):
   "status": "fail",
   "spec_path": "src/retry.py.spec.md",
   "issues": [
-    {"check": "minimum_length", "message": "Spec body has only 2 non-blank lines (minimum 3)"},
+    {"check": "minimum_length", "message": "Spec body has only 2 non-blank lines (minimum 4)"},
     {"check": "required_sections", "message": "No heading found with substantive content"}
   ]
 }
@@ -218,7 +218,7 @@ Add an optional `## Open Questions` section at the end of the template, after `#
 unslop/
 ├── scripts/
 │   ├── orchestrator.py       # unchanged
-│   └── validate-spec.py      # new — structural spec validation
+│   └── validate_spec.py      # new — structural spec validation
 ├── skills/
 │   ├── generation/
 │   │   └── SKILL.md          # updated — Section 0 (pre-gen) + Section 7 (post-gen)

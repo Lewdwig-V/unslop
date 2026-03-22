@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import subprocess
 import sys
 import os
 import json
@@ -170,3 +171,106 @@ Backoff with jitter.
 """
     result = validate_spec(content, "src/retry.py.spec.md")
     assert result["status"] in ("pass", "warn")
+
+
+def test_empty_file():
+    result = validate_spec("", "empty.spec.md")
+    assert result["status"] == "fail"
+    assert any(i["check"] == "empty_file" for i in result["issues"])
+
+
+def test_whitespace_only_file():
+    result = validate_spec("   \n\n  \n", "ws.spec.md")
+    assert result["status"] == "fail"
+    assert any(i["check"] == "empty_file" for i in result["issues"])
+
+
+def test_unclosed_code_fence():
+    content = """# spec
+
+## Behavior
+Does things with stuff.
+More detail here.
+
+```python
+def broken():
+    pass
+"""
+    result = validate_spec(content, "test.spec.md")
+    # Should warn about unclosed fence with implementation code
+    assert result["status"] in ("warn", "fail")
+    all_checks = [w["check"] for w in result.get("warnings", [])]
+    all_checks += [i["check"] for i in result.get("issues", [])]
+    assert "code_fence_misuse" in all_checks or "unclosed_code_fence" in all_checks
+
+
+def test_warnings_preserved_with_issues():
+    content = """# spec
+
+Short.
+
+```python
+def impl():
+    return True
+```
+"""
+    result = validate_spec(content, "test.spec.md")
+    assert result["status"] == "fail"
+    assert "issues" in result
+    # Warnings should also be present (not dropped)
+    assert "warnings" in result
+
+
+def test_malformed_frontmatter_no_closing():
+    content = """---
+depends-on:
+  - foo.spec.md
+
+# spec
+
+## Behavior
+Does stuff well.
+More detail here.
+"""
+    result = validate_spec(content, "test.spec.md")
+    all_checks = [w["check"] for w in result.get("warnings", [])]
+    assert "malformed_frontmatter" in all_checks
+
+
+def test_shell_export_not_flagged():
+    content = """# deploy spec
+
+## Behavior
+Sets up environment variables.
+
+```bash
+export DATABASE_URL=postgres://localhost/mydb
+export DEBUG=true
+```
+"""
+    result = validate_spec(content, "deploy.spec.md")
+    assert result["status"] == "pass"
+
+
+def test_cli_exit_code_pass(tmp_path):
+    spec = tmp_path / "good.spec.md"
+    spec.write_text("# spec\n\n## Purpose\nDoes stuff.\nMore detail.\n")
+    r = subprocess.run([sys.executable, "unslop/scripts/validate_spec.py", str(spec)],
+                       capture_output=True, text=True)
+    assert r.returncode == 0
+
+
+def test_cli_exit_code_fail(tmp_path):
+    spec = tmp_path / "bad.spec.md"
+    spec.write_text("# short\n")
+    r = subprocess.run([sys.executable, "unslop/scripts/validate_spec.py", str(spec)],
+                       capture_output=True, text=True)
+    assert r.returncode == 1
+
+
+def test_cli_file_not_found():
+    r = subprocess.run([sys.executable, "unslop/scripts/validate_spec.py", "/nonexistent/spec.md"],
+                       capture_output=True, text=True)
+    assert r.returncode == 1
+    output = json.loads(r.stdout)
+    assert output["status"] == "fail"
