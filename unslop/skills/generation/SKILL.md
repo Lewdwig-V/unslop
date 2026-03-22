@@ -80,7 +80,7 @@ This is not a stylistic preference. Reading the current generated file introduce
 **Permitted reads:**
 - The spec file
 - The test file(s) for the target module
-- `.unslop/config.json` (for test command and project conventions)
+- `.unslop/config.json` or `.unslop/config.md` (for test command and project conventions)
 - Language/framework documentation as needed
 
 **Prohibited reads:**
@@ -97,7 +97,7 @@ You read the spec, the current generated file, and an optional change descriptio
 - The spec file
 - The current generated source file
 - The test file(s) for the target module
-- `.unslop/config.json`
+- `.unslop/config.json` or `.unslop/config.md` (legacy fallback)
 - `*.change.md` sidecars (if any)
 - Language/framework documentation as needed
 
@@ -216,7 +216,7 @@ The spec constrains observable behavior. Implementation choices that satisfy the
 
 ## 5. Config Awareness
 
-Read `.unslop/config.json` for the project's test command before running tests.
+Read `.unslop/config.json` (or `.unslop/config.md` as legacy fallback) for the project's test command before running tests.
 
 If `.unslop/config.json` does not exist or does not specify a test command, infer it from the project's conventional tooling (e.g., `pytest` for Python projects with `pyproject.toml`, `npm test` for Node projects with `package.json`). Do not guess blindly — look at the project root before choosing a fallback.
 

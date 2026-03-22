@@ -44,7 +44,7 @@ Use the **unslop/generation** skill. If the managed file does not yet exist, alw
 
 **4. Run tests**
 
-Read the test command from `.unslop/config.json`. Run the test suite.
+Read the test command from `.unslop/config.json` (or `.unslop/config.md` as legacy fallback). Run the test suite.
 
 - If tests pass: report success and the file path.
 - If tests fail: report the failures and stop. Do not attempt to fix or retry.

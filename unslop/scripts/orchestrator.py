@@ -454,10 +454,17 @@ def main():
             if not extensions:
                 print("Usage: orchestrator.py discover <directory> [--extensions .py .rs]", file=sys.stderr)
                 sys.exit(1)
-        # Read exclude_patterns from config.json if present
+        # Read exclude_patterns from config.json — search upward from scan dir to find project root
         extra_excludes = None
-        config_path = Path(directory) / ".unslop" / "config.json"
-        if config_path.exists():
+        search = Path(directory).resolve()
+        config_path = None
+        while search != search.parent:
+            candidate = search / ".unslop" / "config.json"
+            if candidate.exists():
+                config_path = candidate
+                break
+            search = search.parent
+        if config_path is not None:
             try:
                 config = json.loads(config_path.read_text(encoding="utf-8"))
                 extra_excludes = config.get("exclude_patterns", [])

@@ -13,7 +13,7 @@ Check that `.unslop/` exists in the current working directory. If it does not ex
 
 Use the **unslop/generation** skill for code generation discipline throughout this command.
 
-Read `.unslop/config.json` to obtain the test command. You will need it when validating regenerated files.
+Read `.unslop/config.json` to obtain the test command. If `config.json` does not exist, fall back to `.unslop/config.md` (legacy format). You will need the test command when validating regenerated files.
 
 **Check for `--force` flag:** If `$ARGUMENTS` contains `--force`, note this — it allows regeneration to proceed on modified and conflict files without requiring user confirmation.
 

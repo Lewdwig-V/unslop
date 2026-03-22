@@ -33,7 +33,7 @@ Check that the file at `$ARGUMENTS` exists. If it does not exist, stop and tell 
 
 **2. Load context**
 
-Read `.unslop/config.json` to obtain the test command. You will need it during the pipeline.
+Read `.unslop/config.json` (or `.unslop/config.md` as legacy fallback) to obtain the test command. You will need it during the pipeline.
 
 **3. Run the takeover pipeline**
 
@@ -67,5 +67,5 @@ If multi-file mode was detected:
 3. After confirmation, use the **unslop/takeover** skill in multi-file mode, passing the confirmed file list.
 4. Use the **unslop/spec-language** skill for spec drafting guidance.
 5. Use the **unslop/generation** skill for code generation discipline.
-6. Read the test command from `.unslop/config.json`.
+6. Read the test command from `.unslop/config.json` (or `.unslop/config.md` as legacy fallback).
 7. After successful takeover, update `.unslop/alignment-summary.md` with entries for all newly managed files.
