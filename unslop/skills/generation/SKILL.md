@@ -198,19 +198,19 @@ Python (`.py`):
 TypeScript (`.ts`):
 ```typescript
 // @unslop-managed — do not edit directly. Edit src/api-client.ts.spec.md instead.
-// spec-hash:a3f8c2e9b7d1 output-hash:4e2f1a8c9b03 generated:2026-03-20T14:32:00Z
+// spec-hash:a3f8c2e9b7d1 output-hash:4e2f1a8c9b03 principles-hash:7c4d9e1f2a05 generated:2026-03-20T14:32:00Z
 ```
 
 HTML (`.html`):
 ```html
 <!-- @unslop-managed — do not edit directly. Edit src/index.html.spec.md instead. -->
-<!-- spec-hash:a3f8c2e9b7d1 output-hash:4e2f1a8c9b03 generated:2026-03-20T14:32:00Z -->
+<!-- spec-hash:a3f8c2e9b7d1 output-hash:4e2f1a8c9b03 principles-hash:7c4d9e1f2a05 generated:2026-03-20T14:32:00Z -->
 ```
 
 CSS (`.css`):
 ```css
 /* @unslop-managed — do not edit directly. Edit src/styles.css.spec.md instead. */
-/* spec-hash:a3f8c2e9b7d1 output-hash:4e2f1a8c9b03 generated:2026-03-20T14:32:00Z */
+/* spec-hash:a3f8c2e9b7d1 output-hash:4e2f1a8c9b03 principles-hash:7c4d9e1f2a05 generated:2026-03-20T14:32:00Z */
 ```
 
 ### Write Order

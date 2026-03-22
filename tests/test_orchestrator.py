@@ -826,6 +826,45 @@ def test_classify_principles_deleted(tmp_path):
     assert result["state"] == "stale"
     assert "principles" in result.get("hint", "").lower()
 
+def test_classify_principles_with_conflict(tmp_path):
+    """Conflict state should be preserved with principles hint appended."""
+    old_spec = "# old\n\n## Behavior\nOld.\nMore.\n"
+    original_body = "def thing(): pass\n"
+    old_prin_hash = compute_hash("old principles")
+    sh = compute_hash(old_spec)
+    oh = compute_hash(original_body)
+    header = (
+        f"# @unslop-managed -- do not edit directly. Edit thing.py.spec.md instead.\n"
+        f"# spec-hash:{sh} output-hash:{oh} principles-hash:{old_prin_hash} generated:2026-03-22T14:32:00Z\n"
+    )
+    (tmp_path / "thing.py.spec.md").write_text("# new\n\n## Behavior\nNew.\nDifferent.\n")
+    (tmp_path / "thing.py").write_text(header + "def thing(): return True\n")
+    (tmp_path / ".unslop").mkdir()
+    (tmp_path / ".unslop" / "principles.md").write_text("# New Principles\n\n- New rule\n")
+    result = classify_file(str(tmp_path / "thing.py"), str(tmp_path / "thing.py.spec.md"),
+                           project_root=str(tmp_path))
+    assert result["state"] == "conflict"
+    assert "principles" in result.get("hint", "").lower()
+
+def test_classify_principles_unreadable(tmp_path):
+    """Unreadable principles.md should not crash, should return stale."""
+    spec = "# spec\n\n## Behavior\nDoes stuff.\nMore detail.\n"
+    body = "def thing(): pass\n"
+    sh = compute_hash(spec)
+    oh = compute_hash(body)
+    header = (
+        f"# @unslop-managed -- do not edit directly. Edit thing.py.spec.md instead.\n"
+        f"# spec-hash:{sh} output-hash:{oh} principles-hash:abc123def456 generated:2026-03-22T14:32:00Z\n"
+    )
+    (tmp_path / "thing.py.spec.md").write_text(spec)
+    (tmp_path / "thing.py").write_text(header + body)
+    (tmp_path / ".unslop").mkdir()
+    (tmp_path / ".unslop" / "principles.md").write_bytes(b"\x80\x81\x82")
+    result = classify_file(str(tmp_path / "thing.py"), str(tmp_path / "thing.py.spec.md"),
+                           project_root=str(tmp_path))
+    assert result["state"] == "stale"
+    assert "cannot read" in result.get("hint", "").lower() or "principles" in result.get("hint", "").lower()
+
 def test_classify_no_project_root_skips_principles(tmp_path):
     spec = "# spec\n\n## Behavior\nDoes stuff.\nMore detail.\n"
     body = "def thing(): pass\n"

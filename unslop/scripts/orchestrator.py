@@ -364,21 +364,28 @@ def classify_file(managed_path: str, spec_path: str, project_root: str | None = 
     # Principles check (only when project_root is provided)
     if project_root is not None and header.get("principles_hash") is not None:
         principles_path = Path(project_root) / ".unslop" / "principles.md"
+        prin_changed = False
+        message = ""
         if principles_path.exists():
-            current_prin_hash = compute_hash(principles_path.read_text(encoding="utf-8"))
-            if current_prin_hash != header["principles_hash"]:
-                existing_hint = result.get("hint", "")
-                result["hint"] = (existing_hint + " Principles changed.").strip()
-                if result["state"] == "fresh":
-                    result["state"] = "stale"
-                return result
+            try:
+                principles_content = principles_path.read_text(encoding="utf-8")
+            except (OSError, UnicodeDecodeError) as e:
+                prin_changed = True
+                message = f"Cannot read principles.md: {e}"
+            else:
+                current_prin_hash = compute_hash(principles_content)
+                if current_prin_hash != header["principles_hash"]:
+                    prin_changed = True
+                    message = "Principles changed."
         else:
-            # principles.md was deleted
+            prin_changed = True
+            message = "Principles removed."
+
+        if prin_changed:
             existing_hint = result.get("hint", "")
-            result["hint"] = (existing_hint + " Principles removed.").strip()
+            result["hint"] = (existing_hint + f" {message}").strip()
             if result["state"] == "fresh":
                 result["state"] = "stale"
-            return result
 
     return result
 
@@ -420,12 +427,16 @@ def check_freshness(directory: str) -> dict:
             worst_state = "fresh"
             priority = {"fresh": 0, "old_format": 1, "stale": 2, "modified": 3, "conflict": 4, "unmanaged": 5, "error": 6}
             missing_files = []
+            principles_hints = []
             for uf in unit_files:
                 mp = spec_path.parent / uf
                 if mp.exists():
                     r = classify_file(str(mp), str(spec_path), project_root=str(root))
                     if priority.get(r["state"], 0) > priority.get(worst_state, 0):
                         worst_state = r["state"]
+                    r_hint = r.get("hint", "")
+                    if "principles" in r_hint.lower() or "cannot read principles" in r_hint.lower():
+                        principles_hints.append(r_hint)
                 else:
                     missing_files.append(uf)
                     if priority.get("stale", 0) > priority.get(worst_state, 0):
@@ -438,6 +449,10 @@ def check_freshness(directory: str) -> dict:
                 entry["hint"] = "Spec and code have both diverged. Resolve manually or use --force to overwrite edits."
             elif worst_state == "modified":
                 entry["hint"] = "Code was edited directly while spec is unchanged."
+            if principles_hints:
+                prin_msg = principles_hints[0]
+                existing = entry.get("hint", "")
+                entry["hint"] = (existing + f" {prin_msg}").strip()
             files.append(entry)
             continue
 
