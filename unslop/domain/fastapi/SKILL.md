@@ -76,10 +76,10 @@ If the spec does not name the response fields, infer a minimal schema from conte
 
 ## 3. Async Patterns
 
-- Routes are `async def` by default. Use synchronous `def` only when the spec explicitly says "synchronous" or the handler has no I/O.
+- Use `async def` for routes that call libraries supporting `await` (async SQLAlchemy, httpx, aiofiles, etc.).
+- Use plain `def` for routes that call synchronous/blocking libraries (sync SQLAlchemy, `requests`, `subprocess`). FastAPI automatically runs `def` handlers in an external threadpool — do NOT wrap blocking calls in `run_in_executor` inside an `async def` handler; that pattern blocks the event loop while holding the threadpool slot.
 - Use `BackgroundTasks` for non-blocking side effects (email, webhooks, audit logs). Do not fire-and-forget with `asyncio.create_task` unless the spec requires it.
-- Blocking I/O in an async route (e.g., a synchronous database driver, file system, subprocess) must be dispatched with `run_in_executor`. Never block the event loop directly.
-- Never use `time.sleep()` in an async route. Use `await asyncio.sleep()` if a delay is required.
+- Never use `time.sleep()` in an `async def` route. Use `await asyncio.sleep()` if a delay is needed.
 
 ```python
 # BackgroundTasks for side effects
@@ -160,4 +160,4 @@ async def create_user(
     return UserResponse.model_validate(user)
 ```
 
-Observe: `Annotated` DI, `response_model` on the decorator, separate request/response schemas, `async def`, background task for email, no blocking I/O.
+Observe: `Annotated` DI, `response_model` on the decorator, separate request/response schemas, `async def` (because async SQLAlchemy is in use), background task for email.

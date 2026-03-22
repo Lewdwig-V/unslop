@@ -121,7 +121,7 @@ After change request consumption, check for framework-specific domain skills to 
 Read `.unslop/config.json`. If it has a `frameworks` field (e.g., `["fastapi", "sqlalchemy"]`), use that list.
 
 **2. If no explicit list, auto-detect:**
-Read the spec file and any test files for the target module. Identify framework imports:
+Read any test files for the target module, and the existing managed source file (if it exists). Also scan the spec content for framework references (e.g., mentions of 'FastAPI', 'SQLAlchemy'). Identify framework imports:
 - `from fastapi import` or `import fastapi` -- load `unslop/domain/fastapi`
 - `from sqlalchemy import` or `import sqlalchemy` -- load `unslop/domain/sqlalchemy`
 - `import React` or `from 'react'` -- load `unslop/domain/react`
@@ -133,8 +133,8 @@ For each detected framework, read the corresponding `unslop/domain/<framework>/S
 **4. Context priority:**
 Domain skills are additive -- they augment the generation skill, not replace it. Priority order:
 - Project Principles (highest -- non-negotiable)
-- Domain Skills (framework conventions)
 - File Spec (file-specific requirements)
+- Domain Skills (framework conventions -- defaults that the spec can override)
 - Generation Skill defaults (lowest)
 
 If no domain skills match, this phase is a no-op. Proceed to Section 1.

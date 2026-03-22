@@ -82,11 +82,12 @@ Scan the project for known framework indicators:
 Present detected frameworks to the user:
 > "Detected frameworks: [list]. Domain-specific generation rules will be loaded for these. Edit the `frameworks` field in `.unslop/config.json` to adjust."
 
-Add the confirmed list to `config.json`:
+Add the following fields to the existing `.unslop/config.json` object:
 ```json
 "frameworks": ["fastapi"],
 "frameworks_note": "Domain skills loaded for these frameworks during generation"
 ```
+These are fields to merge into the existing config object, not a standalone file.
 
 If no frameworks detected, skip. The `frameworks` field is optional.
 
