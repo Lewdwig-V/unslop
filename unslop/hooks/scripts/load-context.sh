@@ -48,6 +48,7 @@ This project uses spec-driven development. Managed files have \`@unslop-managed\
 - Code change/refactor: \`/unslop:change <file> \"description\"\` then \`/unslop:generate\` or \`/unslop:sync <file>\`
 - Quick targeted fix: \`/unslop:change <file> \"description\" --tactical\`
 - Quality/safety review: \`/unslop:harden <spec-path>\` (takes the spec, not the managed file)
+- Cross-spec consistency: \`/unslop:coherence\` (all) or \`/unslop:coherence <spec-path>\` (targeted)
 - Check staleness: \`/unslop:status\`
 - Bring existing code under spec: \`/unslop:takeover <file>\`
 - Create new file: \`/unslop:spec <file>\` then \`/unslop:sync <file>\`

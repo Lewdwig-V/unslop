@@ -35,6 +35,13 @@ If the user asks about code quality, safety, edge cases, or robustness, route to
 **Pattern:** "Is this safe?", "What about edge cases?", "Could this break?", "Review the spec"
 **Route:** `/unslop:harden <spec-path>` (e.g., `src/retry.py.spec.md`) to stress-test the spec against edge cases and suggest tighter constraints. Note: harden takes the spec path, not the managed file path.
 
+## The Coherence Check
+
+If the user is working with multiple related specs and asks about consistency, contract mismatches, or whether specs agree with each other, route to coherence.
+
+**Pattern:** "Do these specs agree?", "Is this consistent with the auth spec?", "Check if my specs contradict each other"
+**Route:** `/unslop:coherence` (all specs) or `/unslop:coherence <spec-path>` (targeted, checks both upstream and downstream)
+
 ## The Staleness Check
 
 If the user is unsure what's current, what's changed, or where things stand, route to status.
