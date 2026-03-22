@@ -451,17 +451,27 @@ def check_freshness(directory: str) -> dict:
         }
 
         # Find and update the matching file entry
+        # Check both exact match (per-file specs) and parent directory match (unit specs)
+        change_dir = str(change_path.parent.relative_to(root))
+        matched = False
         for f in files:
-            if f["managed"] == managed_rel:
-                f["pending_changes"] = counts
-                change_hint = f"{counts['count']} change request(s) awaiting processing."
-                if "hint" in f:
+            if f["managed"] == managed_rel or f["managed"] == change_dir:
+                if "pending_changes" in f:
+                    # Accumulate counts for unit specs with multiple change files
+                    f["pending_changes"]["count"] += counts["count"]
+                    f["pending_changes"]["pending"] += counts["pending"]
+                    f["pending_changes"]["tactical"] += counts["tactical"]
+                else:
+                    f["pending_changes"] = counts
+                change_hint = f"{f['pending_changes']['count']} change request(s) awaiting processing."
+                if "hint" in f and "change request" not in f["hint"]:
                     f["hint"] = f"{f['hint']} Additionally: {change_hint}"
                 else:
                     f["hint"] = change_hint
+                matched = True
                 break
-        else:
-            # Orphan change file — no matching managed file
+        if not matched:
+            # Orphan change file -- no matching managed file
             print(json.dumps({"warning": f"Orphan change file: no managed file found for {managed_rel}"}), file=sys.stderr)
             files.append({
                 "managed": managed_rel,

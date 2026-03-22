@@ -20,7 +20,7 @@ Check that the target file exists. If it does not exist, stop and tell the user:
 
 > "File not found: `<file-path>`."
 
-Read the first line of the target file. Check that it contains an `@unslop-managed` header. If it does not, stop and tell the user:
+Read the first 5 lines of the target file (to accommodate shebangs, doctype declarations, etc.). Check that at least one line contains `@unslop-managed`. If none do, stop and tell the user:
 
 > "File is not managed by unslop. Run `/unslop:takeover` or `/unslop:spec` first."
 
@@ -97,19 +97,22 @@ The `[description or elaborated body]` should be the description text as provide
 
 **5. Execute or defer**
 
-**If `--tactical` was passed**, execute the tactical flow immediately:
+**If `--tactical` was passed**, execute the tactical flow immediately.
 
-1. Read the current spec file and the current managed file.
-2. Use the **unslop/generation** skill in incremental mode (Mode B) to patch the managed file based on the change intent. Produce only the targeted edits needed to implement the described change.
-3. Read the test command from `.unslop/config.json` (or `.unslop/config.md` as legacy fallback). Run the test suite.
-4. If tests pass:
-   a. Draft a spec update that captures the change — describe what was changed in the spec's intent/constraints language, not in implementation terms.
+**Important:** Do NOT invoke the generation skill for this step. The generation skill's Phase 0c would re-consume the entry you just wrote, causing double processing. Instead, directly apply the change:
+
+1. Save a copy of the current managed file content (for revert on failure).
+2. Read the current spec file and the current managed file.
+3. Patch the managed file directly based on the change intent, using incremental mode discipline (targeted edits only, no restructuring). Follow the unslop/generation skill's header format and idiomatic output guidance, but do not trigger Phase 0a/0b/0c.
+4. Read the test command from `.unslop/config.json` (or `.unslop/config.md` as legacy fallback). Run the test suite.
+5. If tests pass:
+   a. Draft a spec update that captures the change -- describe what was changed in the spec's intent/constraints language, not in implementation terms.
    b. Present the draft spec update to the user for approval.
-   c. If the user approves: delete the entry from `<file>.change.md` (if the file is now empty after deletion — containing only the format marker or nothing — delete the sidecar file entirely). Update the `spec-hash` and `output-hash` in the `@unslop-managed` header to reflect the new state. Commit the managed file, spec update, and sidecar deletion/update.
-   d. If the user rejects the spec update: revert the code change to its pre-tactical state, inform the user:
+   c. If the user approves: delete the entry from `<file>.change.md` (if the file is now empty after deletion -- containing only the format marker or nothing -- delete the sidecar file entirely). Update the `spec-hash` and `output-hash` in the `@unslop-managed` header to reflect the new state. Commit the managed file, spec update, and sidecar deletion/update.
+   d. If the user rejects the spec update: revert the managed file to the saved copy, inform the user:
    > "Code change reverted. The entry remains in `<file>.change.md` for manual resolution."
-5. If tests fail: report the failures and stop. Do not attempt to fix or retry. Tell the user:
-   > "Tests failed after applying the tactical change. The spec and code are unchanged. The entry remains in `<file>.change.md`."
+6. If tests fail: revert the managed file to the saved copy. Report the failures and stop. Tell the user:
+   > "Tests failed after applying the tactical change. Code reverted. The entry remains in `<file>.change.md`."
 
 **If `[pending]` (default, no `--tactical` flag)**, inform the user:
 
