@@ -41,7 +41,7 @@ def validate_spec(content: str, spec_path: str) -> dict:
             })
 
     body_lines = body.split("\n")
-    non_blank = [l for l in body_lines if l.strip()]
+    non_blank = [line for line in body_lines if line.strip()]
 
     # Check 1: Minimum length (>3 non-blank lines)
     if len(non_blank) <= 3:
@@ -70,7 +70,10 @@ def validate_spec(content: str, spec_path: str) -> dict:
     if not has_substantive_section:
         issues.append({
             "check": "required_sections",
-            "message": "No heading found with substantive content (need at least one ## heading with >1 non-blank line below it)"
+            "message": (
+                "No heading found with substantive content"
+                " (need at least one ## heading with >1 non-blank line below it)"
+            )
         })
 
     # Check 3: Code fence misuse
@@ -91,7 +94,10 @@ def validate_spec(content: str, spec_path: str) -> dict:
                 if has_impl:
                     warnings.append({
                         "check": "code_fence_misuse",
-                        "message": f"Code fence at line {fence_start + 1} may contain implementation code rather than a data example"
+                        "message": (
+                            f"Code fence at line {fence_start + 1} may contain"
+                            " implementation code rather than a data example"
+                        )
                     })
                 in_fence = False
                 fence_lines_content = []
@@ -159,9 +165,10 @@ def main():
     try:
         size = file_path.stat().st_size
         if size > MAX_SPEC_SIZE:
-            print(json.dumps({"status": "fail", "spec_path": spec_path,
-                              "issues": [{"check": "file_too_large",
-                                          "message": f"File is {size} bytes (max {MAX_SPEC_SIZE}). Spec files should be small text documents."}]}))
+            msg = f"File is {size} bytes (max {MAX_SPEC_SIZE}). Spec files should be small text documents."
+            result = {"status": "fail", "spec_path": spec_path,
+                      "issues": [{"check": "file_too_large", "message": msg}]}
+            print(json.dumps(result))
             sys.exit(1)
     except FileNotFoundError:
         print(json.dumps({"status": "fail", "spec_path": spec_path,

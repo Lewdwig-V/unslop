@@ -1,0 +1,33 @@
+name: Python tests
+
+on:
+  push:
+    branches: [ "main" ]
+  pull_request:
+    branches: [ "main" ]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.8", "3.9", "3.10", "3.11", "3.12", "3.13", "3.14"]
+
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Install uv
+      uses: astral-sh/setup-uv@v6
+
+    - name: Set up Python ${{ matrix.python-version }}
+      run: uv python install ${{ matrix.python-version }}
+
+    - name: Lint with ruff
+      run: uv run --python ${{ matrix.python-version }} ruff check unslop/scripts/ tests/
+
+    - name: Run tests
+      run: uv run --python ${{ matrix.python-version }} pytest tests/ -v
+
+    - name: Check spec freshness
+      run: uv run --python ${{ matrix.python-version }} python unslop/scripts/orchestrator.py check-freshness .
