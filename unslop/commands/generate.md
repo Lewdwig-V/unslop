@@ -13,6 +13,8 @@ Check that `.unslop/` exists in the current working directory. If it does not ex
 
 Use the **unslop/generation** skill for code generation discipline throughout this command.
 
+The generation skill's Phase 0c automatically processes any pending `*.change.md` entries for each file being regenerated. No additional command-level logic is needed — the skill handles change request consumption, conflict detection, and promotion.
+
 Read `.unslop/config.json` to obtain the test command. If `config.json` does not exist, fall back to `.unslop/config.md` (legacy format). You will need the test command when validating regenerated files.
 
 **Check for `--force` flag:** If `$ARGUMENTS` contains `--force`, note this — it allows regeneration to proceed on modified and conflict files without requiring user confirmation.
