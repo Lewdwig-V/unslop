@@ -46,8 +46,8 @@ Report the classification of every spec file before proceeding.
 
 For each file classified as new or stale, in order:
 
-1. Read only the spec file. Do not read the existing managed file (if any) — generate from the spec alone.
-2. Generate the managed file. The file must begin with the `@unslop-managed` header as specified by the **unslop/generation** skill.
+1. **Select generation mode.** Default is full regeneration (Mode A). Use incremental mode (Mode B) if the user passed `--incremental` or if the spec change is a small amendment (fewer than ~20% of spec lines changed, as estimated from the spec-hash delta). In incremental mode, read the spec AND the existing managed file.
+2. Generate the managed file. The file must begin with the `@unslop-managed` header as specified by the **unslop/generation** skill. In incremental mode, produce only the targeted edits needed to bring the file into conformance with the updated spec.
 3. Run the test command from `.unslop/config.md`.
 4. If tests pass: report success for this file and continue to the next.
 5. If tests fail: report the failure output and **stop immediately**. Do NOT attempt to fix the code, re-read the spec, or enter any convergence loop. Tell the user:

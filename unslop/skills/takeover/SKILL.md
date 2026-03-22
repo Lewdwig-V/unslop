@@ -85,9 +85,9 @@ This archive is a safety net. The user can manually recover the original from it
 
 Use the **unslop/generation** skill for code generation discipline.
 
-**CRITICAL: Do NOT read the archived original. Generate from the spec ONLY.**
+**CRITICAL: Takeover always uses full regeneration mode (Mode A). Do NOT read the archived original. Generate from the spec ONLY.**
 
-The entire point of the takeover pipeline is that the spec becomes the source of truth. Reading the original would contaminate the generation with implementation details that were not captured in the spec. If the spec is missing something important, the convergence loop will surface it.
+The entire point of the takeover pipeline is that the spec becomes the source of truth. Reading the original would contaminate the generation with implementation details that were not captured in the spec. If the spec is missing something important, the convergence loop will surface it. Incremental mode (Mode B) is never appropriate during takeover — there is no trusted baseline to diff against.
 
 Write the generated file to the original path. Include the `@unslop-managed` header as specified by the generation skill.
 
@@ -122,7 +122,7 @@ b. **Identify the missing semantic constraint** — Trace the failure back to a 
 
 c. **Enrich the spec** — Add the missing constraint to the spec in spec-language voice: intent and observable behavior, not implementation. Do not add code-level detail.
 
-d. **Regenerate** — Generate the file again from the enriched spec. **Still no peeking at the archived original.**
+d. **Regenerate** — Generate the file again from the enriched spec using **full regeneration mode (Mode A)**. Still no peeking at the archived original.
 
 e. **Re-run tests** — Run the full test suite again.
 

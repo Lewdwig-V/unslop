@@ -10,21 +10,58 @@ You are generating a managed source file from an unslop spec. These instructions
 
 ---
 
-## 1. Read Only the Spec
+## 1. Generation Mode Selection
+
+Generation operates in one of two modes. **The controlling agent or command selects the mode.** If no mode is specified, default to **full regeneration**.
+
+### Mode A: Full Regeneration (default)
 
 You MUST generate code from the spec file alone. Do not read the existing generated file — it is about to be overwritten. Do not read archived originals. The spec is the single source of truth.
 
 This is not a stylistic preference. Reading the current generated file introduces anchoring bias: you will unconsciously reproduce its implementation choices rather than deriving fresh, idiomatic code from the spec's intent. The validation loop exists precisely to catch what the spec missed — that signal is destroyed if you peek at the previous output.
 
-**Permitted reads before generation:**
+**Permitted reads:**
 - The spec file
 - The test file(s) for the target module
 - `.unslop/config.md` (for test command and project conventions)
 - Language/framework documentation as needed
 
-**Prohibited reads before generation:**
+**Prohibited reads:**
 - The current generated source file
 - `.unslop/archive/` (original pre-takeover files)
+
+**When to use:** Takeover, major spec rewrites, periodic "defrag" regeneration (`/unslop:generate --force`), or whenever the controlling agent suspects accumulated implementation drift.
+
+### Mode B: Incremental Generation
+
+You read the spec, the current generated file, and an optional change description. You produce a **targeted diff** — the minimal set of edits that brings the generated file into conformance with the updated spec (or applies the described change).
+
+**Permitted reads:**
+- The spec file
+- The current generated source file
+- The test file(s) for the target module
+- `.unslop/config.md`
+- `*.change.md` sidecars (if any)
+- Language/framework documentation as needed
+
+**Prohibited reads:**
+- `.unslop/archive/` (original pre-takeover files)
+
+**Discipline in incremental mode:**
+- Change only what the spec delta or change description requires. Do not reformat, rename, or restructure code that is unrelated to the change.
+- Do not "improve" surrounding code. Gratuitous churn is a defect, not a feature.
+- If the change description is ambiguous about scope, default to the narrower interpretation.
+- The `@unslop-managed` header must still be updated (new timestamp and hashes).
+
+**When to use:** Small spec amendments, added constraints, absorbed change requests, bug fixes discovered during convergence — any case where the scope of the spec change is well-understood and localized.
+
+### Drift management
+
+Incremental mode accumulates implementation drift over many small changes. The controlling agent should periodically trigger a full regeneration to reset drift — analogous to a compaction or defrag. Signs that a full regen is warranted:
+
+- The file has been incrementally updated more than ~5 times since its last full regen
+- Test failures suggest the implementation has drifted from spec intent in ways that aren't covered by the change history
+- The controlling agent or user explicitly requests it (`--force` flag on generate/sync)
 
 ---
 

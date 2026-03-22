@@ -29,7 +29,7 @@ If Python is not available and the spec has no `depends-on` frontmatter, proceed
 
 **3. Generate**
 
-Use the **unslop/generation** skill. Read only the spec — do not read the existing generated file. Generate the managed file with the `@unslop-managed` header.
+Use the **unslop/generation** skill. Default is full regeneration (Mode A). Use incremental mode (Mode B) if the user passed `--incremental` — in that case, read both the spec and the existing managed file, and produce only the targeted edits. Otherwise, read only the spec. Generate the managed file with the `@unslop-managed` header.
 
 **4. Run tests**
 

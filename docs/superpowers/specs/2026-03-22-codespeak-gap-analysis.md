@@ -28,7 +28,7 @@ CodeSpeak (codespeak.dev, v0.3.4, March 2026) is a spec-driven development tool 
 | Spec format | `.cs.md` Markdown | `.spec.md` Markdown | Equivalent. unslop's vocabulary guide is more explicit. |
 | Takeover pipeline | `codespeak takeover <file>` | `/unslop:takeover` | unslop's is richer: user approval gate, archive safety net |
 | Convergence loop | None | 3-iteration spec enrichment loop | Significant unslop advantage |
-| "No peeking" discipline | Incremental (reads existing code) | Full regeneration from spec alone | Philosophical difference — see Quality section |
+| "No peeking" discipline | Incremental (reads existing code) | Discretionary: full regen (default) or incremental, chosen by controlling agent | See Quality section |
 | Test-driven validation | Tests run post-build | Tests run; convergence loop if red | unslop's loop is structurally enforced, not just hoped for |
 | Multi-file support | Spec imports (v0.3.4) | `depends-on` frontmatter + orchestrator | Equivalent capability, different mechanics |
 | Context persistence | None visible | Alignment summary + session hooks | unslop advantage |
@@ -41,8 +41,8 @@ CodeSpeak (codespeak.dev, v0.3.4, March 2026) is a spec-driven development tool 
 | Capability | CodeSpeak | unslop | Impact |
 |---|---|---|---|
 | **Ambiguity detection** | Compiler checks specs, asks for clarification | None — model interprets silently | **High** — ambiguous specs silently produce wrong code |
-| **Reproducibility** | Incremental diffs; bulk of code unchanged across rebuilds | Full regeneration; output varies run-to-run | **High** — unslop outputs are not reproducible |
-| **Deterministic tooling** | `codespeak build` is a CLI with defined inputs/outputs | Generation is entirely prompt-driven | **High** — "no peeking" rule enforced only by prompt |
+| **Reproducibility** | Incremental diffs; bulk of code unchanged across rebuilds | Full regen varies run-to-run; incremental mode now available for stable diffs | **Medium** — incremental mode closes most of the gap; full regen variance remains by design |
+| **Deterministic tooling** | `codespeak build` is a CLI with defined inputs/outputs | Generation is prompt-driven; mode selection is structural | **Medium** — incremental mode makes "no peeking" a structural choice, not just a prompt rule |
 | **Code Change Requests** | `change-request.cs.md` for surgical patches | None — everything must go through spec edits | **Medium** — sometimes you need a targeted fix, not a spec rewrite |
 | **CI/CD integration** | GitHub Actions workflow, generates code as commits | None (planned Phase 4) | **Medium** — blocks adoption in team/CI contexts |
 | **Content-based staleness** | Implied by incremental approach | mtime comparison (fragile after git ops); proposed dual-hash fix must preserve modified-file detection | **Medium** — git checkouts, copies, and rebases break mtime |
@@ -57,7 +57,7 @@ CodeSpeak (codespeak.dev, v0.3.4, March 2026) is a spec-driven development tool 
 
 ### Strengths of unslop's approach
 
-**Spec fidelity is higher.** Full regeneration from spec alone means the generated code *truly reflects the spec* with no residue from a previous implementation. CodeSpeak's incremental approach is conservative but means old code can survive spec changes that should have replaced it. If the spec changes substantially, unslop's output is purer.
+**Spec fidelity is higher in full regen mode.** Full regeneration from spec alone means the generated code *truly reflects the spec* with no residue from a previous implementation. CodeSpeak's incremental approach is conservative but means old code can survive spec changes that should have replaced it. If the spec changes substantially, unslop's full regen output is purer. The controlling agent can now choose full regen or incremental mode per-file, matching the approach to the scope of the change.
 
 **Test grounding is structurally enforced.** unslop's convergence loop makes the spec prove itself against tests. CodeSpeak runs tests post-build but has no loop — if tests fail, you fix the code manually or edit the spec and rebuild. unslop's loop surfaces exactly which semantic constraint was missing from the spec, which CodeSpeak leaves entirely to the developer to figure out.
 
@@ -67,11 +67,11 @@ CodeSpeak (codespeak.dev, v0.3.4, March 2026) is a spec-driven development tool 
 
 **Ambiguous specs fail silently.** This is the largest quality gap. When a spec can be interpreted two ways, CodeSpeak asks. unslop generates — and the model picks an interpretation, possibly the wrong one, without flagging it. The user won't notice until tests fail or, worse, until the code behaves unexpectedly in production.
 
-**The "no peeking" rule is enforced only by prompt.** The generation skill says not to read the archived original. A distracted model, a mid-context-window instruction, or a future model with different defaults can violate this silently. CodeSpeak's incremental approach makes "no peeking" structurally impossible to violate because the input is always the spec + the existing generated file.
+**The "no peeking" rule is now a structural choice, not just a prompt rule.** Previously, the generation skill enforced "no peeking" only by prompt — a distracted model could violate it silently. With discretionary mode selection, the controlling agent explicitly chooses full regen (Mode A, no peeking) or incremental (Mode B, reads existing code). In incremental mode there is nothing to "peek" at — reading the existing file is the intended input. In full regen mode the rule still applies, but the explicit mode boundary makes violations more visible and auditable than a buried prompt instruction.
 
-**Regenerated output is not reproducible.** Running `/unslop:generate` twice on an unchanged spec can produce two different implementations. Both might pass tests. But they differ — different variable names, different internal structure, different edge case handling. This is unsettling in production and breaks the premise that "the spec determines the code." CodeSpeak's incremental approach produces nearly identical output on re-runs because only spec diffs are applied.
+**Full-regen output is not reproducible, but incremental mode is.** Running full regen twice on an unchanged spec can produce two different implementations. Both pass tests, but they differ in structure. For small spec changes, incremental mode now produces stable, minimal diffs — matching CodeSpeak's behavior for the common case. Full regen variance remains by design for major rewrites, where anchoring to the previous implementation would be harmful.
 
-**No surgical repair path.** When a managed file needs a targeted fix — a performance patch, a one-line correctness fix, a third-party API call that changed — unslop forces you to either edit the spec (which then regenerates everything) or manually edit the managed file (which breaks the invariant). CodeSpeak's Change Request mechanism handles exactly this case.
+**Surgical repairs are now supported via incremental mode.** When a managed file needs a targeted fix — a performance patch, a one-line correctness fix, a third-party API call that changed — the controlling agent can invoke incremental mode with a change description, producing a minimal diff without regenerating the entire file. This covers the same use case as CodeSpeak's Change Request mechanism. The planned `*.change.md` sidecar (Gap 4) complements this by providing a persistent log of changes that survive future regenerations.
 
 **mtime staleness is fragile.** `git checkout`, file copies, CI runners that clone fresh, and timezone differences all corrupt mtime-based staleness detection. A file can appear fresh when it isn't, or stale when it is.
 
@@ -79,7 +79,7 @@ CodeSpeak (codespeak.dev, v0.3.4, March 2026) is a spec-driven development tool 
 
 For straightforward adapter/glue code with good test coverage, unslop produces **comparable quality** to CodeSpeak. The convergence loop and approval gate are genuine advantages that CodeSpeak lacks.
 
-For complex specs, ambiguous requirements, or code that needs surgical fixes between regenerations, CodeSpeak's output is **meaningfully more reliable**. The ambiguity detection and incremental approach catch failure modes that unslop only discovers at test time — if at all.
+For complex specs or ambiguous requirements, CodeSpeak's ambiguity detection remains an advantage that unslop should close (Gap 1). For surgical fixes and incremental changes, unslop's new incremental mode now matches CodeSpeak's diff-based approach while retaining the option to do a full regen when purity matters more than stability.
 
 ---
 
@@ -149,11 +149,15 @@ This preserves all three states from the current mtime scheme while eliminating 
 
 ---
 
-### Gap 3: Generation Reproducibility via Spec Pinning (High Impact, Medium Cost)
+### Gap 3: Generation Reproducibility via Spec Pinning (Medium Impact, Medium Cost)
 
-**Problem:** Identical specs produce different code on re-runs. Not a correctness problem (tests pass) but a reliability and trust problem.
+**Problem:** Identical specs produce different code on full-regen re-runs. Not a correctness problem (tests pass) but a reliability and trust problem.
 
-**Solution:** Two complementary approaches:
+**Partially addressed by incremental mode.** For small spec changes, incremental mode (Mode B) produces stable, minimal diffs — the file doesn't change where it doesn't need to. This closes the reproducibility gap for the common case of iterative spec refinement.
+
+**Remaining problem:** Full regeneration (Mode A) still varies run-to-run. This is acceptable for takeover and major rewrites, but surprising if a user runs `/unslop:generate` and gets gratuitous churn on files whose specs haven't changed (which shouldn't happen with proper staleness detection, but can occur with `--force`).
+
+**Solution for full-regen variance:** Two complementary approaches:
 
 **3a. Explicit generation constraints in the generation skill.** Add a section emphasizing: generate the minimal idiomatic implementation. Prefer the simplest approach that satisfies the spec. Do not vary structure across regenerations. This reduces variance within a single session.
 
@@ -168,7 +172,11 @@ This preserves all three states from the current mtime scheme while eliminating 
 
 ### Gap 4: Code Change Requests (Medium Impact, Low Cost)
 
-**Problem:** Sometimes a managed file needs a targeted fix that doesn't warrant a spec rewrite — a performance patch, a changed API call, a discovered edge case. Currently unslop has no path for this that doesn't break the spec-as-source-of-truth invariant.
+**Problem:** Sometimes a managed file needs a targeted fix that doesn't warrant a spec rewrite — a performance patch, a changed API call, a discovered edge case.
+
+**Partially addressed by incremental mode.** The controlling agent can now invoke incremental generation (Mode B) with a change description, producing a targeted diff without full regeneration. This covers the immediate "apply a surgical fix" use case.
+
+**Remaining problem:** Incremental mode applies the fix but doesn't persist a record of it. If a future full regeneration runs, the fix vanishes — the spec doesn't know about it. The `*.change.md` sidecar mechanism addresses this persistence gap.
 
 **Solution:** A `/unslop:change <file> "<description>"` command and associated `*.change.md` sidecar files.
 
@@ -355,20 +363,21 @@ Domain skills are the highest-leverage single contribution to generation quality
 
 ## Summary: What to Build and in What Order
 
-| # | Change | Type | Closes Which Gap | Relative Effort |
-|---|---|---|---|---|
-| 1 | Spec ambiguity linter | Skill update + pre-gen check | Silent wrong code from ambiguous specs | Low |
-| 2 | Dual-hash staleness (spec + output) | Header format + script | Fragile mtime detection + preserves modified-file detection | Low |
-| 3 | Spec completeness review post-convergence | Skill update | Reproducibility | Low |
-| 4 | Pre-generation spec validation | Generation skill gate | Insufficient specs wasting generation cycles | Low |
-| 5 | Code Change Requests | New command + skill update | Surgical fixes without breaking invariant | Medium |
-| 6 | Machine-readable config | Init update + `config.json` | Tooling reliability | Low |
-| 7 | Pre-push freshness check (`check-freshness.py`) | Deterministic Python script + hook | CI gap (lightweight) | Low |
-| 8 | Domain skills (FastAPI, React, etc.) | New skills | Generation variance for common patterns | High, ongoing |
-| 9 | GitHub Actions template | Template + init update | CI/CD integration | Medium |
-| 10 | `/unslop:harden` command | New command | Reproducibility across re-runs | Medium |
+| # | Change | Type | Closes Which Gap | Relative Effort | Status |
+|---|---|---|---|---|---|
+| 0 | Discretionary generation modes (full regen / incremental) | Generation skill update | Reproducibility, surgical fixes, "no peeking" enforcement | Low | **Done** |
+| 1 | Spec ambiguity linter | Skill update + pre-gen check | Silent wrong code from ambiguous specs | Low | Planned |
+| 2 | Dual-hash staleness (spec + output) | Header format + script | Fragile mtime detection + preserves modified-file detection | Low | Planned |
+| 3 | Spec completeness review post-convergence | Skill update | Full-regen reproducibility | Low | Planned |
+| 4 | Pre-generation spec validation | Generation skill gate | Insufficient specs wasting generation cycles | Low | Planned |
+| 5 | Code Change Requests (`*.change.md` persistence) | New command + skill update | Surgical fix persistence across regenerations | Medium | Planned |
+| 6 | Machine-readable config | Init update + `config.json` | Tooling reliability | Low | Planned |
+| 7 | Pre-push freshness check (`check-freshness.py`) | Deterministic Python script + hook | CI gap (lightweight) | Low | Planned |
+| 8 | Domain skills (FastAPI, React, etc.) | New skills | Generation variance for common patterns | High, ongoing | Planned |
+| 9 | GitHub Actions template | Template + init update | CI/CD integration | Medium | Planned |
+| 10 | `/unslop:harden` command | New command | Reproducibility across re-runs | Medium | Planned |
 
-Items 1–4 and 6–7 are low-effort, high-impact, and can be done without touching the core pipeline. Items 5, 8–10 are medium-effort projects. All are achievable within the existing plugin architecture — no MCP server is needed for any of them.
+Item 0 (incremental mode) is implemented and partially closes Gaps 3–5 from the original analysis. Items 1–4 and 6–7 are low-effort, high-impact, and can be done without touching the core pipeline. Item 5 now focuses on *persistence* rather than the fix mechanism itself (which incremental mode handles). Items 8–10 are medium-effort projects. All are achievable within the existing plugin architecture — no MCP server is needed for any of them.
 
 ---
 
