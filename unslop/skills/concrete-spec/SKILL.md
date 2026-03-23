@@ -1,0 +1,295 @@
+---
+name: concrete-spec
+description: Use when generating, reviewing, or promoting concrete specs — the implementation strategy layer between abstract specs (intent) and generated code. Activates during Stage B.1 of generation, during /unslop:harden --promote, and during takeover raising.
+version: 0.1.0
+---
+
+# Concrete Spec Skill
+
+## Compiler IR Analogy
+
+Unslop's spec-driven pipeline mirrors a compiler's multi-stage lowering:
+
+| Compiler Layer | Unslop Layer | Artifact | Owns |
+|---|---|---|---|
+| Source Language | User Intent | Change request / conversation | The "Why" |
+| High-Level IR | Abstract Spec (`*.spec.md`) | Intent-focused constraints | The "What" |
+| **Mid-Level IR** | **Concrete Spec (`*.impl.md`)** | **Implementation strategy** | **The "How" (algorithm/pattern level)** |
+| Low-Level IR / Target | Generated Code | Language-specific source | The "With What" |
+
+The Abstract Spec describes **observable behavior** — what the code must do.
+The Concrete Spec describes **implementation strategy** — the algorithm, pattern, and structural approach the Builder will use, without committing to language syntax.
+
+This extra layer of indirection is where the most powerful optimizations happen: you catch logic errors in the strategy before wasting tokens on boilerplate, and you gain radical portability by keeping the "How" separate from the "With What."
+
+---
+
+## Format: Hybrid Structured Markdown
+
+Concrete specs use the same Markdown ecosystem as abstract specs — same tooling, same diffing, same review workflow. The structure is more rigid to serve as a reliable "lowering target."
+
+### File Naming
+
+- Per-file: `<file>.impl.md` (e.g., `src/retry.py.impl.md`)
+- Per-unit: `<dir>.unit.impl.md` (e.g., `src/auth/auth.unit.impl.md`)
+
+### Frontmatter
+
+```yaml
+---
+source-spec: src/retry.py.spec.md
+target-language: python
+ephemeral: true
+complexity: standard
+---
+```
+
+| Field | Required | Description |
+|---|---|---|
+| `source-spec` | yes | Path to the abstract spec this concretizes |
+| `target-language` | yes | Target language/platform for lowering |
+| `ephemeral` | no | Default `true`. Set `false` when promoted via `/unslop:harden --promote` or when project is `high_complexity` |
+| `complexity` | no | `standard` (default) or `high`. `high` triggers automatic promotion to permanent |
+
+### Required Sections
+
+#### `## Strategy`
+
+The core of the concrete spec. Describes the algorithm, data flow, and structural pattern in **language-agnostic pseudocode**. This is not the abstract spec's "what" — it is the "how" at the algorithmic level.
+
+Use fenced pseudocode blocks:
+
+````markdown
+## Strategy
+
+### Core Algorithm
+
+```pseudocode
+function retry(operation, config):
+    attempts = 0
+    while attempts < config.max_retries:
+        result = try operation()
+        if result.success:
+            return result
+        delay = min(config.base_delay * 2^attempts, config.max_delay)
+        delay += random_jitter(0, delay * config.jitter_factor)
+        wait(delay)
+        attempts += 1
+    raise MaxRetriesExceeded(attempts, last_error)
+```
+
+### Data Flow
+
+```mermaid
+graph LR
+    A[Input Request] --> B{Retry Loop}
+    B -->|Success| C[Return Result]
+    B -->|Failure| D{Max Retries?}
+    D -->|No| E[Backoff + Jitter]
+    E --> B
+    D -->|Yes| F[Raise Error]
+```
+````
+
+**Pseudocode rules:**
+- Use generic constructs: `function`, `if`, `while`, `for`, `try`, `return`, `raise`
+- Name variables descriptively — `delay`, `attempts`, `config` not `d`, `a`, `c`
+- Include complexity annotations where relevant: `// O(n log n)`, `// amortized O(1)`
+- Do NOT use language-specific syntax (no `def`, `func`, `fn`, `:=`, `->`)
+
+#### `## Pattern`
+
+Name the design pattern or architectural approach. This is the "Rosetta Stone" — the part that stays the same when switching languages.
+
+```markdown
+## Pattern
+
+- **Retry strategy**: Exponential backoff with jitter (decorrelated)
+- **Concurrency model**: Single-threaded async with cooperative yielding
+- **Error propagation**: Typed error wrapping with cause chain
+- **State management**: Immutable config, mutable attempt counter (loop-scoped)
+```
+
+#### `## Type Sketch`
+
+Structural type signatures without language-specific syntax. Use a generic type notation:
+
+```markdown
+## Type Sketch
+
+RetryConfig {
+    max_retries: int (> 0)
+    base_delay: duration (> 0)
+    max_delay: duration (>= base_delay)
+    jitter_factor: float (0.0..1.0)
+    retryable_errors: set<error_type>
+}
+
+RetryResult<T> = Success(value: T) | Failure(error: error, attempts: int)
+```
+
+#### `## Lowering Notes` (optional)
+
+Language-specific considerations that the Builder should know. This is the only section that is NOT portable.
+
+```markdown
+## Lowering Notes
+
+### Python
+- Use `asyncio.sleep()` for delay in async context
+- `RetryConfig` as a frozen dataclass
+- Jitter via `random.uniform()`
+
+### Go
+- Use `time.Sleep()` for delay
+- `RetryConfig` as a struct with exported fields
+- Jitter via `math/rand`
+```
+
+---
+
+## Lifecycle: Ephemeral by Default
+
+The concrete spec is the Builder's **internal monologue** — it exists to improve generation quality, not to create maintenance burden.
+
+### Generation Flow (Stage B.1)
+
+1. Builder reads the Abstract Spec
+2. Builder drafts a Concrete Spec as an in-worktree artifact (Stage B.1)
+3. Builder generates code from both the Abstract Spec (constraints) and Concrete Spec (strategy)
+4. If tests pass and `ephemeral: true`: the concrete spec is **discarded** with the worktree — it served its purpose
+5. If tests pass and `ephemeral: false`: the concrete spec is **merged** with the generated code
+
+### When Concrete Specs Become Permanent
+
+A concrete spec is promoted from ephemeral to permanent in these cases:
+
+1. **Manual promotion**: User runs `/unslop:harden --promote <spec-path>` — the last generated concrete spec is saved alongside the abstract spec
+2. **High complexity**: Project-level or spec-level `complexity: high` in `.unslop/config.json` or spec frontmatter causes automatic retention
+3. **Cross-language projects**: When `target-language` differs across generations of the same abstract spec, concrete specs are retained to preserve the language-specific lowering notes
+
+### Permanent Concrete Spec Rules
+
+When a concrete spec is permanent (`ephemeral: false`):
+
+- It lives alongside the abstract spec: `src/retry.py.spec.md` + `src/retry.py.impl.md`
+- It is version-controlled and code-reviewed
+- Changes to the abstract spec trigger a staleness check on the concrete spec
+- The Builder reads it as additional input during generation (but the abstract spec still wins on any conflict)
+- It does NOT replace the abstract spec — both are maintained
+
+### Staleness
+
+A concrete spec is stale when:
+- Its `source-spec` hash no longer matches the current abstract spec
+- The abstract spec's constraints have changed in ways that invalidate the strategy
+
+Stale concrete specs are regenerated by the Builder during the next generation cycle. The Builder may reuse parts of the old strategy if they remain valid.
+
+---
+
+## The Rosetta Stone Effect: Cross-Language Portability
+
+The concrete spec enables radical portability. To switch from Python/FastAPI to Go/Echo:
+
+1. The Abstract Spec stays **unchanged** — the "What" is language-agnostic
+2. The Concrete Spec's `## Strategy`, `## Pattern`, and `## Type Sketch` stay **largely unchanged** — algorithms are portable
+3. Only `## Lowering Notes` and `target-language` change
+4. The Builder generates fresh code for the new target
+
+This makes unslop a **cross-platform architectural tool**, not just a Python generator.
+
+### Language Switch Workflow
+
+```
+/unslop:lower <spec-path> --language go
+```
+
+1. Read the existing concrete spec (if any) or generate one from the abstract spec
+2. Preserve `## Strategy`, `## Pattern`, `## Type Sketch`
+3. Regenerate `## Lowering Notes` for the target language
+4. Update `target-language` in frontmatter
+5. Dispatch Builder with the new concrete spec
+
+---
+
+## Raising: Code → Concrete → Abstract
+
+During takeover, the concrete spec acts as a **Structural Archive** — an intermediate representation that preserves algorithmic intent while abstracting away syntax.
+
+### Raising Flow (Takeover)
+
+```
+Existing Code
+    ↓ raise to concrete
+Concrete Spec (current "How")
+    ↓ raise to abstract
+Abstract Spec (original "Why")
+```
+
+1. **Code → Concrete**: Extract the algorithm, patterns, and type structure from existing code into a concrete spec. This captures "how it currently works" without committing to "how it should work."
+
+2. **Concrete → Abstract**: Extract the observable behavior and constraints from the concrete spec into an abstract spec. This captures "what it does" without prescribing "how to do it."
+
+This two-phase raising is more accurate than jumping directly from code to abstract spec, because:
+- The concrete spec preserves algorithmic decisions that may be load-bearing
+- The Architect can review the concrete spec to determine which algorithmic choices are intentional vs incidental
+- If the raised abstract spec is then lowered through a different strategy, the original concrete spec serves as a reference for what was changed and why
+
+### Lowering Flow (Re-generation)
+
+```
+Abstract Spec (modified "Why")
+    ↓ lower to concrete
+Concrete Spec (new "How")
+    ↓ lower to code
+Generated Code (new implementation)
+```
+
+The user can modify the "Why" (abstract spec) and let the Builder derive a new "How" (concrete spec) without losing the core business logic. The old concrete spec remains in the archive as a reference.
+
+---
+
+## Anti-Pattern: Spec Bloat (Double Maintenance)
+
+The primary risk is requiring developers to approve two specs for every change. The ephemeral-by-default design mitigates this:
+
+| Scenario | Abstract Spec | Concrete Spec | User Approval Steps |
+|---|---|---|---|
+| Standard change | Updated | Ephemeral (auto-generated, auto-discarded) | **1** (abstract only) |
+| High-complexity change | Updated | Promoted (retained) | **2** (both) |
+| Language switch | Unchanged | Regenerated with new target | **1** (concrete only) |
+| Takeover | Drafted from code | Ephemeral (used during raising, then discarded) | **1** (abstract only) |
+
+For the common case (standard complexity), the developer experience is **identical to today** — the concrete spec is invisible. It only surfaces when complexity warrants it or when the user explicitly requests it.
+
+---
+
+## Builder Instructions for Stage B.1
+
+When generating code, the Builder follows this expanded sequence:
+
+1. Read the Abstract Spec (source of truth for constraints)
+2. Read the Concrete Spec if one exists and is permanent (`ephemeral: false`)
+3. **If no permanent concrete spec exists**: Draft an ephemeral concrete spec in the worktree
+   - Write `## Strategy` with pseudocode for the core algorithm
+   - Write `## Pattern` identifying the design approach
+   - Write `## Type Sketch` for structural types
+   - Skip `## Lowering Notes` for ephemeral specs (the Builder already knows the target language)
+4. Generate code from both specs:
+   - Abstract Spec governs **what** (constraints, contracts, error behavior)
+   - Concrete Spec governs **how** (algorithm, pattern, structure)
+   - On conflict: Abstract Spec wins — always
+5. Run tests
+6. If `ephemeral: true`: do not include the concrete spec in the worktree merge
+7. If `ephemeral: false`: include the concrete spec in the worktree merge
+
+### Concrete Spec Quality Gate
+
+The concrete spec must satisfy:
+- Every constraint in the Abstract Spec has a corresponding strategy element
+- The pseudocode is deterministic (no "choose an appropriate method")
+- Type sketches are compatible with the Abstract Spec's contracts
+- No language-specific syntax in `## Strategy` or `## Type Sketch`
+
+This is a self-check, not a blocking validation. If the Builder cannot satisfy the quality gate, it proceeds with generation and reports DONE_WITH_CONCERNS.

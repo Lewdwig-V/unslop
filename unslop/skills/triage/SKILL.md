@@ -35,6 +35,20 @@ If the user asks about code quality, safety, edge cases, or robustness, route to
 **Pattern:** "Is this safe?", "What about edge cases?", "Could this break?", "Review the spec"
 **Route:** `/unslop:harden <spec-path>` (e.g., `src/retry.py.spec.md`) to stress-test the spec against edge cases and suggest tighter constraints. Note: harden takes the spec path, not the managed file path.
 
+## The Implementation Strategy Prompt
+
+If the user wants to understand, document, or preserve the implementation strategy (algorithm, patterns, data flow) of a managed file, route to concrete spec promotion.
+
+**Pattern:** "Document the implementation strategy", "Promote the concrete spec", "I want to preserve how this works", "Make the implementation strategy permanent", "Show me the algorithm"
+**Route:** `/unslop:harden <spec-path> --promote` to generate or promote a permanent Concrete Spec (`*.impl.md`) alongside the Abstract Spec.
+
+## The Language Switch Prompt
+
+If the user wants to port a managed file to a different language while keeping the same behavior, this is a lowering operation through the concrete spec layer.
+
+**Pattern:** "Port this to Go", "Rewrite in TypeScript", "Switch from Python to Rust"
+**Route:** Explain the lowering workflow: the Abstract Spec stays unchanged, only the Concrete Spec's `target-language` and `## Lowering Notes` change, then regenerate. Start with `/unslop:harden <spec-path> --promote` to capture the current strategy, then update the concrete spec's target language.
+
 ## The Coherence Check
 
 If the user is working with multiple related specs and asks about consistency, contract mismatches, or whether specs agree with each other, route to coherence.

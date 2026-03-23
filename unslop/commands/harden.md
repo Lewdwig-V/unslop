@@ -1,9 +1,11 @@
 ---
-description: Review a spec for completeness and suggest tightening
-argument-hint: <spec-path>
+description: Review a spec for completeness and suggest tightening. Use --promote to promote a concrete spec to permanent.
+argument-hint: "<spec-path> [--promote]"
 ---
 
 **Parse arguments:** `$ARGUMENTS` is the path to the spec file (e.g., `src/retry.py.spec.md`). Strip any flags before using the path.
+
+**Check for `--promote` flag:** If `$ARGUMENTS` contains `--promote`, run the Concrete Spec Promotion flow (Step 6) instead of the standard hardening review.
 
 **1. Verify prerequisites**
 
@@ -72,3 +74,54 @@ After all accepted suggestions are applied, tell the user:
 If the user accepts none, acknowledge and exit without modifying any file.
 
 This command is advisory — it never blocks, never generates code, and never runs tests.
+
+---
+
+**6. Concrete Spec Promotion (`--promote`)**
+
+This flow promotes an ephemeral Concrete Spec to a permanent, version-controlled artifact. It runs instead of Steps 3-5 when `--promote` is passed.
+
+**6a. Check for existing Concrete Spec:**
+
+Derive the concrete spec path from the abstract spec path:
+- `src/retry.py.spec.md` → `src/retry.py.impl.md`
+- `src/auth/auth.unit.spec.md` → `src/auth/auth.unit.impl.md`
+
+If a permanent concrete spec already exists at that path, tell the user:
+
+> "Concrete spec already exists at `<path>`. It will be regenerated from the current abstract spec and managed code."
+
+**6b. Generate or regenerate the Concrete Spec:**
+
+Read the abstract spec and all managed files. Use the **unslop/concrete-spec** skill to draft a Concrete Spec that captures the **current implementation's strategy** — not an idealized strategy, but what the generated code actually does today.
+
+Write the concrete spec with the following sections:
+- `## Strategy` — pseudocode extracted from the current generated code
+- `## Pattern` — design patterns identified in the current implementation
+- `## Type Sketch` — structural types from the current implementation
+- `## Lowering Notes` — language-specific notes relevant to this implementation
+
+Set frontmatter:
+```yaml
+---
+source-spec: <abstract-spec-path>
+target-language: <detected-language>
+ephemeral: false
+---
+```
+
+**6c. Present for review:**
+
+> "Concrete spec generated at `<path>`. This captures the current implementation strategy as a permanent artifact.
+>
+> Review the strategy. This file will be version-controlled and used as guidance during future generation cycles."
+
+**6d. On approval:**
+
+Write the concrete spec to disk. Tell the user:
+
+> "Promoted `<impl-path>`. The Builder will use this as strategic guidance on future generations. The abstract spec remains the source of truth for constraints."
+
+**6e. On rejection:**
+
+Acknowledge and exit without writing any file.

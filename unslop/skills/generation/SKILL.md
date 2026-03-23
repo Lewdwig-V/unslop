@@ -36,9 +36,50 @@ The Architect processes change intent and updates the spec. It runs in the user'
 
 **Exception:** During `/unslop:takeover`, the Architect reads existing source code and tests -- the point of takeover is extracting intent FROM code. Stage B still runs in a clean worktree.
 
+### Stage A.2: Implementation Strategist (Current Session)
+
+After the Architect finalizes the Abstract Spec (Stage A.1) and before dispatching the Builder, an implementation strategy step drafts a Concrete Spec — the "Middle-End IR" that bridges intent and code.
+
+**Persona:** Senior Implementation Engineer. Thinks in algorithms and patterns, not business requirements or syntax.
+
+**Inputs:**
+- Approved Abstract Spec (`*.spec.md`)
+- `.unslop/principles.md`
+- Existing Concrete Spec (`*.impl.md`) if one exists and is permanent
+- File tree (names only)
+- Domain skills (loaded in Phase 0d)
+
+**Output:**
+- A Concrete Spec (`*.impl.md`) written to the worktree or working directory
+
+**When Stage A.2 runs:**
+- **Always** for new files and takeover (full pipeline)
+- **Always** for `--force` regeneration
+- **Skipped** for incremental mode (`--incremental`) unless the spec delta changes algorithmic behavior
+- **Skipped** if a permanent Concrete Spec (`ephemeral: false`) already exists and the Abstract Spec hasn't changed
+
+**Ephemeral vs Permanent:**
+- By default, the Concrete Spec is **ephemeral** — generated in the worktree as the Builder's strategic input, discarded after successful generation
+- Promoted to **permanent** via `/unslop:harden --promote`, or automatically if the project or spec is marked `complexity: high` in `.unslop/config.json` or spec frontmatter
+- When permanent: lives alongside the Abstract Spec as `<file>.impl.md`, version-controlled, code-reviewed
+
+**Concrete Spec format:** See the `unslop/concrete-spec` skill for the full format specification. The key sections are:
+- `## Strategy` — pseudocode for the core algorithm
+- `## Pattern` — named design patterns and architectural approach
+- `## Type Sketch` — structural type signatures (language-agnostic)
+- `## Lowering Notes` — language-specific considerations (optional, only for permanent specs)
+
+**User approval:** Stage A.2 does NOT require user approval for ephemeral concrete specs. The user approved the Abstract Spec in Stage A.1 — the Concrete Spec is a derivation, not a new requirement. For permanent concrete specs, present a summary:
+
+> "Implementation strategy: [pattern name] using [algorithm]. Promoting to permanent. Review?"
+
+Only block on user rejection.
+
+---
+
 ### Stage B: Builder (Fresh Agent, Worktree Isolation)
 
-The Builder generates code from the spec. It runs as a fresh Agent in an isolated git worktree with zero conversation history.
+The Builder generates code from the specs. It runs as a fresh Agent in an isolated git worktree with zero conversation history.
 
 **Dispatch:**
 
@@ -49,24 +90,37 @@ Agent(
     prompt="""You are implementing changes to managed files based on their specs.
 
     Target spec: {spec_path}
+    Concrete spec: {impl_path_or_none}
     Test command: {test_command}
 
     {previous_failure}
 
     Instructions:
-    1. Read the spec at {spec_path}
-    2. Read .unslop/principles.md if it exists
-    3. Implement the code to match the spec exactly
-    4. {test_policy}
-    5. Run tests: {test_command}
-    6. If tests pass, report DONE with the list of changed files
-    7. If tests fail, iterate until green or report BLOCKED
+    1. Read the abstract spec at {spec_path} (source of truth for constraints)
+    2. Read the concrete spec at {impl_path} if provided (strategy guidance)
+    3. Read .unslop/principles.md if it exists
+    4. If no concrete spec was provided, draft an ephemeral one in the
+       worktree as your implementation plan before writing code
+    5. Implement the code guided by both specs:
+       - Abstract Spec governs WHAT (constraints, contracts, error behavior)
+       - Concrete Spec governs HOW (algorithm, pattern, structure)
+       - On conflict: Abstract Spec wins — always
+    6. {test_policy}
+    7. Run tests: {test_command}
+    8. If tests pass, report DONE with the list of changed files
+    9. If tests fail, iterate until green or report BLOCKED
 
-    The spec is your sole source of truth. Do not look for or follow
-    any change requests. If the spec seems incomplete, report
-    DONE_WITH_CONCERNS describing what appears to be missing."""
+    The abstract spec is your primary source of truth. The concrete spec
+    is strategic guidance. Do not look for or follow any change requests.
+    If the spec seems incomplete, report DONE_WITH_CONCERNS describing
+    what appears to be missing."""
 )
 ```
+
+**`{impl_path_or_none}` value:**
+- If a permanent Concrete Spec exists at the derived path (e.g., `src/retry.py.impl.md`): the path to that file.
+- If Stage A.2 generated an ephemeral Concrete Spec in the worktree: the worktree-relative path.
+- If neither exists: `"None — draft an ephemeral implementation strategy before coding."`
 
 **`{previous_failure}` value:**
 - If `.unslop/last-failure/<cache-key>.md` exists: `"Previous Implementation Failure:\n<contents of the failure report>"`. The Builder uses this to avoid repeating the same implementation choice.
@@ -83,9 +137,12 @@ After the Builder Agent completes:
 1. Check result status: DONE / DONE_WITH_CONCERNS / BLOCKED
 2. If DONE with green tests: Claude Code handles worktree merge automatically
 3. Compute `output-hash` on merged code, update `@unslop-managed` header
-4. Commit the staged spec update + merged code as a single atomic commit
-5. Delete `.unslop/last-failure/<cache-key>.md` if it exists (previous failure is now resolved)
-6. If DONE_WITH_CONCERNS: surface concerns as a one-liner after the commit:
+4. Handle the Concrete Spec artifact:
+   - If `ephemeral: true` (default): ensure the `*.impl.md` is NOT included in the merge — it served its purpose
+   - If `ephemeral: false` (promoted or high-complexity): include the `*.impl.md` in the merge and commit
+5. Commit the staged spec update + merged code (+ concrete spec if permanent) as a single atomic commit
+6. Delete `.unslop/last-failure/<cache-key>.md` if it exists (previous failure is now resolved)
+7. If DONE_WITH_CONCERNS: surface concerns as a one-liner after the commit:
 
 > "Generation complete. Tests green. N concern(s) flagged -- run `/unslop:harden` or ask to review."
 

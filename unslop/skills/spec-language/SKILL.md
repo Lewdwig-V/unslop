@@ -10,6 +10,30 @@ version: 0.1.0
 
 Specs describe **intent**, not implementation. A spec defines what a file must do, what constraints it must satisfy, and what behavior it must exhibit — not how to achieve any of those things. Code is disposable; specs are the source of truth.
 
+## The Two-Layer Spec Model
+
+Unslop uses a compiler-inspired two-layer spec architecture:
+
+| Layer | File | Describes | Analogy |
+|---|---|---|---|
+| **Abstract Spec** | `*.spec.md` | Observable behavior, constraints, contracts | High-Level IR (the "What" and "Why") |
+| **Concrete Spec** | `*.impl.md` | Algorithm, patterns, type structure | Mid-Level IR (the "How") |
+
+**This skill governs Abstract Specs only.** For Concrete Spec writing guidance, see the `unslop/concrete-spec` skill.
+
+The boundary between the two layers follows a simple rule: **if it's observable from outside the module, it belongs in the Abstract Spec. If it's an internal strategy choice, it belongs in the Concrete Spec (or nowhere — most strategy choices are ephemeral).**
+
+Examples of the boundary:
+
+| Abstract Spec (*.spec.md) | Concrete Spec (*.impl.md) |
+|---|---|
+| "Retries with exponential backoff, max 5 attempts" | "Full Jitter algorithm: `sleep = cap * random()`" |
+| "Results are sorted by relevance score" | "Uses a min-heap for top-K selection, O(n log k)" |
+| "Deduplicates within a 5-minute window" | "Sliding window with a hash set, pruned on insert" |
+| "Responses cached for 5 minutes" | "LRU cache with TTL, max 1000 entries" |
+
+The Abstract Spec says **what guarantee the caller gets**. The Concrete Spec says **what algorithm delivers that guarantee**. The generated code says **how that algorithm is expressed in the target language**.
+
 ## Vocabulary Guide
 
 Specs are written in terms of observable behavior, contracts, and constraints. They are not written in terms of data structures, algorithms, or control flow.
