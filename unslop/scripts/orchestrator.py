@@ -2272,6 +2272,17 @@ def _compute_parallel_batches(
                     next_queue.append(succ)
         queue = sorted(next_queue)
 
+    # If a cycle left unvisited nodes, emit them so callers always get
+    # actionable batches for every entry in sorted_entries.
+    visited = {s for batch in batches for e in batch for s in [e["spec"]]}
+    remaining = sorted(plan_specs - visited)
+    if remaining:
+        wave_entries: list[dict] = []
+        for spec in remaining:
+            wave_entries.extend(spec_to_entry.get(spec, []))
+        for i in range(0, len(wave_entries), max_batch_size):
+            batches.append(wave_entries[i:i + max_batch_size])
+
     return batches
 
 

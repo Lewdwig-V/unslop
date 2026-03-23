@@ -4911,6 +4911,62 @@ def test_compute_parallel_batches_max_batch_splits_wave():
     assert total == 5
 
 
+def test_compute_parallel_batches_full_cycle():
+    """All specs form a cycle — should still emit batches for every entry."""
+    entries = [
+        {"managed": "a.py", "spec": "a.py.spec.md"},
+        {"managed": "b.py", "spec": "b.py.spec.md"},
+        {"managed": "c.py", "spec": "c.py.spec.md"},
+    ]
+    # a -> b -> c -> a (cycle)
+    graph = {
+        "a.py.spec.md": {"c.py.spec.md"},
+        "b.py.spec.md": {"a.py.spec.md"},
+        "c.py.spec.md": {"b.py.spec.md"},
+    }
+    batches = _compute_parallel_batches(entries, graph)
+    total = sum(len(b) for b in batches)
+    assert total == 3, f"Expected 3 entries in batches, got {total}"
+    assert len(batches) >= 1
+
+
+def test_compute_parallel_batches_partial_cycle():
+    """Some specs form a cycle, others don't — all should appear in batches."""
+    entries = [
+        {"managed": "a.py", "spec": "a.py.spec.md"},
+        {"managed": "b.py", "spec": "b.py.spec.md"},
+        {"managed": "c.py", "spec": "c.py.spec.md"},
+    ]
+    # a is free, b -> c -> b (cycle)
+    graph = {
+        "a.py.spec.md": set(),
+        "b.py.spec.md": {"c.py.spec.md"},
+        "c.py.spec.md": {"b.py.spec.md"},
+    }
+    batches = _compute_parallel_batches(entries, graph)
+    total = sum(len(b) for b in batches)
+    assert total == 3
+    # a should be in an early batch (no deps), b and c in a later one
+    first_batch_specs = {e["spec"] for e in batches[0]}
+    assert "a.py.spec.md" in first_batch_specs
+
+
+def test_compute_parallel_batches_cycle_respects_max_batch():
+    """Cycle fallback should still respect max_batch_size."""
+    entries = [
+        {"managed": f"f{i}.py", "spec": f"f{i}.py.spec.md"}
+        for i in range(5)
+    ]
+    # All in a cycle
+    specs = [f"f{i}.py.spec.md" for i in range(5)]
+    graph = {specs[i]: {specs[(i + 1) % 5]} for i in range(5)}
+    batches = _compute_parallel_batches(entries, graph, max_batch_size=2)
+    total = sum(len(b) for b in batches)
+    assert total == 5
+    for batch in batches:
+        assert len(batch) <= 2
+
+
 # ── Resume Sync Plan (v0.11.12) ─────────────────────────────────────────────
 
 def _setup_resume_chain(tmp_path):
