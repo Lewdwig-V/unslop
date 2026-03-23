@@ -1,6 +1,6 @@
 ---
 description: Render a Mermaid dependency graph of specs, concrete specs, and managed files
-argument-hint: "[--scope <spec-path>...] [--no-code]"
+argument-hint: "[--scope <spec-path>...] [--no-code] [--stale-only]"
 ---
 
 **1. Verify prerequisites**
@@ -15,12 +15,14 @@ Check that `.unslop/` exists in the current working directory. If it does not ex
 
 **Check for `--no-code` flag:** If `$ARGUMENTS` contains `--no-code`, omit the managed code file layer from the graph. Useful for focusing on the spec architecture without the output noise.
 
+**Check for `--stale-only` flag:** If `$ARGUMENTS` contains `--stale-only`, render only the "ghost staleness" subgraph — nodes and edges on paths leading to stale, ghost-stale, modified, or conflict managed files. Fresh files and their upstream-only specs are excluded. Useful for prioritizing which files to sync first.
+
 **3. Generate the graph**
 
 Call the orchestrator:
 
 ```
-python ${CLAUDE_PLUGIN_ROOT}/scripts/orchestrator.py graph [--scope <spec-paths>...] [--no-code] [--root .]
+python ${CLAUDE_PLUGIN_ROOT}/scripts/orchestrator.py graph [--scope <spec-paths>...] [--no-code] [--stale-only] [--root .]
 ```
 
 The orchestrator returns JSON with:

@@ -2143,6 +2143,7 @@ def render_dependency_graph(
     directory: str,
     scope: list[str] | None = None,
     include_code: bool = True,
+    stale_only: bool = False,
 ) -> dict:
     """Render a Mermaid dependency graph of the spec/concrete/code layers.
 
@@ -2151,6 +2152,8 @@ def render_dependency_graph(
         scope: Optional list of spec paths to focus on (with their transitive
                dependents). If None, renders the full project graph.
         include_code: Whether to include managed code file nodes.
+        stale_only: If True, only include nodes on paths that lead to
+                    stale/ghost-stale managed files. Helps prioritize syncs.
 
     Returns:
         dict with:
@@ -2180,37 +2183,85 @@ def render_dependency_graph(
             continue
         all_impls[rel] = parse_concrete_frontmatter(content)
 
-    # If scope is set, compute the affected subgraph
+    # If scope is set, compute the affected subgraph (dual-layer aware)
     if scope:
-        # Build reverse dep map
+        # Build reverse dep map for abstract specs
         reverse_deps: dict[str, list[str]] = {s: [] for s in all_specs}
         for spec, deps in all_specs.items():
             for dep in deps:
                 reverse_deps.setdefault(dep, []).append(spec)
 
-        # BFS from scope to find all transitively affected specs
-        in_scope: set[str] = set()
+        # BFS from scope to find all transitively affected abstract specs
+        in_scope_specs: set[str] = set()
         queue = list(scope)
         while queue:
             current = queue.pop(0)
-            if current in in_scope:
+            if current in in_scope_specs:
                 continue
-            in_scope.add(current)
-            # Include upstream deps
+            in_scope_specs.add(current)
             for dep in all_specs.get(current, []):
                 queue.append(dep)
-            # Include downstream dependents
             for dependent in reverse_deps.get(current, []):
                 queue.append(dependent)
 
-        # Filter specs to scope
-        all_specs = {k: v for k, v in all_specs.items() if k in in_scope}
-        # Filter impls to those whose source-spec is in scope
-        all_impls = {
-            k: v for k, v in all_impls.items()
-            if v.get("source_spec") in in_scope
-            or any(d in in_scope for d in v.get("concrete_dependencies", []))
-        }
+        # Dual-layer expansion: map each in-scope spec to its impl partner
+        in_scope_impls: set[str] = set()
+        spec_to_impl_map: dict[str, str] = {}
+        for impl_path, meta in all_impls.items():
+            src = meta.get("source_spec")
+            if src:
+                spec_to_impl_map[src] = impl_path
+
+        # Seed concrete scope with impls whose source-spec is in scope
+        for spec in in_scope_specs:
+            impl = spec_to_impl_map.get(spec)
+            if impl:
+                in_scope_impls.add(impl)
+
+        # Also seed with any impl.md paths directly in the scope input
+        for s in scope:
+            if s in all_impls:
+                in_scope_impls.add(s)
+
+        # BFS through concrete dep graph (both directions) to find
+        # all transitively affected impls
+        reverse_concrete: dict[str, list[str]] = {i: [] for i in all_impls}
+        for impl_path, meta in all_impls.items():
+            for dep in meta.get("concrete_dependencies", []):
+                reverse_concrete.setdefault(dep, []).append(impl_path)
+            extends = meta.get("extends")
+            if extends:
+                reverse_concrete.setdefault(extends, []).append(impl_path)
+
+        impl_queue = list(in_scope_impls)
+        impl_visited: set[str] = set()
+        while impl_queue:
+            current = impl_queue.pop(0)
+            if current in impl_visited:
+                continue
+            impl_visited.add(current)
+            in_scope_impls.add(current)
+            # Downstream: impls that depend on this one
+            for dependent in reverse_concrete.get(current, []):
+                impl_queue.append(dependent)
+            # Upstream: impls this one depends on
+            meta = all_impls.get(current, {})
+            for dep in meta.get("concrete_dependencies", []):
+                impl_queue.append(dep)
+            extends = meta.get("extends")
+            if extends:
+                impl_queue.append(extends)
+
+        # Also pull in specs for any impls we discovered through concrete deps
+        for impl_path in in_scope_impls:
+            meta = all_impls.get(impl_path, {})
+            src = meta.get("source_spec")
+            if src and src in all_specs:
+                in_scope_specs.add(src)
+
+        # Filter specs and impls to scope
+        all_specs = {k: v for k, v in all_specs.items() if k in in_scope_specs}
+        all_impls = {k: v for k, v in all_impls.items() if k in in_scope_impls}
 
     # Get freshness data for staleness coloring
     try:
@@ -2218,6 +2269,59 @@ def render_dependency_graph(
         state_map = {f["managed"]: f["state"] for f in freshness.get("files", [])}
     except (ValueError, OSError):
         state_map = {}
+
+    # stale-only filter: prune to only specs/impls on paths to stale files
+    if stale_only:
+        stale_managed = {
+            path for path, state in state_map.items()
+            if state not in ("fresh",)
+        }
+        if not stale_managed:
+            # Nothing stale — return empty graph
+            return {
+                "mermaid": "graph TD\n    empty[\"All files are fresh\"]",
+                "stats": {"abstract_specs": 0, "concrete_specs": 0, "managed_files": 0, "total_nodes": 0},
+                "nodes": [],
+            }
+
+        # Walk backward from stale managed files to find relevant specs/impls
+        stale_specs: set[str] = set()
+        stale_impls: set[str] = set()
+        for managed in stale_managed:
+            # Find the spec that generates this managed file
+            spec = managed + ".spec.md"
+            if spec in all_specs:
+                stale_specs.add(spec)
+            # Check freshness entries for spec info
+            for f in freshness.get("files", []):
+                if f["managed"] == managed and f.get("spec"):
+                    if f["spec"] in all_specs:
+                        stale_specs.add(f["spec"])
+
+        # Include upstream deps of stale specs
+        stale_spec_closure: set[str] = set()
+        sq = list(stale_specs)
+        while sq:
+            current = sq.pop(0)
+            if current in stale_spec_closure:
+                continue
+            stale_spec_closure.add(current)
+            for dep in all_specs.get(current, []):
+                sq.append(dep)
+        stale_specs = stale_spec_closure
+
+        # Find impls related to stale specs
+        for impl_path, meta in all_impls.items():
+            src = meta.get("source_spec")
+            if src in stale_specs:
+                stale_impls.add(impl_path)
+            # Also include if any concrete dep is in stale_impls
+            extends = meta.get("extends")
+            if extends and extends in stale_impls:
+                stale_impls.add(impl_path)
+
+        all_specs = {k: v for k, v in all_specs.items() if k in stale_specs}
+        all_impls = {k: v for k, v in all_impls.items() if k in stale_impls}
 
     # Build Mermaid graph
     lines = ["graph TD"]
@@ -2611,6 +2715,7 @@ def main():
         directory = "."
         scope = []
         no_code = False
+        stale_only = False
         i = 2
         while i < len(sys.argv):
             if sys.argv[i] == "--root":
@@ -2622,6 +2727,9 @@ def main():
                     sys.exit(1)
             elif sys.argv[i] == "--no-code":
                 no_code = True
+                i += 1
+            elif sys.argv[i] == "--stale-only":
+                stale_only = True
                 i += 1
             elif sys.argv[i] == "--scope":
                 # Collect all following non-flag args as scope specs
@@ -2641,6 +2749,7 @@ def main():
                 directory,
                 scope=scope if scope else None,
                 include_code=not no_code,
+                stale_only=stale_only,
             )
             print(json.dumps(result, indent=2))
         except (ValueError, OSError, UnicodeDecodeError) as e:

@@ -3213,3 +3213,212 @@ def test_deep_sync_plan_missing_spec(tmp_path):
     (tmp_path / ".unslop").mkdir()
     result = compute_deep_sync_plan("nonexistent.py", str(tmp_path))
     assert "error" in result
+
+
+# --- dual-layer scoped graph tests ---
+
+
+def test_graph_scope_includes_concrete_dependents(tmp_path):
+    """Scoping to a spec should include impls that depend on its impl partner."""
+    (tmp_path / ".unslop").mkdir()
+
+    # utils.impl.md (base, no source spec)
+    (tmp_path / "utils.impl.md").write_text(
+        "---\nephemeral: false\n---\n\n## Strategy\nUtils.\n"
+    )
+    # utils.spec.md
+    (tmp_path / "utils.py.spec.md").write_text("# Utils\n")
+    # utils.py.impl.md extends utils.impl.md
+    (tmp_path / "utils.py.impl.md").write_text(
+        "---\nsource-spec: utils.py.spec.md\nephemeral: false\n"
+        "extends: utils.impl.md\n---\n\n## Strategy\nUtils py.\n"
+    )
+
+    # service.spec.md
+    (tmp_path / "service.py.spec.md").write_text(
+        "---\ndepends-on:\n  - utils.py.spec.md\n---\n# Service\n"
+    )
+    # service.impl.md extends utils.impl.md (concrete dep)
+    (tmp_path / "service.py.impl.md").write_text(
+        "---\nsource-spec: service.py.spec.md\nephemeral: false\n"
+        "extends: utils.impl.md\n---\n\n## Strategy\nService.\n"
+    )
+
+    # Scope to utils.py.spec.md — should include service too
+    result = render_dependency_graph(str(tmp_path), scope=["utils.py.spec.md"])
+
+    node_paths = [n["path"] for n in result["nodes"]]
+    assert "utils.py.spec.md" in node_paths
+    assert "service.py.spec.md" in node_paths, (
+        "service.py.spec.md should be in scope (depends on utils.py.spec.md)"
+    )
+    # The concrete impls should also be included
+    impl_nodes = [n["path"] for n in result["nodes"] if n["layer"] == "concrete"]
+    assert "utils.py.impl.md" in impl_nodes or "utils.impl.md" in impl_nodes, (
+        "Concrete layer should include utils impl nodes"
+    )
+    assert "service.py.impl.md" in impl_nodes, (
+        "service.py.impl.md should be in scope via concrete dependency on utils.impl.md"
+    )
+
+
+def test_graph_scope_concrete_only_chain(tmp_path):
+    """Scoping should follow concrete dep chains even without abstract deps."""
+    (tmp_path / ".unslop").mkdir()
+
+    # Base impl (no source spec)
+    (tmp_path / "base.impl.md").write_text(
+        "---\nephemeral: false\n---\n\n## Strategy\nBase.\n"
+    )
+
+    # Child spec + impl extending base
+    (tmp_path / "child.py.spec.md").write_text("# Child\n")
+    (tmp_path / "child.py.impl.md").write_text(
+        "---\nsource-spec: child.py.spec.md\nephemeral: false\n"
+        "extends: base.impl.md\n---\n\n## Strategy\nChild.\n"
+    )
+
+    # Grandchild spec + impl extending child
+    (tmp_path / "grand.py.spec.md").write_text("# Grand\n")
+    (tmp_path / "grand.py.impl.md").write_text(
+        "---\nsource-spec: grand.py.spec.md\nephemeral: false\n"
+        "extends: child.py.impl.md\n---\n\n## Strategy\nGrand.\n"
+    )
+
+    # Scope to child — should include base (upstream) and grand (downstream)
+    result = render_dependency_graph(str(tmp_path), scope=["child.py.spec.md"])
+
+    impl_nodes = [n["path"] for n in result["nodes"] if n["layer"] == "concrete"]
+    assert "base.impl.md" in impl_nodes, "base.impl.md should be included (upstream of child)"
+    assert "child.py.impl.md" in impl_nodes
+    assert "grand.py.impl.md" in impl_nodes, "grand.py.impl.md should be included (downstream of child)"
+
+
+def test_graph_scope_dual_layer_no_abstract_dep(tmp_path):
+    """Impls with concrete-dependencies (not abstract depends-on) should be in scope."""
+    (tmp_path / ".unslop").mkdir()
+
+    # Provider impl
+    (tmp_path / "provider.py.spec.md").write_text("# Provider\n")
+    (tmp_path / "provider.py.impl.md").write_text(
+        "---\nsource-spec: provider.py.spec.md\nephemeral: false\n---\n\n## Strategy\nProvider.\n"
+    )
+
+    # Consumer uses concrete-dependencies (not abstract depends-on)
+    (tmp_path / "consumer.py.spec.md").write_text("# Consumer\n")
+    (tmp_path / "consumer.py.impl.md").write_text(
+        "---\nsource-spec: consumer.py.spec.md\nephemeral: false\n"
+        "concrete-dependencies:\n  - provider.py.impl.md\n---\n\n## Strategy\nConsumer.\n"
+    )
+
+    # Scope to provider — consumer should be included via concrete dep
+    result = render_dependency_graph(str(tmp_path), scope=["provider.py.spec.md"])
+
+    impl_nodes = [n["path"] for n in result["nodes"] if n["layer"] == "concrete"]
+    assert "provider.py.impl.md" in impl_nodes
+    assert "consumer.py.impl.md" in impl_nodes, (
+        "consumer should be in scope via concrete-dependencies on provider"
+    )
+
+
+def test_graph_scope_unrelated_excluded(tmp_path):
+    """Unrelated specs/impls should be excluded from scoped graph."""
+    (tmp_path / ".unslop").mkdir()
+
+    (tmp_path / "a.py.spec.md").write_text("# A\n")
+    (tmp_path / "a.py.impl.md").write_text(
+        "---\nsource-spec: a.py.spec.md\nephemeral: false\n---\n\n## Strategy\nA.\n"
+    )
+
+    (tmp_path / "unrelated.py.spec.md").write_text("# Unrelated\n")
+    (tmp_path / "unrelated.py.impl.md").write_text(
+        "---\nsource-spec: unrelated.py.spec.md\nephemeral: false\n---\n\n## Strategy\nUnrelated.\n"
+    )
+
+    result = render_dependency_graph(str(tmp_path), scope=["a.py.spec.md"])
+
+    all_paths = [n["path"] for n in result["nodes"]]
+    assert "a.py.spec.md" in all_paths
+    assert "unrelated.py.spec.md" not in all_paths
+    assert "unrelated.py.impl.md" not in all_paths
+
+
+# --- stale-only graph tests ---
+
+
+def test_graph_stale_only_shows_stale_paths(tmp_path):
+    """--stale-only should only show specs/impls on paths to stale files."""
+    (tmp_path / ".unslop").mkdir()
+
+    # Fresh file
+    fresh_spec = "# Fresh\n"
+    (tmp_path / "fresh.py.spec.md").write_text(fresh_spec)
+    sh = compute_hash(fresh_spec)
+    body = "def fresh(): pass"
+    oh = compute_hash(body)
+    (tmp_path / "fresh.py").write_text(
+        f"# @unslop-managed — do not edit directly. Edit fresh.py.spec.md instead.\n"
+        f"# spec-hash:{sh} output-hash:{oh} generated:2026-03-23T00:00:00Z\n\n{body}"
+    )
+
+    # Stale file (spec changed)
+    (tmp_path / "stale.py.spec.md").write_text("# Stale v2 — changed\n")
+    (tmp_path / "stale.py").write_text(
+        f"# @unslop-managed — do not edit directly. Edit stale.py.spec.md instead.\n"
+        f"# spec-hash:{sh} output-hash:{oh} generated:2026-03-23T00:00:00Z\n\n{body}"
+    )
+
+    result = render_dependency_graph(str(tmp_path), stale_only=True)
+
+    node_paths = [n["path"] for n in result["nodes"]]
+    # stale.py.spec.md should be included
+    assert "stale.py.spec.md" in node_paths
+    # fresh.py.spec.md should NOT be included
+    assert "fresh.py.spec.md" not in node_paths
+
+
+def test_graph_stale_only_empty_when_all_fresh(tmp_path):
+    """--stale-only should return empty graph when everything is fresh."""
+    (tmp_path / ".unslop").mkdir()
+
+    spec = "# Fresh\n"
+    (tmp_path / "a.py.spec.md").write_text(spec)
+    sh = compute_hash(spec)
+    body = "def a(): pass"
+    oh = compute_hash(body)
+    (tmp_path / "a.py").write_text(
+        f"# @unslop-managed — do not edit directly. Edit a.py.spec.md instead.\n"
+        f"# spec-hash:{sh} output-hash:{oh} generated:2026-03-23T00:00:00Z\n\n{body}"
+    )
+
+    result = render_dependency_graph(str(tmp_path), stale_only=True)
+    assert result["stats"]["total_nodes"] == 0
+    assert "All files are fresh" in result["mermaid"]
+
+
+def test_graph_stale_only_includes_upstream_deps(tmp_path):
+    """--stale-only should include upstream deps of stale files."""
+    (tmp_path / ".unslop").mkdir()
+
+    # dep spec (fresh by itself)
+    (tmp_path / "dep.py.spec.md").write_text("# Dep\n")
+
+    # consumer depends on dep, and is stale
+    (tmp_path / "consumer.py.spec.md").write_text(
+        "---\ndepends-on:\n  - dep.py.spec.md\n---\n# Consumer v2 — changed\n"
+    )
+    body = "def consumer(): pass"
+    sh = compute_hash("# Consumer v1\n")  # old hash, doesn't match current
+    oh = compute_hash(body)
+    (tmp_path / "consumer.py").write_text(
+        f"# @unslop-managed — do not edit directly. Edit consumer.py.spec.md instead.\n"
+        f"# spec-hash:{sh} output-hash:{oh} generated:2026-03-23T00:00:00Z\n\n{body}"
+    )
+
+    result = render_dependency_graph(str(tmp_path), stale_only=True)
+    node_paths = [n["path"] for n in result["nodes"]]
+
+    assert "consumer.py.spec.md" in node_paths
+    assert "dep.py.spec.md" in node_paths, (
+        "dep.py.spec.md should be included as upstream of stale consumer"
+    )
