@@ -177,6 +177,45 @@ def parse_concrete_frontmatter(content: str) -> dict:
     return result
 
 
+def build_concrete_order(directory: str) -> list[str]:
+    """Read all *.impl.md files in directory, parse concrete-dependencies, return topo-sorted list.
+
+    Raises ValueError if a cycle is detected in the concrete dependency graph.
+    """
+    root = Path(directory).resolve()
+    if not root.is_dir():
+        raise ValueError(f"Directory does not exist: {directory}")
+
+    impl_files = sorted(root.rglob("*.impl.md"))
+    graph: dict[str, list[str]] = {}
+
+    for impl_path in impl_files:
+        name = str(impl_path.relative_to(root))
+        try:
+            content = impl_path.read_text(encoding="utf-8")
+        except (OSError, UnicodeDecodeError):
+            graph[name] = []
+            continue
+        meta = parse_concrete_frontmatter(content)
+        deps = meta.get("concrete_dependencies", [])
+        graph[name] = deps
+
+    # Add missing nodes (deps that don't have their own .impl.md)
+    all_nodes = set(graph.keys())
+    missing: dict[str, list[str]] = {}
+    for deps_list in graph.values():
+        for dep in deps_list:
+            if dep not in all_nodes and dep not in missing:
+                missing[dep] = []
+    if missing:
+        missing_names = ", ".join(sorted(missing.keys()))
+        print(json.dumps({"warning": f"Missing concrete dependency specs: {missing_names}"}),
+              file=sys.stderr)
+    graph.update(missing)
+
+    return topo_sort(graph)
+
+
 def check_concrete_staleness(
     impl_path: str,
     project_root: str,
@@ -626,6 +665,20 @@ def check_freshness(directory: str) -> dict:
         result["spec"] = rel_spec
         files.append(result)
 
+    # Check for circular concrete dependencies before scanning
+    try:
+        build_concrete_order(str(root))
+    except ValueError as e:
+        if "Cycle detected" in str(e):
+            # Add a warning entry for the cycle
+            files.append({
+                "managed": "(concrete dependency cycle)",
+                "spec": None,
+                "state": "error",
+                "hint": f"Circular concrete-dependencies detected: {e}. "
+                        "Break the cycle before concrete coherence can be checked.",
+            })
+
     # Scan for concrete spec ghost staleness
     impl_files = sorted(root.rglob("*.impl.md"))
     for impl_path in impl_files:
@@ -912,6 +965,22 @@ def main():
         except (ValueError, OSError, UnicodeDecodeError) as e:
             print(json.dumps({"error": str(e)}), file=sys.stderr)
             sys.exit(2)
+
+    elif command == "concrete-order":
+        directory = sys.argv[2] if len(sys.argv) > 2 else "."
+        try:
+            result = build_concrete_order(directory)
+            print(json.dumps(result, indent=2))
+        except ValueError as e:
+            error_msg = str(e)
+            if "Cycle detected" in error_msg:
+                print(json.dumps({"error": error_msg,
+                                  "hint": "Circular concrete-dependencies found. "
+                                          "Break the cycle by removing one direction of the dependency."}),
+                      file=sys.stderr)
+            else:
+                print(json.dumps({"error": error_msg}), file=sys.stderr)
+            sys.exit(1)
 
     elif command == "concrete-deps":
         if len(sys.argv) < 3:

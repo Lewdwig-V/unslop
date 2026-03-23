@@ -5,7 +5,7 @@ import sys
 import os
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'unslop', 'scripts'))
 
-from orchestrator import compute_hash, parse_header, parse_frontmatter, topo_sort, discover_files, build_order_from_dir, resolve_deps, classify_file, check_freshness, parse_change_file, file_tree, parse_concrete_frontmatter, compute_concrete_deps_hash
+from orchestrator import compute_hash, parse_header, parse_frontmatter, topo_sort, discover_files, build_order_from_dir, resolve_deps, classify_file, check_freshness, parse_change_file, file_tree, parse_concrete_frontmatter, compute_concrete_deps_hash, build_concrete_order
 
 
 def test_compute_hash_deterministic():
@@ -1070,3 +1070,83 @@ def test_check_freshness_ghost_stale(tmp_path):
     assert result is not None
     handler_entry = [f for f in result["files"] if f["managed"] == "handler.py"]
     assert len(handler_entry) == 1
+
+
+# --- concrete dependency cycle detection tests ---
+
+def test_build_concrete_order_no_cycle(tmp_path):
+    """Linear concrete dependency chain should produce valid order."""
+    (tmp_path / "a.py.impl.md").write_text(
+        "---\nsource-spec: a.py.spec.md\ntarget-language: python\nephemeral: false\n---\n"
+    )
+    (tmp_path / "b.py.impl.md").write_text(
+        "---\nsource-spec: b.py.spec.md\ntarget-language: python\nephemeral: false\n"
+        "concrete-dependencies:\n  - a.py.impl.md\n---\n"
+    )
+    result = build_concrete_order(str(tmp_path))
+    assert result.index("a.py.impl.md") < result.index("b.py.impl.md")
+
+
+def test_build_concrete_order_cycle_raises(tmp_path):
+    """Circular concrete dependencies should raise ValueError."""
+    import pytest
+    (tmp_path / "a.py.impl.md").write_text(
+        "---\nsource-spec: a.py.spec.md\ntarget-language: python\nephemeral: false\n"
+        "concrete-dependencies:\n  - b.py.impl.md\n---\n"
+    )
+    (tmp_path / "b.py.impl.md").write_text(
+        "---\nsource-spec: b.py.spec.md\ntarget-language: python\nephemeral: false\n"
+        "concrete-dependencies:\n  - a.py.impl.md\n---\n"
+    )
+    with pytest.raises(ValueError, match="Cycle detected"):
+        build_concrete_order(str(tmp_path))
+
+
+def test_build_concrete_order_three_way_cycle(tmp_path):
+    """Three-way circular dependency should be detected."""
+    import pytest
+    (tmp_path / "a.py.impl.md").write_text(
+        "---\nsource-spec: a.spec.md\ntarget-language: python\nephemeral: false\n"
+        "concrete-dependencies:\n  - c.py.impl.md\n---\n"
+    )
+    (tmp_path / "b.py.impl.md").write_text(
+        "---\nsource-spec: b.spec.md\ntarget-language: python\nephemeral: false\n"
+        "concrete-dependencies:\n  - a.py.impl.md\n---\n"
+    )
+    (tmp_path / "c.py.impl.md").write_text(
+        "---\nsource-spec: c.spec.md\ntarget-language: python\nephemeral: false\n"
+        "concrete-dependencies:\n  - b.py.impl.md\n---\n"
+    )
+    with pytest.raises(ValueError, match="Cycle detected"):
+        build_concrete_order(str(tmp_path))
+
+
+def test_check_freshness_detects_concrete_cycle(tmp_path):
+    """check_freshness should report concrete cycles as errors, not crash."""
+    # Create minimal spec + managed file
+    spec = "# spec\n\n## Behavior\nDoes stuff.\nMore detail.\n"
+    body = "def a(): pass\n"
+    sh = compute_hash(spec)
+    oh = compute_hash(body)
+
+    (tmp_path / "a.py.spec.md").write_text(spec)
+    (tmp_path / "a.py").write_text(
+        f"# @unslop-managed — do not edit directly. Edit a.py.spec.md instead.\n"
+        f"# spec-hash:{sh} output-hash:{oh} generated:2026-03-23T00:00:00Z\n" + body
+    )
+
+    # Create circular concrete deps
+    (tmp_path / "a.py.impl.md").write_text(
+        "---\nsource-spec: a.py.spec.md\ntarget-language: python\nephemeral: false\n"
+        "concrete-dependencies:\n  - b.py.impl.md\n---\n"
+    )
+    (tmp_path / "b.py.impl.md").write_text(
+        "---\nsource-spec: b.py.spec.md\ntarget-language: python\nephemeral: false\n"
+        "concrete-dependencies:\n  - a.py.impl.md\n---\n"
+    )
+
+    result = check_freshness(str(tmp_path))
+    # Should not crash — should report the cycle as an error entry
+    cycle_entries = [f for f in result["files"] if "cycle" in f.get("hint", "").lower()]
+    assert len(cycle_entries) == 1
+    assert cycle_entries[0]["state"] == "error"
