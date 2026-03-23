@@ -1,6 +1,6 @@
 ---
 description: Regenerate all stale managed files from their specs
-argument-hint: "[--force] [--force-ambiguous] [--incremental]"
+argument-hint: "[--force] [--force-ambiguous] [--incremental] [--dry-run]"
 ---
 
 **1. Verify prerequisites**
@@ -20,6 +20,8 @@ Read `.unslop/config.json` to obtain the test command. If `config.json` does not
 **Check for `--force` flag:** If `$ARGUMENTS` contains `--force`, note this — it allows regeneration to proceed on modified and conflict files without requiring user confirmation.
 
 **Check for `--force-ambiguous` flag:** If `$ARGUMENTS` contains `--force-ambiguous`, note this for the generation skill. When this flag is present, the generation skill's ambiguity detection (Section 0, Phase 0b) reports ambiguities as warnings instead of blocking generation.
+
+**Check for `--dry-run` flag:** If `$ARGUMENTS` contains `--dry-run`, perform a ripple-effect analysis instead of generating code. This shows the user exactly what would happen — which specs, concrete specs, and managed files would be affected — without spawning any worktrees or modifying any files. See Step 4b below.
 
 **2b. Check diagnostic cache**
 
@@ -72,6 +74,40 @@ Hash algorithm: SHA-256 of content, truncated to 12 hex characters. For spec has
 For unit specs (`*.unit.spec.md`): derive managed file paths from the `## Files` section in the spec rather than the naming convention.
 
 Report the classification of every spec file before proceeding.
+
+**4b. Dry-run ripple analysis (if `--dry-run`)**
+
+If `--dry-run` was specified, run the ripple-effect analysis instead of dispatching Builders:
+
+1. Collect all spec paths classified as new, stale, modified, conflict, or old_format in Step 4.
+2. Call `python ${CLAUDE_PLUGIN_ROOT}/scripts/orchestrator.py ripple-check <spec-path>... --root .` with all affected spec paths.
+3. Display the ripple report in three layers:
+
+```
+Ripple Effect Analysis (dry run — no files will be modified)
+
+Abstract Specs:
+  CHANGED    src/core/pool.py.spec.md           (directly changed)
+  AFFECTED   src/api/handler.py.spec.md         (depends on pool.py.spec.md)
+  AFFECTED   src/api/middleware.py.spec.md       (depends on handler.py.spec.md)
+
+Concrete Specs:
+  REGEN      src/core/pool.py.impl.md           (source spec changed)
+  GHOST      src/api/handler.py.impl.md         (upstream concrete dep: pool.py.impl.md)
+
+Managed Files:
+  REGEN      src/core/pool.py                   <- pool.py.spec.md (stale)
+  REGEN      src/api/handler.py                 <- handler.py.spec.md (transitive)
+  GHOST      src/api/middleware.py               <- middleware.py.spec.md (ghost-stale)
+
+Build Order: pool.py.spec.md → handler.py.spec.md → middleware.py.spec.md
+
+Total: 3 specs, 2 concrete specs, 3 managed files would be regenerated.
+```
+
+4. **Stop.** Do not proceed to Step 5. The `--dry-run` flag is read-only — no files are modified, no worktrees are spawned, no commits are made.
+
+This gives the user a complete view of the "blast radius" before committing to a bulk regeneration.
 
 **5. Dispatch Builders (Stage B -- worktree isolation)**
 

@@ -1,0 +1,10 @@
+{
+  "test_command": "cd stress-tests/jitter && python -m pytest tests/ -v",
+  "test_command_note": "Runs jitter stress test suite",
+  "exclude_patterns": [],
+  "exclude_patterns_note": "Additional directory patterns to exclude from discovery, beyond defaults",
+  "promote-threshold": "high",
+  "promote-threshold_note": "Complexity level at which concrete specs (.impl.md) are auto-promoted to permanent. Options: low, medium, high",
+  "frameworks": [],
+  "frameworks_note": "No framework-specific domain skills for this stress test"
+}

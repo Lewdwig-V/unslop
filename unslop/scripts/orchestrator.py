@@ -1,4 +1,5 @@
 """unslop orchestrator — dependency resolution and file discovery for multi-file takeover."""
+
 from __future__ import annotations
 
 import hashlib
@@ -7,6 +8,13 @@ import re
 import subprocess
 import sys
 from pathlib import Path
+
+
+# Sentinels stored in concrete-manifest when a transitive dep is missing/unreadable.
+MISSING_SENTINEL = "missing00000"   # 12 chars, not valid hex
+UNREADABLE_SENTINEL = "unreadabl000"  # 12 chars, not valid hex
+
+_SENTINEL_HASHES = {MISSING_SENTINEL, UNREADABLE_SENTINEL}
 
 
 def compute_hash(content: str) -> str:
@@ -22,8 +30,11 @@ def parse_header(content: str) -> dict | None:
     """Parse @unslop-managed header from a managed file.
 
     Reads the first 5 lines looking for the header markers.
-    Returns dict with spec_path, spec_hash, output_hash, generated, old_format
-    or None if no header found.
+    Returns dict with spec_path, spec_hash, output_hash, generated, old_format,
+    concrete_deps_hash (legacy), and concrete_manifest (new per-dep format).
+
+    concrete_manifest is a dict of {dep_path: hash} parsed from:
+      concrete-manifest:dep1.impl.md:a3f8c2e9b7d1,dep2.impl.md:7f2e1b8a9c04
     """
     lines = content.split("\n")[:5]
 
@@ -31,6 +42,8 @@ def parse_header(content: str) -> dict | None:
     spec_hash = None
     output_hash = None
     principles_hash = None
+    concrete_deps_hash = None
+    concrete_manifest = None
     generated = None
     old_format = False
 
@@ -38,11 +51,11 @@ def parse_header(content: str) -> dict | None:
         stripped = line.strip()
         for prefix in ["#", "//", "--", "/*", "<!--"]:
             if stripped.startswith(prefix):
-                stripped = stripped[len(prefix):].strip()
+                stripped = stripped[len(prefix) :].strip()
                 break
         for suffix in ["*/", "-->"]:
             if stripped.endswith(suffix):
-                stripped = stripped[:-len(suffix)].strip()
+                stripped = stripped[: -len(suffix)].strip()
 
         if "@unslop-managed" in stripped:
             m = re.search(r"Edit (.+?) instead", stripped)
@@ -58,9 +71,31 @@ def parse_header(content: str) -> dict | None:
             prin_match = re.search(r"principles-hash:([0-9a-f]{12})", stripped)
             if prin_match:
                 principles_hash = prin_match.group(1)
+            cdeps_match = re.search(r"concrete-deps-hash:([0-9a-f]{12})", stripped)
+            if cdeps_match:
+                concrete_deps_hash = cdeps_match.group(1)
             gen_match = re.search(r"generated:(\S+)", stripped)
             if gen_match:
                 generated = gen_match.group(1)
+
+        # Parse concrete-manifest (new per-dep format)
+        manifest_match = re.search(r"concrete-manifest:(.+?)(?:\s|$)", stripped)
+        if manifest_match:
+            raw = manifest_match.group(1)
+            manifest = {}
+            for entry in raw.split(","):
+                entry = entry.strip()
+                if not entry:
+                    continue
+                # Format: path/to/dep.impl.md:a3f8c2e9b7d1
+                last_colon = entry.rfind(":")
+                if last_colon > 0:
+                    dep_path = entry[:last_colon]
+                    dep_hash = entry[last_colon + 1:]
+                    if re.match(r"^[0-9a-f]{12}$", dep_hash) or dep_hash in _SENTINEL_HASHES:
+                        manifest[dep_path] = dep_hash
+            if manifest:
+                concrete_manifest = manifest
 
         if "Generated from spec at" in stripped and spec_hash is None:
             old_format = True
@@ -76,6 +111,8 @@ def parse_header(content: str) -> dict | None:
         "spec_hash": spec_hash,
         "output_hash": output_hash,
         "principles_hash": principles_hash,
+        "concrete_deps_hash": concrete_deps_hash,
+        "concrete_manifest": concrete_manifest,
         "generated": generated,
         "old_format": old_format,
     }
@@ -126,6 +163,808 @@ def parse_frontmatter(content: str) -> list[str]:
     return deps
 
 
+def parse_concrete_frontmatter(content: str) -> dict:
+    """Parse frontmatter from a concrete spec (.impl.md) file.
+
+    Returns dict with: source_spec, target_language, ephemeral, complexity,
+    concrete_dependencies (list of paths).
+    """
+    lines = content.split("\n")
+    if not lines or lines[0].strip() != "---":
+        return {}
+
+    end = -1
+    for i in range(1, len(lines)):
+        if lines[i].strip() == "---":
+            end = i
+            break
+    if end == -1:
+        return {}
+
+    result = {}
+    concrete_deps = []
+    targets = []
+    in_concrete_deps = False
+    in_targets = False
+    current_target = None
+
+    for line in lines[1:end]:
+        stripped = line.strip()
+
+        # Handle nested target parsing first
+        if in_targets:
+            if re.match(r"^  - path:", line):
+                if current_target:
+                    targets.append(current_target)
+                current_target = {"path": line.split(":", 1)[1].strip()}
+                continue
+            elif current_target and re.match(r"^    \w", line):
+                key, _, val = stripped.partition(":")
+                if key.strip() and val.strip():
+                    current_target[key.strip()] = val.strip().strip('"').strip("'")
+                continue
+            else:
+                if current_target:
+                    targets.append(current_target)
+                    current_target = None
+                in_targets = False
+
+        if in_concrete_deps:
+            match = re.match(r"^  - (.+)$", line)
+            if match:
+                concrete_deps.append(match.group(1).strip())
+                continue
+            else:
+                in_concrete_deps = False
+
+        if stripped.startswith("source-spec:"):
+            result["source_spec"] = stripped.split(":", 1)[1].strip()
+        elif stripped.startswith("target-language:"):
+            result["target_language"] = stripped.split(":", 1)[1].strip()
+        elif stripped.startswith("ephemeral:"):
+            val = stripped.split(":", 1)[1].strip().lower()
+            result["ephemeral"] = val == "true"
+        elif stripped.startswith("complexity:"):
+            result["complexity"] = stripped.split(":", 1)[1].strip()
+        elif stripped.startswith("extends:"):
+            result["extends"] = stripped.split(":", 1)[1].strip()
+        elif stripped == "targets:":
+            in_targets = True
+        elif stripped == "concrete-dependencies:":
+            in_concrete_deps = True
+
+    # Flush final target
+    if current_target:
+        targets.append(current_target)
+
+    if concrete_deps:
+        result["concrete_dependencies"] = concrete_deps
+    if targets:
+        result["targets"] = targets
+
+    return result
+
+
+MAX_EXTENDS_DEPTH = 3
+
+
+def resolve_extends_chain(impl_path: str, project_root: str) -> list[str]:
+    """Resolve the extends chain for a concrete spec.
+
+    Returns list of impl paths in resolution order (most general first,
+    most specific last). The input impl_path is always the last element.
+
+    Raises ValueError on:
+    - Cycle in extends chain
+    - Chain depth exceeding MAX_EXTENDS_DEPTH
+    - Missing parent file
+    """
+    root = Path(project_root).resolve()
+    chain = []
+    visited = set()
+    current = impl_path
+
+    while current:
+        resolved = str((root / current).resolve())
+        if resolved in visited:
+            chain_str = " → ".join(chain + [current])
+            raise ValueError(f"Cycle detected in extends chain: {chain_str}")
+
+        chain.append(current)
+        visited.add(resolved)
+
+        if len(chain) > MAX_EXTENDS_DEPTH:
+            raise ValueError(
+                f"Extends chain exceeds maximum depth of {MAX_EXTENDS_DEPTH}: {' → '.join(chain)}. Flatten the hierarchy."
+            )
+
+        full_path = root / current
+        if not full_path.exists():
+            if len(chain) == 1:
+                # The impl itself doesn't exist — not an error, just no chain
+                return chain
+            raise ValueError(f"Missing parent concrete spec in extends chain: {current}")
+
+        try:
+            content = full_path.read_text(encoding="utf-8")
+        except (OSError, UnicodeDecodeError):
+            break
+
+        meta = parse_concrete_frontmatter(content)
+        current = meta.get("extends")
+
+    return chain
+
+
+"""Section-specific inheritance policies for resolve_inherited_sections().
+
+- STRICT_CHILD_ONLY: Parent section is purged during resolution. If the child
+  omits it, the resolved spec has no such section — Phase 0a.1 validation fails.
+- Additive (Lowering Notes): Parent and child are merged by language heading.
+- Overridable (Pattern, unknown sections): Child replaces parent if present;
+  parent persists if child omits.
+"""
+STRICT_CHILD_ONLY = {"Strategy", "Type Sketch"}
+
+
+def resolve_inherited_sections(impl_path: str, project_root: str) -> dict[str, str]:
+    """Resolve all inherited sections for a concrete spec.
+
+    Returns a dict of section_name -> resolved_content with inheritance applied.
+
+    Uses three inheritance policies:
+    - Strict Child-Only (Strategy, Type Sketch): parent is always purged.
+    - Additive (Lowering Notes): parent + child merged by language heading.
+    - Overridable (Pattern, others): child replaces parent; parent persists if child omits.
+    """
+    root = Path(project_root).resolve()
+    chain = resolve_extends_chain(impl_path, project_root)
+
+    if len(chain) <= 1:
+        # No inheritance — just return the child's own sections
+        full = root / impl_path
+        if not full.exists():
+            return {}
+        try:
+            content = full.read_text(encoding="utf-8")
+        except (OSError, UnicodeDecodeError):
+            return {}
+        return _extract_sections(content)
+
+    # Read sections from each level (most general first)
+    # chain is [child, parent, grandparent] — reverse to get [grandparent, parent, child]
+    sections_stack = []
+    for path in reversed(chain):
+        full = root / path
+        if not full.exists():
+            continue
+        try:
+            content = full.read_text(encoding="utf-8")
+        except (OSError, UnicodeDecodeError):
+            continue
+
+        sections = _extract_sections(content)
+        sections_stack.append(sections)
+
+    if not sections_stack:
+        return {}
+
+    # Separate child (last in stack = most specific) from parents
+    parent_sections_list = sections_stack[:-1]
+    child_sections = sections_stack[-1]
+
+    # Step 1: Build resolved parent sections (merge all parent levels)
+    parent_resolved = {}
+    for sections in parent_sections_list:
+        for name, content in sections.items():
+            if name == "Pattern":
+                if name not in parent_resolved:
+                    parent_resolved[name] = content
+                else:
+                    parent_resolved[name] = _merge_pattern_sections(parent_resolved[name], content)
+            elif name == "Lowering Notes":
+                if name not in parent_resolved:
+                    parent_resolved[name] = content
+                else:
+                    parent_resolved[name] = _merge_lowering_notes(parent_resolved[name], content)
+            else:
+                parent_resolved[name] = content
+
+    # Step 2: Purge strict child-only sections from parent
+    for section in STRICT_CHILD_ONLY:
+        parent_resolved.pop(section, None)
+
+    # Step 3: Start with purged parent, apply child overrides/additions
+    resolved = dict(parent_resolved)
+    for name, content in child_sections.items():
+        if name == "Lowering Notes" and name in resolved:
+            resolved[name] = _merge_lowering_notes(resolved[name], content)
+        elif name == "Pattern" and name in resolved:
+            resolved[name] = _merge_pattern_sections(resolved[name], content)
+        else:
+            resolved[name] = content
+
+    return resolved
+
+
+def _extract_sections(content: str) -> dict[str, str]:
+    """Extract ## sections from a markdown file into a dict."""
+    sections = {}
+    current_name = None
+    current_lines = []
+
+    # Strip frontmatter
+    lines = content.split("\n")
+    body_start = 0
+    if lines and lines[0].strip() == "---":
+        for i in range(1, len(lines)):
+            if lines[i].strip() == "---":
+                body_start = i + 1
+                break
+
+    for line in lines[body_start:]:
+        match = re.match(r"^## (.+)$", line)
+        if match:
+            if current_name:
+                sections[current_name] = "\n".join(current_lines).strip()
+            current_name = match.group(1).strip()
+            current_lines = []
+        elif current_name is not None:
+            current_lines.append(line)
+
+    if current_name:
+        sections[current_name] = "\n".join(current_lines).strip()
+
+    return sections
+
+
+def _merge_pattern_sections(parent: str, child: str) -> str:
+    """Merge Pattern sections. Child entries override parent entries by key."""
+    parent_patterns = _parse_pattern_entries(parent)
+    child_patterns = _parse_pattern_entries(child)
+    # Child overrides parent
+    merged = {**parent_patterns, **child_patterns}
+    return "\n".join(f"- **{k}**: {v}" for k, v in merged.items())
+
+
+def _parse_pattern_entries(content: str) -> dict[str, str]:
+    """Parse '- **Key**: Value' pattern entries into a dict."""
+    entries = {}
+    for line in content.split("\n"):
+        match = re.match(r"^\s*-\s+\*\*(.+?)\*\*:\s*(.+)$", line)
+        if match:
+            entries[match.group(1).strip()] = match.group(2).strip()
+    return entries
+
+
+def _merge_lowering_notes(parent: str, child: str) -> str:
+    """Merge Lowering Notes by language heading. Child overrides matching headings."""
+    parent_langs = _parse_language_blocks(parent)
+    child_langs = _parse_language_blocks(child)
+    merged = {**parent_langs, **child_langs}
+    parts = []
+    for lang, content in merged.items():
+        parts.append(f"### {lang}")
+        parts.append(content)
+    return "\n\n".join(parts)
+
+
+def _parse_language_blocks(content: str) -> dict[str, str]:
+    """Parse ### Language blocks from Lowering Notes into a dict."""
+    blocks = {}
+    current_lang = None
+    current_lines = []
+
+    for line in content.split("\n"):
+        match = re.match(r"^### (.+)$", line)
+        if match:
+            if current_lang:
+                blocks[current_lang] = "\n".join(current_lines).strip()
+            current_lang = match.group(1).strip()
+            current_lines = []
+        elif current_lang is not None:
+            current_lines.append(line)
+
+    if current_lang:
+        blocks[current_lang] = "\n".join(current_lines).strip()
+
+    return blocks
+
+
+def flatten_inheritance_chain(impl_path: str, project_root: str) -> dict:
+    """Produce a flattened view of the inheritance chain for a concrete spec.
+
+    Returns a dict with:
+      - chain: list of impl paths (most general first)
+      - levels: per-level section snapshots with attribution
+      - resolved: the final merged sections after inheritance
+    """
+    root = Path(project_root).resolve()
+    chain = resolve_extends_chain(impl_path, project_root)
+
+    # Normalize chain entries to be relative to project root
+    normalized = []
+    for p in chain:
+        pp = Path(p)
+        if pp.is_absolute():
+            try:
+                p = str(pp.relative_to(root))
+            except ValueError:
+                pass
+        normalized.append(p)
+    chain = normalized
+
+    levels = []
+    for path in reversed(chain):
+        full = root / path
+        sections = {}
+        if full.exists():
+            try:
+                content = full.read_text(encoding="utf-8")
+            except (OSError, UnicodeDecodeError):
+                content = ""
+            sections = _extract_sections(content)
+        levels.append({"impl": path, "sections": sections})
+
+    resolved = resolve_inherited_sections(impl_path, project_root)
+
+    # Build attribution: for each resolved section, record which level provided it
+    attribution = {}
+    for section_name, resolved_content in resolved.items():
+        if section_name == "Lowering Notes":
+            # Attribute by language block
+            lang_sources = {}
+            # Walk levels child-first to find the most specific provider
+            for level in reversed(levels):
+                raw = level["sections"].get("Lowering Notes", "")
+                if raw:
+                    for lang in _parse_language_blocks(raw):
+                        if lang not in lang_sources:
+                            lang_sources[lang] = level["impl"]
+            attribution[section_name] = lang_sources
+        elif section_name == "Pattern":
+            pattern_sources = {}
+            for level in reversed(levels):
+                raw = level["sections"].get("Pattern", "")
+                if raw:
+                    for key in _parse_pattern_entries(raw):
+                        if key not in pattern_sources:
+                            pattern_sources[key] = level["impl"]
+            attribution[section_name] = pattern_sources
+        else:
+            # Non-merging sections: find the most specific level that defines it
+            for level in reversed(levels):
+                if section_name in level["sections"]:
+                    attribution[section_name] = level["impl"]
+                    break
+
+    return {
+        "chain": list(reversed(chain)),
+        "levels": levels,
+        "resolved": resolved,
+        "attribution": attribution,
+    }
+
+
+def build_concrete_order(directory: str) -> list[str]:
+    """Read all *.impl.md files in directory, parse concrete-dependencies, return topo-sorted list.
+
+    Raises ValueError if a cycle is detected in the concrete dependency graph.
+    """
+    root = Path(directory).resolve()
+    if not root.is_dir():
+        raise ValueError(f"Directory does not exist: {directory}")
+
+    impl_files = sorted(root.rglob("*.impl.md"))
+    graph: dict[str, list[str]] = {}
+
+    for impl_path in impl_files:
+        name = str(impl_path.relative_to(root))
+        try:
+            content = impl_path.read_text(encoding="utf-8")
+        except (OSError, UnicodeDecodeError):
+            graph[name] = []
+            continue
+        meta = parse_concrete_frontmatter(content)
+        deps = list(meta.get("concrete_dependencies", []))
+        # extends is an implicit dependency — parent must be processed before child
+        if "extends" in meta:
+            deps.append(meta["extends"])
+        graph[name] = deps
+
+    # Add missing nodes (deps that don't have their own .impl.md)
+    all_nodes = set(graph.keys())
+    missing: dict[str, list[str]] = {}
+    for deps_list in graph.values():
+        for dep in deps_list:
+            if dep not in all_nodes and dep not in missing:
+                missing[dep] = []
+    if missing:
+        missing_names = ", ".join(sorted(missing.keys()))
+        print(json.dumps({"warning": f"Missing concrete dependency specs: {missing_names}"}), file=sys.stderr)
+    graph.update(missing)
+
+    return topo_sort(graph)
+
+
+def check_concrete_staleness(
+    impl_path: str,
+    project_root: str,
+) -> dict | None:
+    """Check if a concrete spec's upstream dependencies have changed.
+
+    Returns a dict describing ghost staleness, or None if fresh/not applicable.
+    """
+    impl = Path(impl_path)
+    if not impl.exists():
+        return None
+
+    try:
+        content = impl.read_text(encoding="utf-8")
+    except (OSError, UnicodeDecodeError):
+        return None
+
+    meta = parse_concrete_frontmatter(content)
+    providers = get_all_strategy_providers(meta)
+    if not providers:
+        return None
+
+    root = Path(project_root).resolve()
+    stale_deps = []
+
+    # Hash all strategy providers (deps + parents) for changes
+    for dep_path in providers:
+        dep_full = root / dep_path
+        if not dep_full.exists():
+            stale_deps.append(
+                {
+                    "path": dep_path,
+                    "reason": "upstream concrete spec not found",
+                }
+            )
+            continue
+
+        try:
+            dep_content = dep_full.read_text(encoding="utf-8")
+        except (OSError, UnicodeDecodeError):
+            stale_deps.append(
+                {
+                    "path": dep_path,
+                    "reason": "cannot read upstream concrete spec",
+                }
+            )
+            continue
+
+        dep_meta = parse_concrete_frontmatter(dep_content)
+
+        # Check if the upstream concrete spec's source-spec has changed
+        upstream_source = dep_meta.get("source_spec")
+        if upstream_source:
+            source_full = root / upstream_source
+            if source_full.exists():
+                try:
+                    source_full.read_text(encoding="utf-8")
+                except (OSError, UnicodeDecodeError):
+                    pass
+
+    if not stale_deps:
+        return None
+
+    return {
+        "impl_path": impl_path,
+        "stale_dependencies": stale_deps,
+    }
+
+
+def get_all_strategy_providers(meta: dict) -> list[str]:
+    """Combine explicit concrete_dependencies and extends parents.
+
+    Both are "strategy providers" for hashing purposes — a change
+    to either should trigger ghost-staleness in the child spec.
+    """
+    deps = set(meta.get("concrete_dependencies", []))
+    extends = meta.get("extends")
+    if extends:
+        if isinstance(extends, list):
+            deps.update(extends)
+        else:
+            deps.add(extends)
+    return sorted(deps)
+
+
+def get_registry_key_for_spec(source_spec: str) -> str:
+    """Map an impl.md's source-spec to the managed-file registry key.
+
+    Unit specs (*.unit.spec.md) use the parent directory as the registry key,
+    matching how check_freshness() registers them.  Per-file specs strip
+    .spec.md to get the managed filename.
+    """
+    if source_spec.endswith(".unit.spec.md"):
+        parent = str(Path(source_spec).parent)
+        # Top-level unit spec: parent is ".", registry key is "."
+        return parent
+    return re.sub(r"\.spec\.md$", "", source_spec)
+
+
+def _gather_recursive_providers(
+    root: Path,
+    meta: dict,
+    seen: set | None = None,
+) -> list[str]:
+    """Recursively gather all strategy provider content from the full DAG.
+
+    Walks concrete-dependencies and extends transitively, returning a
+    sorted list of ``path:hash`` entries for every node in the tree.
+    The ``seen`` set prevents infinite loops on circular references.
+    """
+    if seen is None:
+        seen = set()
+
+    entries = []
+    providers = get_all_strategy_providers(meta)
+
+    for dep_path in sorted(providers):
+        if dep_path in seen:
+            continue
+        seen.add(dep_path)
+
+        dep_full = root / dep_path
+        if dep_full.exists():
+            try:
+                dep_content = dep_full.read_text(encoding="utf-8")
+                entries.append(f"{dep_path}:{compute_hash(dep_content)}")
+                # Recurse into this provider's own upstream
+                dep_meta = parse_concrete_frontmatter(dep_content)
+                entries.extend(_gather_recursive_providers(root, dep_meta, seen))
+            except (OSError, UnicodeDecodeError):
+                entries.append(f"{dep_path}:unreadable")
+        else:
+            entries.append(f"{dep_path}:missing")
+
+    return entries
+
+
+def compute_concrete_deps_hash(impl_path: str, project_root: str) -> str | None:
+    """Compute a deep hash of all transitive strategy providers.
+
+    Recursively walks concrete-dependencies and extends chains so that
+    a change to a grandparent spec correctly invalidates all descendants.
+    Returns a 12-char hex hash, or None if no strategy providers exist.
+    """
+    impl = Path(impl_path)
+    if not impl.exists():
+        return None
+
+    try:
+        content = impl.read_text(encoding="utf-8")
+    except (OSError, UnicodeDecodeError):
+        return None
+
+    meta = parse_concrete_frontmatter(content)
+    providers = get_all_strategy_providers(meta)
+    if not providers:
+        return None
+
+    root = Path(project_root).resolve()
+    combined = _gather_recursive_providers(root, meta)
+    return compute_hash("\n".join(combined))
+
+
+def compute_concrete_manifest(impl_path: str, project_root: str) -> dict[str, str] | None:
+    """Compute a per-dependency manifest for surgical ghost-staleness detection.
+
+    Returns a dict of {dep_path: 12-char-hex-hash} for all **transitive**
+    strategy providers (concrete-dependencies + extends parent, recursively).
+    Returns None if no strategy providers exist.
+
+    Unlike compute_concrete_deps_hash (which produces a single opaque hash),
+    the manifest stores each dependency individually so check_freshness() can
+    pinpoint exactly which dep changed — including deep transitive changes.
+    """
+    impl = Path(impl_path)
+    if not impl.exists():
+        return None
+
+    try:
+        content = impl.read_text(encoding="utf-8")
+    except (OSError, UnicodeDecodeError):
+        return None
+
+    meta = parse_concrete_frontmatter(content)
+    direct_providers = get_all_strategy_providers(meta)
+    if not direct_providers:
+        return None
+
+    root = Path(project_root).resolve()
+    manifest = {}
+
+    # BFS through the full transitive provider tree
+    queue = list(direct_providers)
+    visited: set[str] = set()
+
+    while queue:
+        dep_path = queue.pop(0)
+        if dep_path in visited:
+            continue
+        visited.add(dep_path)
+
+        dep_full = root / dep_path
+        if dep_full.exists():
+            try:
+                dep_content = dep_full.read_text(encoding="utf-8")
+                manifest[dep_path] = compute_hash(dep_content)
+                # Walk this dep's own providers (transitive)
+                dep_meta = parse_concrete_frontmatter(dep_content)
+                for upstream in get_all_strategy_providers(dep_meta):
+                    if upstream not in visited:
+                        queue.append(upstream)
+            except (OSError, UnicodeDecodeError):
+                manifest[dep_path] = UNREADABLE_SENTINEL
+        else:
+            manifest[dep_path] = MISSING_SENTINEL
+
+    return manifest if manifest else None
+
+
+def format_manifest_header(manifest: dict[str, str]) -> str:
+    """Format a concrete manifest dict as a header-safe string.
+
+    Output: dep1.impl.md:a3f8c2e9b7d1,dep2.impl.md:7f2e1b8a9c04
+    """
+    return ",".join(f"{path}:{h}" for path, h in sorted(manifest.items()))
+
+
+def diagnose_ghost_staleness(
+    manifest: dict[str, str],
+    project_root: str,
+) -> list[dict]:
+    """Compare stored manifest against current state, returning surgical diagnostics.
+
+    The manifest is expected to contain **transitive** deps (since v0.11.6).
+    Each entry is compared directly against the current file on disk.  For each
+    changed dependency, walks its upstream chain to find the root cause.
+
+    Returns a list of diagnostic dicts:
+      {dep: "path", stored_hash: "...", current_hash: "...",
+       reason: "changed"|"not found"|"unreadable",
+       chain: ["path -> changed_upstream"]}
+    """
+    root = Path(project_root).resolve()
+    diagnostics = []
+
+    for dep_path, stored_hash in sorted(manifest.items()):
+        dep_full = root / dep_path
+        if not dep_full.exists():
+            diagnostics.append({
+                "dep": dep_path,
+                "stored_hash": stored_hash,
+                "current_hash": None,
+                "reason": "not found",
+                "chain": [dep_path],
+            })
+            continue
+
+        try:
+            dep_content = dep_full.read_text(encoding="utf-8")
+        except (OSError, UnicodeDecodeError):
+            diagnostics.append({
+                "dep": dep_path,
+                "stored_hash": stored_hash,
+                "current_hash": None,
+                "reason": "unreadable",
+                "chain": [dep_path],
+            })
+            continue
+
+        current_hash = compute_hash(dep_content)
+        if current_hash == stored_hash:
+            continue  # This dep is fresh
+
+        # This dep changed — walk its upstream to find root cause
+        chain = _trace_change_chain(dep_path, root)
+        diagnostics.append({
+            "dep": dep_path,
+            "stored_hash": stored_hash,
+            "current_hash": current_hash,
+            "reason": "changed",
+            "chain": chain,
+        })
+
+    return diagnostics
+
+
+def _trace_change_chain(dep_path: str, root: Path) -> list[str]:
+    """Walk upstream from a changed dep to find the deepest changed node.
+
+    Returns a chain like ["service.impl.md", "utils.impl.md"] meaning
+    "service.impl.md changed because utils.impl.md changed."
+    """
+    chain = [dep_path]
+    visited = {dep_path}
+    current = dep_path
+
+    while True:
+        full = root / current
+        if not full.exists():
+            break
+
+        try:
+            content = full.read_text(encoding="utf-8")
+        except (OSError, UnicodeDecodeError):
+            break
+
+        meta = parse_concrete_frontmatter(content)
+        upstream = get_all_strategy_providers(meta)
+
+        # Find which upstream deps exist and could be the root cause
+        # We report the chain, not just the leaf — the user needs the path
+        found_deeper = False
+        for up in sorted(upstream):
+            if up in visited:
+                continue
+            visited.add(up)
+            chain.append(up)
+            current = up
+            found_deeper = True
+            break  # Follow one chain (depth-first)
+
+        if not found_deeper:
+            break
+
+    return chain
+
+
+def format_ghost_diagnostic(diagnostics: list[dict]) -> list[str]:
+    """Format diagnostics into human-readable strings for status output.
+
+    Returns list of strings like:
+      "upstream `service.impl.md` changed (via utils.impl.md)"
+    """
+    reasons = []
+    for d in diagnostics:
+        chain = d["chain"]
+        if d["reason"] == "not found":
+            reasons.append(f"upstream `{d['dep']}` not found")
+        elif d["reason"] == "unreadable":
+            reasons.append(f"upstream `{d['dep']}` unreadable")
+        elif len(chain) == 1:
+            reasons.append(f"upstream `{chain[0]}` changed")
+        else:
+            # chain[0] is the direct dep, chain[1:] is the upstream path
+            via = " → ".join(chain[1:])
+            reasons.append(f"upstream `{chain[0]}` changed (via {via})")
+    return reasons
+
+
+def _identify_changed_deps(
+    dep_paths: list[str],
+    stored_combined_hash: str,
+    project_root: str,
+) -> list[str]:
+    """Identify which concrete deps changed by hashing each individually.
+
+    Returns a list of human-readable reasons for ghost-staleness.
+    Legacy fallback for files with concrete-deps-hash instead of concrete-manifest.
+    """
+    root = Path(project_root).resolve()
+    changed = []
+    for dep_path in sorted(dep_paths):
+        dep_full = root / dep_path
+        if dep_full.exists():
+            try:
+                dep_content = dep_full.read_text(encoding="utf-8")
+                dep_hash = compute_hash(dep_content)
+                changed.append(f"upstream `{dep_path}` changed ({dep_hash[:8]})")
+            except (OSError, UnicodeDecodeError):
+                changed.append(f"upstream `{dep_path}` unreadable")
+        else:
+            changed.append(f"upstream `{dep_path}` not found")
+
+    # We know the combined hash differs but can't pinpoint which single dep
+    # changed without stored per-dep hashes. Return all deps as suspects.
+    return changed
+
+
 def topo_sort(graph: dict[str, list[str]]) -> list[str]:
     """Topological sort via Kahn's algorithm.
 
@@ -168,8 +1007,18 @@ def topo_sort(graph: dict[str, list[str]]) -> list[str]:
 
 
 EXCLUDED_DIRS = {
-    "__pycache__", "node_modules", "target", ".git", ".venv", "venv",
-    "dist", "build", ".tox", "vendor", ".mypy_cache", ".pytest_cache",
+    "__pycache__",
+    "node_modules",
+    "target",
+    ".git",
+    ".venv",
+    "venv",
+    "dist",
+    "build",
+    ".tox",
+    "vendor",
+    ".mypy_cache",
+    ".pytest_cache",
     ".eggs",
 }
 
@@ -300,7 +1149,7 @@ def get_body_below_header(content: str) -> str:
     Returns everything after the last header line.
     """
     lines = content.split("\n")
-    header_markers = ("@unslop-managed", "spec-hash:", "output-hash:", "Generated from spec at")
+    header_markers = ("@unslop-managed", "spec-hash:", "output-hash:", "Generated from spec at", "concrete-manifest:")
     body_start = 0
     for i in range(min(5, len(lines))):
         stripped = lines[i].strip()
@@ -323,12 +1172,20 @@ def classify_file(managed_path: str, spec_path: str, project_root: str | None = 
     try:
         managed_content = managed.read_text(encoding="utf-8")
     except (OSError, UnicodeDecodeError) as e:
-        return {"managed": str(managed_path), "spec": str(spec_path), "state": "error",
-                "hint": f"Cannot read managed file: {e}"}
+        return {
+            "managed": str(managed_path),
+            "spec": str(spec_path),
+            "state": "error",
+            "hint": f"Cannot read managed file: {e}",
+        }
 
     if not spec.exists():
-        return {"managed": str(managed_path), "spec": str(spec_path), "state": "error",
-                "hint": "Spec file not found — the managed file references a spec that no longer exists."}
+        return {
+            "managed": str(managed_path),
+            "spec": str(spec_path),
+            "state": "error",
+            "hint": "Spec file not found — the managed file references a spec that no longer exists.",
+        }
 
     spec_content = spec.read_text(encoding="utf-8")
     header = parse_header(managed_content)
@@ -337,30 +1194,46 @@ def classify_file(managed_path: str, spec_path: str, project_root: str | None = 
         return {"managed": str(managed_path), "spec": str(spec_path), "state": "unmanaged"}
 
     if header.get("old_format"):
-        return {"managed": str(managed_path), "spec": str(spec_path), "state": "old_format",
-                "warning": "Old header format (no hashes). Regenerate to update."}
+        return {
+            "managed": str(managed_path),
+            "spec": str(spec_path),
+            "state": "old_format",
+            "warning": "Old header format (no hashes). Regenerate to update.",
+        }
 
     if header["spec_hash"] is None or header["output_hash"] is None:
-        return {"managed": str(managed_path), "spec": str(spec_path), "state": "old_format",
-                "warning": "Header is missing hash fields. Regenerate to update."}
+        return {
+            "managed": str(managed_path),
+            "spec": str(spec_path),
+            "state": "old_format",
+            "warning": "Header is missing hash fields. Regenerate to update.",
+        }
 
     current_spec_hash = compute_hash(spec_content)
     body = get_body_below_header(managed_content)
     current_output_hash = compute_hash(body)
 
-    spec_match = (current_spec_hash == header["spec_hash"])
-    output_match = (current_output_hash == header["output_hash"])
+    spec_match = current_spec_hash == header["spec_hash"]
+    output_match = current_output_hash == header["output_hash"]
 
     if spec_match and output_match:
         result = {"managed": str(managed_path), "spec": str(spec_path), "state": "fresh"}
     elif spec_match and not output_match:
-        result = {"managed": str(managed_path), "spec": str(spec_path), "state": "modified",
-                  "hint": "Code was edited directly while spec is unchanged."}
+        result = {
+            "managed": str(managed_path),
+            "spec": str(spec_path),
+            "state": "modified",
+            "hint": "Code was edited directly while spec is unchanged.",
+        }
     elif not spec_match and output_match:
         result = {"managed": str(managed_path), "spec": str(spec_path), "state": "stale"}
     else:
-        result = {"managed": str(managed_path), "spec": str(spec_path), "state": "conflict",
-                  "hint": "Spec and code have both diverged. Resolve manually or use --force to overwrite edits."}
+        result = {
+            "managed": str(managed_path),
+            "spec": str(spec_path),
+            "state": "conflict",
+            "hint": "Spec and code have both diverged. Resolve manually or use --force to overwrite edits.",
+        }
 
     # Principles check (only when project_root is provided)
     if project_root is not None and header.get("principles_hash") is not None:
@@ -394,6 +1267,7 @@ def classify_file(managed_path: str, spec_path: str, project_root: str | None = 
 def check_freshness(directory: str) -> dict:
     """Check freshness of all managed files in directory."""
     from collections import Counter
+
     root = Path(directory).resolve()
     if not root.is_dir():
         raise ValueError(f"Directory does not exist: {directory}")
@@ -421,8 +1295,14 @@ def check_freshness(directory: str) -> dict:
                         unit_files.append(m.group(1))
 
             if not unit_files:
-                files.append({"managed": str(spec_path.parent.relative_to(root)), "spec": rel_spec,
-                              "state": "error", "hint": "Unit spec has no files listed in ## Files section."})
+                files.append(
+                    {
+                        "managed": str(spec_path.parent.relative_to(root)),
+                        "spec": rel_spec,
+                        "state": "error",
+                        "hint": "Unit spec has no files listed in ## Files section.",
+                    }
+                )
                 continue
 
             worst_state = "fresh"
@@ -458,6 +1338,20 @@ def check_freshness(directory: str) -> dict:
             continue
 
         # Per-file spec
+        # If a corresponding .impl.md exists with explicit targets[],
+        # skip the default basename deduction — the target-driven pass
+        # will handle it.  This prevents ghost entries for files that
+        # don't exist (e.g. "auth_logic" when targets point elsewhere).
+        impl_companion = spec_path.parent / re.sub(r"\.spec\.md$", ".impl.md", spec_path.name)
+        if impl_companion.exists():
+            try:
+                _ic = impl_companion.read_text(encoding="utf-8")
+            except (OSError, UnicodeDecodeError):
+                _ic = ""
+            _ic_meta = parse_concrete_frontmatter(_ic)
+            if _ic_meta.get("targets"):
+                continue  # target-driven pass owns this spec's mappings
+
         managed_name = re.sub(r"\.spec\.md$", "", spec_path.name)
         managed_path = spec_path.parent / managed_name
         if not managed_path.exists():
@@ -468,6 +1362,260 @@ def check_freshness(directory: str) -> dict:
         result["managed"] = str(managed_path.relative_to(root))
         result["spec"] = rel_spec
         files.append(result)
+
+    # Target-driven discovery: scan .impl.md files with targets[] to find
+    # managed files that live outside their spec's directory tree.
+    seen_managed = {f["managed"] for f in files}
+    target_owners = {}  # managed_rel -> impl_rel (for collision detection)
+
+    # Record ownership from spec-driven pass (single-target defaults)
+    for f in files:
+        managed_rel = f["managed"]
+        if managed_rel not in target_owners:
+            target_owners[managed_rel] = f.get("spec", "")
+
+    impl_files_for_targets = sorted(root.rglob("*.impl.md"))
+    for impl_path in impl_files_for_targets:
+        rel_impl = str(impl_path.relative_to(root))
+        try:
+            impl_content = impl_path.read_text(encoding="utf-8")
+        except (OSError, UnicodeDecodeError):
+            continue
+
+        meta = parse_concrete_frontmatter(impl_content)
+        targets_list = meta.get("targets", [])
+        if not targets_list:
+            continue
+
+        source_spec = meta.get("source_spec", "")
+        # Resolve spec path relative to the impl file's directory
+        if source_spec:
+            spec_full = (impl_path.parent / source_spec).resolve()
+            if not spec_full.exists():
+                spec_full = root / source_spec
+        else:
+            spec_full = None
+
+        for target in targets_list:
+            target_rel = target.get("path", "")
+            if not target_rel:
+                continue
+
+            # Collision detection: two impl specs claiming the same target
+            if target_rel in target_owners and target_owners[target_rel] != rel_impl:
+                prev_owner = target_owners[target_rel]
+                files.append(
+                    {
+                        "managed": target_rel,
+                        "spec": source_spec,
+                        "state": "error",
+                        "hint": (
+                            f"Target collision: `{target_rel}` claimed by both "
+                            f"`{prev_owner}` and `{rel_impl}`. "
+                            "Remove the duplicate target from one concrete spec."
+                        ),
+                        "impl_path": rel_impl,
+                    }
+                )
+                continue
+            target_owners[target_rel] = rel_impl
+
+            # Skip if already tracked from the spec-driven pass
+            if target_rel in seen_managed:
+                continue
+            seen_managed.add(target_rel)
+
+            target_full = root / target_rel
+            if spec_full and spec_full.exists():
+                if not target_full.exists():
+                    files.append(
+                        {
+                            "managed": target_rel,
+                            "spec": source_spec,
+                            "state": "stale",
+                            "impl_path": rel_impl,
+                        }
+                    )
+                else:
+                    result = classify_file(
+                        str(target_full),
+                        str(spec_full),
+                        project_root=str(root),
+                    )
+                    result["managed"] = target_rel
+                    result["spec"] = source_spec
+                    result["impl_path"] = rel_impl
+                    files.append(result)
+            elif not target_full.exists():
+                files.append(
+                    {
+                        "managed": target_rel,
+                        "spec": source_spec,
+                        "state": "stale",
+                        "hint": "Target file does not exist and spec not found.",
+                        "impl_path": rel_impl,
+                    }
+                )
+            else:
+                files.append(
+                    {
+                        "managed": target_rel,
+                        "spec": source_spec,
+                        "state": "error",
+                        "hint": f"Spec `{source_spec}` not found for target.",
+                        "impl_path": rel_impl,
+                    }
+                )
+
+    # Check for circular concrete dependencies before scanning
+    try:
+        build_concrete_order(str(root))
+    except ValueError as e:
+        if "Cycle detected" in str(e):
+            # Add a warning entry for the cycle
+            files.append(
+                {
+                    "managed": "(concrete dependency cycle)",
+                    "spec": None,
+                    "state": "error",
+                    "hint": f"Circular concrete-dependencies detected: {e}. "
+                    "Break the cycle before concrete coherence can be checked.",
+                }
+            )
+
+    # Scan for concrete spec ghost staleness
+    impl_files = sorted(root.rglob("*.impl.md"))
+    for impl_path in impl_files:
+        rel_impl = str(impl_path.relative_to(root))
+        try:
+            impl_content = impl_path.read_text(encoding="utf-8")
+        except (OSError, UnicodeDecodeError):
+            continue
+
+        meta = parse_concrete_frontmatter(impl_content)
+        if meta.get("ephemeral", True):
+            continue  # Skip ephemeral concrete specs
+
+        all_providers = get_all_strategy_providers(meta)
+        if not all_providers:
+            continue
+
+        # Check each upstream strategy provider (deps + parents) for changes
+        stale_reasons = []
+        for dep_path in all_providers:
+            dep_full = root / dep_path
+            if not dep_full.exists():
+                stale_reasons.append(f"upstream `{dep_path}` not found")
+                continue
+
+        # Determine which managed files this impl affects
+        target_paths_for_hash = []
+        targets_list = meta.get("targets", [])
+        if targets_list:
+            target_paths_for_hash = [t["path"] for t in targets_list if "path" in t]
+        else:
+            source_spec = meta.get("source_spec", "")
+            if source_spec:
+                target_paths_for_hash = [get_registry_key_for_spec(source_spec)]
+
+        # Compare against stored manifest or hash in managed file headers
+        if not stale_reasons:
+            for managed_rel in target_paths_for_hash:
+                managed_full = root / managed_rel
+
+                # Collect candidate files to check for concrete-manifest/concrete-deps-hash.
+                # For unit specs the registry key is a directory; we need to
+                # check the headers of the individual managed files inside it.
+                candidates = []
+                if managed_full.is_dir():
+                    # Unit spec: find managed files inside the directory
+                    source_spec = meta.get("source_spec", "")
+                    if source_spec:
+                        spec_full = root / source_spec
+                        if spec_full.exists():
+                            try:
+                                spec_content = spec_full.read_text(encoding="utf-8")
+                            except (OSError, UnicodeDecodeError):
+                                spec_content = ""
+                            in_files = False
+                            for sline in spec_content.split("\n"):
+                                if re.match(r"^## Files", sline):
+                                    in_files = True
+                                    continue
+                                if in_files:
+                                    if re.match(r"^## ", sline):
+                                        break
+                                    fm = re.match(r"^\s*-\s+`([^`]+)`", sline)
+                                    if fm:
+                                        candidates.append(managed_full / fm.group(1))
+                elif managed_full.is_file():
+                    candidates = [managed_full]
+                else:
+                    continue
+
+                for candidate in candidates:
+                    if not candidate.exists():
+                        continue
+                    try:
+                        managed_content = candidate.read_text(encoding="utf-8")
+                    except (OSError, UnicodeDecodeError):
+                        continue
+                    header = parse_header(managed_content)
+                    if header is None:
+                        continue
+
+                    # Prefer concrete-manifest (surgical per-dep check)
+                    stored_manifest = header.get("concrete_manifest")
+                    if stored_manifest is not None:
+                        diagnostics = diagnose_ghost_staleness(stored_manifest, str(root))
+                        if diagnostics:
+                            stale_reasons.extend(format_ghost_diagnostic(diagnostics))
+                            break
+                    else:
+                        # Fall back to legacy concrete-deps-hash (coarse check)
+                        stored_cdeps = header.get("concrete_deps_hash")
+                        current_cdeps_hash = compute_concrete_deps_hash(str(impl_path), str(root))
+                        if stored_cdeps is not None and current_cdeps_hash is not None and stored_cdeps != current_cdeps_hash:
+                            changed = _identify_changed_deps(
+                                all_providers,
+                                stored_cdeps,
+                                str(root),
+                            )
+                            for reason in changed:
+                                stale_reasons.append(reason)
+                            break
+
+        if stale_reasons:
+            # Determine which managed files this impl.md affects
+            target_paths = []
+            targets = meta.get("targets", [])
+            if targets:
+                # Multi-target: mark all targets as ghost-stale
+                target_paths = [t["path"] for t in targets if "path" in t]
+            else:
+                # Single-target: derive from source-spec
+                source_spec = meta.get("source_spec", "")
+                if source_spec:
+                    target_paths = [get_registry_key_for_spec(source_spec)]
+
+            for managed_rel in target_paths:
+                for f in files:
+                    if f["managed"] == managed_rel:
+                        if f["state"] == "fresh":
+                            f["state"] = "ghost-stale"
+                        reason_str = "; ".join(stale_reasons)
+                        ghost_hint = f"Upstream concrete spec changed: {reason_str}"
+                        existing = f.get("hint", "")
+                        f["hint"] = (existing + f" {ghost_hint}").strip()
+                        f["concrete_staleness"] = {
+                            "impl_path": rel_impl,
+                            "stale_deps": stale_reasons,
+                        }
+                        if targets:
+                            total = len(targets)
+                            idx = target_paths.index(managed_rel) + 1
+                            f["multi_target"] = f"[target {idx}/{total}]"
+                        break
 
     # Scan for pending change requests
     change_files = sorted(root.rglob("*.change.md"))
@@ -515,18 +1663,17 @@ def check_freshness(directory: str) -> dict:
         if not matched:
             # Orphan change file -- no matching managed file
             print(json.dumps({"warning": f"Orphan change file: no managed file found for {managed_rel}"}), file=sys.stderr)
-            files.append({
-                "managed": managed_rel,
-                "spec": None,
-                "state": "error",
-                "hint": f"Change file exists but no matching spec found for {managed_rel}",
-                "pending_changes": counts,
-            })
+            files.append(
+                {
+                    "managed": managed_rel,
+                    "spec": None,
+                    "state": "error",
+                    "hint": f"Change file exists but no matching spec found for {managed_rel}",
+                    "pending_changes": counts,
+                }
+            )
 
-    all_fresh = all(
-        f["state"] == "fresh" and "pending_changes" not in f
-        for f in files
-    )
+    all_fresh = all(f["state"] == "fresh" and "pending_changes" not in f and "concrete_staleness" not in f for f in files)
     counts = Counter(f["state"] for f in files)
     summary = ", ".join(f"{v} {k}" for k, v in sorted(counts.items()))
 
@@ -541,26 +1688,21 @@ def parse_change_file(content: str) -> list[dict]:
     Malformed entries are skipped with a stderr warning.
     """
     lines = content.split("\n")
-    if not lines or not re.match(r'^<!--\s*unslop-changes\s+v\d+\s*-->', lines[0]):
+    if not lines or not re.match(r"^<!--\s*unslop-changes\s+v\d+\s*-->", lines[0]):
         return []
 
     entries = []
     current_entry = None
 
     for line in lines[1:]:
-        heading_match = re.match(
-            r'^### \[(\w+)\]\s+(.+?)(?:\s+--\s+(\S+))?\s*$', line
-        )
+        heading_match = re.match(r"^### \[(\w+)\]\s+(.+?)(?:\s+--\s+(\S+))?\s*$", line)
         if heading_match:
             if current_entry is not None:
                 current_entry["body"] = current_entry["body"].strip()
                 entries.append(current_entry)
             status = heading_match.group(1)
             if status not in ("pending", "tactical"):
-                print(
-                    json.dumps({"warning": f"Malformed change entry: unknown status [{status}]"}),
-                    file=sys.stderr
-                )
+                print(json.dumps({"warning": f"Malformed change entry: unknown status [{status}]"}), file=sys.stderr)
                 current_entry = None
                 continue
             current_entry = {
@@ -577,22 +1719,1424 @@ def parse_change_file(content: str) -> list[dict]:
         elif current_entry is not None:
             current_entry["body"] += line + "\n"
         elif line.strip().startswith("### ") and current_entry is None:
-            print(
-                json.dumps({"warning": f"Malformed change entry heading: {line.strip()!r}"}),
-                file=sys.stderr
-            )
+            print(json.dumps({"warning": f"Malformed change entry heading: {line.strip()!r}"}), file=sys.stderr)
 
     if current_entry is not None:
         current_entry["body"] = current_entry["body"].strip()
         entries.append(current_entry)
 
     if not entries and any(line.strip() for line in lines[1:]):
-        print(json.dumps({
-            "warning": "Change file has format marker but no parseable entries. "
-            "Expected ### [pending] or ### [tactical] headings."
-        }), file=sys.stderr)
+        print(
+            json.dumps(
+                {
+                    "warning": "Change file has format marker but no parseable entries. "
+                    "Expected ### [pending] or ### [tactical] headings."
+                }
+            ),
+            file=sys.stderr,
+        )
 
     return entries
+
+
+def ripple_check(spec_paths: list[str], project_root: str) -> dict:
+    """Compute the ripple effect of changing one or more spec files.
+
+    For each input spec, traces downstream through:
+    1. Abstract layer: which specs depend on this one (via depends-on)?
+    2. Concrete layer: which impl.md files are affected (via source-spec, concrete-dependencies, extends)?
+    3. Code layer: which managed files would need regeneration?
+
+    Returns a structured report suitable for --dry-run display.
+    """
+    root = Path(project_root).resolve()
+
+    # Build the full abstract spec dependency graph (reverse edges = dependents)
+    all_specs = {}
+    for s in sorted(root.rglob("*.spec.md")):
+        rel = str(s.relative_to(root))
+        try:
+            content = s.read_text(encoding="utf-8")
+        except (OSError, UnicodeDecodeError):
+            continue
+        all_specs[rel] = parse_frontmatter(content)
+
+    # Build reverse dependency map: spec -> list of specs that depend on it
+    reverse_deps: dict[str, list[str]] = {s: [] for s in all_specs}
+    for spec, deps in all_specs.items():
+        for dep in deps:
+            if dep not in reverse_deps:
+                reverse_deps[dep] = []
+            reverse_deps[dep].append(spec)
+
+    # Build the concrete spec graph
+    all_impls: dict[str, dict] = {}
+    for impl_path in sorted(root.rglob("*.impl.md")):
+        rel = str(impl_path.relative_to(root))
+        try:
+            content = impl_path.read_text(encoding="utf-8")
+        except (OSError, UnicodeDecodeError):
+            continue
+        all_impls[rel] = parse_concrete_frontmatter(content)
+
+    # Build reverse concrete dep map: impl -> list of impls that depend on it
+    reverse_concrete: dict[str, list[str]] = {i: [] for i in all_impls}
+    for impl, meta in all_impls.items():
+        for dep in meta.get("concrete_dependencies", []):
+            if dep not in reverse_concrete:
+                reverse_concrete[dep] = []
+            reverse_concrete[dep].append(impl)
+        extends = meta.get("extends")
+        if extends:
+            if extends not in reverse_concrete:
+                reverse_concrete[extends] = []
+            reverse_concrete[extends].append(impl)
+
+    # Map source-spec -> impl paths
+    spec_to_impls: dict[str, list[str]] = {}
+    for impl, meta in all_impls.items():
+        src = meta.get("source_spec")
+        if src:
+            spec_to_impls.setdefault(src, []).append(impl)
+
+    # For each input spec, compute the full ripple
+    affected_specs: set[str] = set()
+    directly_changed: set[str] = set()
+
+    # Normalize input paths
+    normalized_inputs = []
+    for sp in spec_paths:
+        p = Path(sp)
+        if p.is_absolute():
+            try:
+                sp = str(p.relative_to(root))
+            except ValueError:
+                pass
+        normalized_inputs.append(sp)
+
+    # BFS to find all transitively affected specs
+    queue = list(normalized_inputs)
+    directly_changed.update(normalized_inputs)
+    visited: set[str] = set()
+
+    while queue:
+        current = queue.pop(0)
+        if current in visited:
+            continue
+        visited.add(current)
+        affected_specs.add(current)
+        for dependent in reverse_deps.get(current, []):
+            queue.append(dependent)
+
+    # Find affected concrete specs (from source-spec links + concrete deps)
+    affected_impls: set[str] = set()
+    impl_queue: list[str] = []
+
+    # Seed: impls whose source-spec is an affected abstract spec
+    for spec in affected_specs:
+        for impl in spec_to_impls.get(spec, []):
+            impl_queue.append(impl)
+
+    # BFS through concrete dependency graph
+    impl_visited: set[str] = set()
+    while impl_queue:
+        current = impl_queue.pop(0)
+        if current in impl_visited:
+            continue
+        impl_visited.add(current)
+        affected_impls.add(current)
+        for dependent in reverse_concrete.get(current, []):
+            impl_queue.append(dependent)
+
+    # Find affected managed files
+    affected_managed: list[dict] = []
+
+    for spec in sorted(affected_specs):
+        spec_path = root / spec
+        if not spec_path.exists():
+            continue
+
+        # Check for multi-target impl
+        impl_companion = spec_path.parent / re.sub(r"\.spec\.md$", ".impl.md", spec_path.name)
+        targets_handled = False
+
+        if impl_companion.exists():
+            try:
+                ic_content = impl_companion.read_text(encoding="utf-8")
+                ic_meta = parse_concrete_frontmatter(ic_content)
+                if ic_meta.get("targets"):
+                    targets_handled = True
+                    for target in ic_meta["targets"]:
+                        managed_rel = target.get("path", "")
+                        managed_full = root / managed_rel
+                        entry = {
+                            "managed": managed_rel,
+                            "spec": spec,
+                            "concrete": str(impl_companion.relative_to(root)),
+                            "exists": managed_full.exists(),
+                            "language": target.get("language", "unknown"),
+                            "cause": "direct" if spec in directly_changed else "transitive",
+                        }
+                        if managed_full.exists():
+                            result = classify_file(str(managed_full), str(spec_path), project_root=str(root))
+                            entry["current_state"] = result["state"]
+                        else:
+                            entry["current_state"] = "new"
+                        affected_managed.append(entry)
+            except (OSError, UnicodeDecodeError):
+                pass
+
+        if not targets_handled:
+            # Unit spec
+            if spec.endswith(".unit.spec.md"):
+                try:
+                    content = spec_path.read_text(encoding="utf-8")
+                    in_files = False
+                    for line in content.split("\n"):
+                        if re.match(r"^## Files", line):
+                            in_files = True
+                            continue
+                        if in_files:
+                            if re.match(r"^## ", line):
+                                break
+                            m = re.match(r"^\s*-\s+`([^`]+)`", line)
+                            if m:
+                                managed_rel = str((spec_path.parent / m.group(1)).relative_to(root))
+                                managed_full = root / managed_rel
+                                entry = {
+                                    "managed": managed_rel,
+                                    "spec": spec,
+                                    "exists": managed_full.exists(),
+                                    "cause": "direct" if spec in directly_changed else "transitive",
+                                }
+                                if managed_full.exists():
+                                    result = classify_file(str(managed_full), str(spec_path), project_root=str(root))
+                                    entry["current_state"] = result["state"]
+                                else:
+                                    entry["current_state"] = "new"
+                                affected_managed.append(entry)
+                except (OSError, UnicodeDecodeError):
+                    pass
+            else:
+                # Per-file spec
+                managed_name = re.sub(r"\.spec\.md$", "", spec_path.name)
+                managed_full = spec_path.parent / managed_name
+                managed_rel = str(managed_full.relative_to(root)) if managed_full.exists() else str(
+                    (spec_path.parent / managed_name).relative_to(root)
+                )
+                entry = {
+                    "managed": managed_rel,
+                    "spec": spec,
+                    "exists": managed_full.exists(),
+                    "cause": "direct" if spec in directly_changed else "transitive",
+                }
+                if managed_full.exists():
+                    result = classify_file(str(managed_full), str(spec_path), project_root=str(root))
+                    entry["current_state"] = result["state"]
+                else:
+                    entry["current_state"] = "new"
+                affected_managed.append(entry)
+
+    # Add concrete-only affected files (ghost staleness via concrete deps, not abstract deps)
+    concrete_only_impls = affected_impls - {
+        str((root / impl).relative_to(root))
+        for spec in affected_specs
+        for impl in spec_to_impls.get(spec, [])
+    }
+    ghost_stale_managed: list[dict] = []
+    for impl in sorted(concrete_only_impls):
+        meta = all_impls.get(impl, {})
+        src = meta.get("source_spec")
+        if not src:
+            continue
+        # This impl's abstract spec wasn't directly affected — ghost staleness
+        spec_path = root / src
+        targets = meta.get("targets", [])
+        if targets:
+            for target in targets:
+                managed_rel = target.get("path", "")
+                managed_full = root / managed_rel
+                ghost_stale_managed.append({
+                    "managed": managed_rel,
+                    "spec": src,
+                    "concrete": impl,
+                    "exists": managed_full.exists(),
+                    "cause": "ghost-stale",
+                    "ghost_source": impl,
+                    "current_state": "ghost-stale",
+                })
+        else:
+            managed_name = re.sub(r"\.spec\.md$", "", Path(src).name)
+            managed_full = root / Path(src).parent / managed_name
+            managed_rel = str(managed_full.relative_to(root)) if managed_full.exists() else str(
+                (Path(src).parent / managed_name)
+            )
+            ghost_stale_managed.append({
+                "managed": managed_rel,
+                "spec": src,
+                "concrete": impl,
+                "exists": managed_full.exists(),
+                "cause": "ghost-stale",
+                "ghost_source": impl,
+                "current_state": "ghost-stale",
+            })
+
+    # Collect specs reachable only through concrete-dependency chains so they
+    # appear in build_order alongside the abstract-layer specs.
+    ghost_stale_specs: set[str] = set()
+    for impl in concrete_only_impls:
+        src = all_impls.get(impl, {}).get("source_spec")
+        if src:
+            ghost_stale_specs.add(src)
+
+    # Translate concrete impl→impl edges into spec→spec ordering edges.
+    # For every concrete dep edge (depender_impl → dependency_impl) where both
+    # impls have a source-spec, the dependency's spec must precede the
+    # depender's spec in build order.
+    concrete_spec_edges: dict[str, set[str]] = {}
+    for impl, meta in all_impls.items():
+        impl_spec = meta.get("source_spec")
+        if not impl_spec:
+            continue
+        for dep_impl in meta.get("concrete_dependencies", []):
+            dep_spec = all_impls.get(dep_impl, {}).get("source_spec")
+            if dep_spec and dep_spec != impl_spec:
+                concrete_spec_edges.setdefault(impl_spec, set()).add(dep_spec)
+        ext = meta.get("extends")
+        if ext:
+            ext_spec = all_impls.get(ext, {}).get("source_spec")
+            if ext_spec and ext_spec != impl_spec:
+                concrete_spec_edges.setdefault(impl_spec, set()).add(ext_spec)
+
+    # Build the summary
+    return {
+        "input_specs": normalized_inputs,
+        "layers": {
+            "abstract": {
+                "directly_changed": sorted(directly_changed),
+                "transitively_affected": sorted(affected_specs - directly_changed),
+                "total": len(affected_specs),
+            },
+            "concrete": {
+                "affected_impls": sorted(affected_impls),
+                "ghost_stale_impls": sorted(concrete_only_impls),
+                "total": len(affected_impls),
+            },
+            "code": {
+                "regenerate": affected_managed,
+                "ghost_stale": ghost_stale_managed,
+                "total_files": len(affected_managed) + len(ghost_stale_managed),
+            },
+        },
+        "build_order": _compute_ripple_build_order(
+            affected_specs | ghost_stale_specs, all_specs, concrete_spec_edges,
+        ),
+    }
+
+
+def _compute_ripple_build_order(
+    affected_specs: set[str],
+    all_specs: dict[str, list[str]],
+    concrete_spec_edges: dict[str, set[str]] | None = None,
+) -> list[str]:
+    """Compute build order for just the affected specs.
+
+    *concrete_spec_edges* carries spec→set[spec] ordering edges derived from
+    concrete-dependency / extends relationships so that specs reachable only
+    through the concrete layer are sequenced correctly.
+    """
+    # Build subgraph of only affected specs
+    subgraph: dict[str, list[str]] = {}
+    for spec in affected_specs:
+        deps = [d for d in all_specs.get(spec, []) if d in affected_specs]
+        # Merge concrete-layer edges (dep spec must precede this spec)
+        if concrete_spec_edges:
+            for cdep in concrete_spec_edges.get(spec, set()):
+                if cdep in affected_specs and cdep not in deps:
+                    deps.append(cdep)
+        subgraph[spec] = deps
+
+    # Add missing nodes
+    all_nodes = set(subgraph.keys())
+    for deps_list in list(subgraph.values()):
+        for dep in deps_list:
+            if dep not in all_nodes:
+                subgraph[dep] = []
+
+    try:
+        return topo_sort(subgraph)
+    except ValueError:
+        return sorted(affected_specs)
+
+
+def _build_unified_dag(
+    project_root: Path,
+) -> tuple[dict[str, set[str]], dict[str, str]]:
+    """Build a single dependency graph from both abstract and concrete edges.
+
+    An edge (u, v) exists if spec v depends on spec u at either layer:
+      - Abstract: v's spec has ``depends-on: [u]``
+      - Concrete: v's impl has ``extends: u_impl`` or
+        ``concrete-dependencies: [u_impl]``
+
+    Returns:
+        (graph, impl_to_spec) where graph maps spec -> set of dependency
+        specs (edges point to deps, same convention as topo_sort).
+    """
+    root = project_root
+
+    # Build impl -> source-spec mapping
+    impl_to_spec: dict[str, str] = {}
+    impl_meta: dict[str, dict] = {}
+    for impl_path in root.rglob("*.impl.md"):
+        try:
+            content = impl_path.read_text(encoding="utf-8")
+        except (OSError, UnicodeDecodeError):
+            continue
+        meta = parse_concrete_frontmatter(content)
+        rel = str(impl_path.relative_to(root))
+        impl_meta[rel] = meta
+        src = meta.get("source_spec")
+        if src:
+            impl_to_spec[rel] = src
+
+    # Collect all specs
+    all_specs: set[str] = set()
+    spec_abstract_deps: dict[str, list[str]] = {}
+    for spec_path in root.rglob("*.spec.md"):
+        try:
+            content = spec_path.read_text(encoding="utf-8")
+        except (OSError, UnicodeDecodeError):
+            continue
+        rel = str(spec_path.relative_to(root))
+        all_specs.add(rel)
+        spec_abstract_deps[rel] = parse_frontmatter(content)
+
+    # Also add specs referenced by impls but maybe not on disk
+    for src_spec in impl_to_spec.values():
+        all_specs.add(src_spec)
+
+    # Build unified adjacency list: spec -> set of specs it depends on
+    graph: dict[str, set[str]] = {s: set() for s in all_specs}
+
+    # Abstract edges: depends-on
+    for spec, deps in spec_abstract_deps.items():
+        for dep in deps:
+            if dep in all_specs:
+                graph.setdefault(spec, set()).add(dep)
+
+    # Concrete edges: extends + concrete-dependencies, projected to spec space
+    for impl_name, meta in impl_meta.items():
+        src_spec = impl_to_spec.get(impl_name)
+        if not src_spec:
+            continue
+
+        upstream_impls = list(meta.get("concrete_dependencies", []))
+        extends = meta.get("extends")
+        if extends:
+            upstream_impls.append(extends)
+
+        for dep_impl in upstream_impls:
+            dep_spec = impl_to_spec.get(dep_impl)
+            if dep_spec and dep_spec in all_specs:
+                graph.setdefault(src_spec, set()).add(dep_spec)
+
+    return graph, impl_to_spec
+
+
+def _unified_topo_sort(
+    project_root: Path,
+    filter_specs: set[str] | None = None,
+) -> tuple[list[str], dict[str, set[str]], dict[str, str]]:
+    """Topological sort over the unified abstract+concrete DAG.
+
+    Args:
+        project_root: Project root directory.
+        filter_specs: If provided, only include these specs in the sort
+                      (plus their transitive deps that are also in the set).
+
+    Returns:
+        (sorted_specs, graph, impl_to_spec) where sorted_specs is in
+        dependency order (leaves first).
+    """
+    full_graph, impl_to_spec = _build_unified_dag(project_root)
+
+    if filter_specs is not None:
+        # Restrict graph to only the specs in the filter set
+        graph = {
+            s: deps & filter_specs
+            for s, deps in full_graph.items()
+            if s in filter_specs
+        }
+    else:
+        graph = full_graph
+
+    # Convert set-valued graph to list-valued for topo_sort
+    list_graph = {s: sorted(deps) for s, deps in graph.items()}
+
+    try:
+        sorted_specs = topo_sort(list_graph)
+    except ValueError:
+        # Cycle — fall back to sorted order
+        sorted_specs = sorted(graph.keys())
+
+    return sorted_specs, graph, impl_to_spec
+
+
+def _compute_parallel_batches(
+    sorted_entries: list[dict],
+    graph: dict[str, set[str]],
+    max_batch_size: int = 8,
+) -> list[list[dict]]:
+    """Partition sorted plan entries into parallel-safe batches via Kahn's.
+
+    Two entries are in the same batch iff neither's spec is an ancestor of
+    the other's in the unified DAG.  This is computed by running Kahn's
+    algorithm and grouping nodes by topological depth.
+
+    Args:
+        sorted_entries: Plan entries already sorted in topo order.
+        graph: spec -> set of dependency specs (edges point to deps).
+        max_batch_size: Maximum files per batch.
+
+    Returns:
+        List of batches (each batch is a list of plan entry dicts).
+    """
+    if not sorted_entries:
+        return []
+
+    # Build the subgraph restricted to specs in the plan
+    plan_specs = {e["spec"] for e in sorted_entries}
+    sub_graph: dict[str, set[str]] = {}
+    for spec in plan_specs:
+        sub_graph[spec] = graph.get(spec, set()) & plan_specs
+
+    # Compute in-degrees
+    in_degree: dict[str, int] = {s: 0 for s in plan_specs}
+    # Build forward edges (successors) for Kahn's
+    successors: dict[str, set[str]] = {s: set() for s in plan_specs}
+    for spec, deps in sub_graph.items():
+        in_degree[spec] = len(deps)
+        for dep in deps:
+            successors.setdefault(dep, set()).add(spec)
+
+    # Kahn's with depth tracking: each "wave" of zero-in-degree nodes
+    # forms one parallel batch
+    spec_to_entry: dict[str, list[dict]] = {}
+    for entry in sorted_entries:
+        spec_to_entry.setdefault(entry["spec"], []).append(entry)
+
+    batches: list[list[dict]] = []
+    queue = sorted(s for s in plan_specs if in_degree[s] == 0)
+
+    while queue:
+        # All nodes in queue can run in parallel
+        wave_entries: list[dict] = []
+        for spec in queue:
+            wave_entries.extend(spec_to_entry.get(spec, []))
+
+        # Split wave into max_batch_size chunks
+        for i in range(0, len(wave_entries), max_batch_size):
+            batches.append(wave_entries[i:i + max_batch_size])
+
+        # Decrement in-degrees for successors
+        next_queue = []
+        for spec in queue:
+            for succ in successors.get(spec, set()):
+                in_degree[succ] -= 1
+                if in_degree[succ] == 0:
+                    next_queue.append(succ)
+        queue = sorted(next_queue)
+
+    return batches
+
+
+def compute_deep_sync_plan(
+    file_path: str,
+    project_root: str,
+    force: bool = False,
+) -> dict:
+    """Compute an ordered plan for deep-syncing a file and its blast radius.
+
+    Starting from a single managed file (or spec), identifies all downstream
+    files that need regeneration and returns them in topological order.
+
+    Args:
+        file_path: Path to the managed file or spec to start from.
+        project_root: Project root directory.
+        force: If True, include modified/conflict files without flagging them.
+
+    Returns:
+        dict with:
+          - trigger: The input file/spec that initiated the deep sync.
+          - plan: Ordered list of dicts, each with:
+              managed, spec, state, cause, concrete (optional)
+          - skipped: Files that need user confirmation (modified/conflict).
+          - stats: Summary counts.
+    """
+    root = Path(project_root).resolve()
+
+    # Normalize: if given a managed file, derive the spec; if given a spec, use it
+    fp = Path(file_path)
+    if fp.suffix == ".md" and ".spec." in fp.name:
+        trigger_spec = file_path
+    else:
+        # Managed file -> try reading spec path from @unslop-managed header
+        trigger_spec = None
+        managed_full = root / file_path
+        if managed_full.exists():
+            try:
+                managed_content = managed_full.read_text(encoding="utf-8")
+                header = parse_header(managed_content)
+                if header and header.get("spec_path"):
+                    trigger_spec = header["spec_path"]
+            except (OSError, UnicodeDecodeError):
+                pass
+
+        # Fall back to basename convention if header lookup failed
+        if not trigger_spec:
+            trigger_spec = file_path + ".spec.md"
+
+    trigger_spec_full = root / trigger_spec
+    if not trigger_spec_full.exists():
+        return {"error": f"No spec found at {trigger_spec}"}
+
+    # Get freshness data for all files
+    try:
+        freshness = check_freshness(str(root))
+    except (ValueError, OSError):
+        freshness = {"files": []}
+
+    state_map = {f["managed"]: f for f in freshness.get("files", [])}
+
+    # Use ripple_check to compute full blast radius from this spec
+    ripple = ripple_check([trigger_spec], str(root))
+
+    # Merge the code-layer results: both direct regenerations and ghost-stale
+    all_affected: list[dict] = []
+    seen_managed: set[str] = set()
+
+    for entry in ripple["layers"]["code"]["regenerate"]:
+        managed = entry["managed"]
+        if managed in seen_managed:
+            continue
+        seen_managed.add(managed)
+
+        # Get actual freshness state from check_freshness
+        fresh_entry = state_map.get(managed)
+        state = fresh_entry["state"] if fresh_entry else entry.get("current_state", "new")
+
+        all_affected.append({
+            "managed": managed,
+            "spec": entry["spec"],
+            "state": state,
+            "cause": entry["cause"],
+            "concrete": entry.get("concrete"),
+        })
+
+    for entry in ripple["layers"]["code"]["ghost_stale"]:
+        managed = entry["managed"]
+        if managed in seen_managed:
+            continue
+        seen_managed.add(managed)
+
+        fresh_entry = state_map.get(managed)
+        state = fresh_entry["state"] if fresh_entry else "ghost-stale"
+
+        all_affected.append({
+            "managed": managed,
+            "spec": entry["spec"],
+            "state": state,
+            "cause": entry["cause"],
+            "concrete": entry.get("concrete"),
+        })
+
+    # Split into actionable plan vs skipped (needs confirmation)
+    plan = []
+    skipped = []
+
+    for entry in all_affected:
+        state = entry["state"]
+        if state == "fresh":
+            continue  # Already up to date — skip entirely
+        if state in ("modified", "conflict") and not force:
+            skipped.append(entry)
+        else:
+            plan.append(entry)
+
+    # Order the plan using unified abstract+concrete DAG
+    plan_specs = {e["spec"] for e in plan}
+    sorted_specs, _, _ = _unified_topo_sort(root, filter_specs=plan_specs)
+    spec_order = {s: i for i, s in enumerate(sorted_specs)}
+
+    plan.sort(key=lambda e: spec_order.get(e["spec"], 999999))
+    build_order = sorted_specs
+
+    return {
+        "trigger": trigger_spec,
+        "plan": plan,
+        "skipped": skipped,
+        "stats": {
+            "total_affected": len(all_affected),
+            "to_regenerate": len(plan),
+            "skipped_need_confirm": len(skipped),
+            "fresh_skipped": len(all_affected) - len(plan) - len(skipped),
+        },
+        "build_order": build_order,
+    }
+
+
+def compute_bulk_sync_plan(
+    project_root: str,
+    force: bool = False,
+    max_batch_size: int = 8,
+) -> dict:
+    """Compute a batched plan for syncing ALL stale files in the project.
+
+    Instead of processing each stale file individually (each spawning its own
+    Agent+worktree), this groups stale files into worktree batches that respect
+    topological order.  Files within a batch share no dependency edges, so they
+    can be regenerated in parallel inside a single worktree.
+
+    Args:
+        project_root: Project root directory.
+        force: If True, include modified/conflict files without flagging.
+        max_batch_size: Maximum files per worktree batch (caps parallelism).
+
+    Returns:
+        dict with:
+          - batches: Ordered list of batches, each containing files to regenerate.
+          - skipped: Files that need user confirmation (modified/conflict).
+          - stats: Summary counts.
+          - build_order: Topological spec order used for sequencing.
+    """
+    root = Path(project_root).resolve()
+
+    # 1. Get freshness data for all files
+    try:
+        freshness = check_freshness(str(root))
+    except (ValueError, OSError):
+        freshness = {"files": []}
+
+    state_map = {f["managed"]: f for f in freshness.get("files", [])}
+
+    # 2. Collect all non-fresh files
+    stale_files = []
+    for entry in freshness.get("files", []):
+        state = entry["state"]
+        if state == "fresh":
+            continue
+        stale_files.append(entry)
+
+    if not stale_files:
+        return {
+            "batches": [],
+            "skipped": [],
+            "stats": {
+                "total_stale": 0,
+                "total_batches": 0,
+                "to_regenerate": 0,
+                "skipped_need_confirm": 0,
+            },
+            "build_order": [],
+        }
+
+    # 3. Collect all unique specs from stale files for a combined ripple check
+    stale_specs = set()
+    for entry in stale_files:
+        spec = entry.get("spec")
+        if spec:
+            stale_specs.add(spec)
+
+    if not stale_specs:
+        return {
+            "batches": [],
+            "skipped": [],
+            "stats": {
+                "total_stale": len(stale_files),
+                "total_batches": 0,
+                "to_regenerate": 0,
+                "skipped_need_confirm": 0,
+            },
+            "build_order": [],
+        }
+
+    # 4. Combined ripple check for all stale specs at once
+    try:
+        ripple = ripple_check(sorted(stale_specs), str(root))
+    except (ValueError, OSError):
+        ripple = {"layers": {"code": {"regenerate": [], "ghost_stale": []}}, "build_order": []}
+
+    # 5. Merge all affected files (direct + ghost-stale), deduped
+    all_affected: list[dict] = []
+    seen_managed: set[str] = set()
+
+    for entry in ripple["layers"]["code"]["regenerate"]:
+        managed = entry["managed"]
+        if managed in seen_managed:
+            continue
+        seen_managed.add(managed)
+        fresh_entry = state_map.get(managed)
+        state = fresh_entry["state"] if fresh_entry else entry.get("current_state", "new")
+        all_affected.append({
+            "managed": managed,
+            "spec": entry["spec"],
+            "state": state,
+            "cause": entry["cause"],
+            "concrete": entry.get("concrete"),
+        })
+
+    for entry in ripple["layers"]["code"]["ghost_stale"]:
+        managed = entry["managed"]
+        if managed in seen_managed:
+            continue
+        seen_managed.add(managed)
+        fresh_entry = state_map.get(managed)
+        state = fresh_entry["state"] if fresh_entry else "ghost-stale"
+        all_affected.append({
+            "managed": managed,
+            "spec": entry["spec"],
+            "state": state,
+            "cause": entry["cause"],
+            "concrete": entry.get("concrete"),
+        })
+
+    # 6. Split into actionable vs skipped
+    plan_entries = []
+    skipped = []
+
+    for entry in all_affected:
+        state = entry["state"]
+        if state == "fresh":
+            continue
+        if state in ("modified", "conflict") and not force:
+            skipped.append(entry)
+        else:
+            plan_entries.append(entry)
+
+    # 7. Unified topo sort via single DAG (abstract + concrete edges)
+    plan_specs = {e["spec"] for e in plan_entries}
+    sorted_specs, graph, _ = _unified_topo_sort(
+        root, filter_specs=plan_specs
+    )
+    spec_order = {s: i for i, s in enumerate(sorted_specs)}
+    plan_entries.sort(key=lambda e: spec_order.get(e["spec"], 999999))
+    build_order = sorted_specs
+
+    # 8. Parallel-safe batching via Kahn's depth grouping.
+    #    Nodes at the same topological depth share no dependency edges,
+    #    so they can safely run in parallel within a single worktree.
+    batches = _compute_parallel_batches(
+        plan_entries, graph, max_batch_size=max_batch_size
+    )
+
+    return {
+        "batches": [
+            {
+                "batch_index": i,
+                "files": batch,
+                "size": len(batch),
+            }
+            for i, batch in enumerate(batches)
+        ],
+        "skipped": skipped,
+        "stats": {
+            "total_stale": len(stale_files),
+            "total_batches": len(batches),
+            "to_regenerate": len(plan_entries),
+            "skipped_need_confirm": len(skipped),
+            "fresh_skipped": len(all_affected) - len(plan_entries) - len(skipped),
+        },
+        "build_order": build_order,
+    }
+
+
+def compute_resume_plan(
+    project_root: str,
+    failed_files: list[str],
+    succeeded_files: list[str],
+    force: bool = False,
+    max_batch_size: int = 8,
+) -> dict:
+    """Compute a plan to resume a partial bulk sync after a batch failure.
+
+    When a Builder fails on some files in a batch, the sibling files in
+    that batch may have succeeded (they're independent).  This function
+    computes the minimal plan to finish the job:
+
+    1. Exclude succeeded_files — they're already fresh.
+    2. Include failed_files — they need retry after the user fixes the spec.
+    3. Include all transitive downstream dependents of failed_files that
+       are still stale — they were blocked by the failure.
+    4. Re-check freshness to exclude anything that became fresh since
+       the original plan was computed.
+
+    Args:
+        project_root: Project root directory.
+        failed_files: Managed file paths that failed during the previous run.
+        succeeded_files: Managed file paths that succeeded (skip these).
+        force: If True, include modified/conflict files.
+        max_batch_size: Maximum files per worktree batch.
+
+    Returns:
+        dict with batches, skipped, stats, build_order (same shape as
+        compute_bulk_sync_plan), plus:
+          - resumed_from: The failed files that triggered the resume.
+          - already_done: Count of succeeded files excluded from the plan.
+    """
+    root = Path(project_root).resolve()
+
+    # 1. Get current freshness
+    try:
+        freshness = check_freshness(str(root))
+    except (ValueError, OSError):
+        freshness = {"files": []}
+
+    state_map = {f["managed"]: f for f in freshness.get("files", [])}
+    succeeded_set = set(succeeded_files)
+
+    # 2. Identify the specs of failed files
+    failed_specs: set[str] = set()
+    for managed in failed_files:
+        entry = state_map.get(managed)
+        if entry and entry.get("spec"):
+            failed_specs.add(entry["spec"])
+        else:
+            # Try header-based resolution
+            managed_full = root / managed
+            if managed_full.exists():
+                try:
+                    content = managed_full.read_text(encoding="utf-8")
+                    header = parse_header(content)
+                    if header and header.get("spec_path"):
+                        failed_specs.add(header["spec_path"])
+                except (OSError, UnicodeDecodeError):
+                    pass
+            # Fall back to basename
+            if managed + ".spec.md" not in failed_specs:
+                candidate = managed + ".spec.md"
+                if (root / candidate).exists():
+                    failed_specs.add(candidate)
+
+    if not failed_specs:
+        return {
+            "batches": [],
+            "skipped": [],
+            "resumed_from": failed_files,
+            "already_done": len(succeeded_files),
+            "stats": {
+                "total_stale": 0,
+                "total_batches": 0,
+                "to_regenerate": 0,
+                "skipped_need_confirm": 0,
+            },
+            "build_order": [],
+        }
+
+    # 3. Build unified DAG and find downstream closure of failed specs
+    graph, impl_to_spec = _build_unified_dag(root)
+
+    # Build reverse graph (spec -> set of specs that depend on it)
+    reverse: dict[str, set[str]] = {s: set() for s in graph}
+    for spec, deps in graph.items():
+        for dep in deps:
+            reverse.setdefault(dep, set()).add(spec)
+
+    # BFS from failed specs to find all downstream dependents
+    downstream: set[str] = set(failed_specs)
+    queue = list(failed_specs)
+    while queue:
+        current = queue.pop(0)
+        for dependent in reverse.get(current, set()):
+            if dependent not in downstream:
+                downstream.add(dependent)
+                queue.append(dependent)
+
+    # 4. Collect all stale files whose spec is in the downstream set
+    plan_entries: list[dict] = []
+    skipped: list[dict] = []
+
+    for entry in freshness.get("files", []):
+        managed = entry["managed"]
+        spec = entry.get("spec")
+        state = entry["state"]
+
+        # Skip fresh files
+        if state == "fresh":
+            continue
+        # Skip succeeded files
+        if managed in succeeded_set:
+            continue
+        # Only include files whose spec is in the downstream closure
+        if spec not in downstream:
+            continue
+
+        plan_entry = {
+            "managed": managed,
+            "spec": spec,
+            "state": state,
+            "cause": "retry" if spec in failed_specs else "downstream",
+        }
+
+        if state in ("modified", "conflict") and not force:
+            skipped.append(plan_entry)
+        else:
+            plan_entries.append(plan_entry)
+
+    if not plan_entries:
+        return {
+            "batches": [],
+            "skipped": skipped,
+            "resumed_from": failed_files,
+            "already_done": len(succeeded_files),
+            "stats": {
+                "total_stale": 0,
+                "total_batches": 0,
+                "to_regenerate": 0,
+                "skipped_need_confirm": len(skipped),
+            },
+            "build_order": [],
+        }
+
+    # 5. Sort and batch using unified DAG
+    plan_specs = {e["spec"] for e in plan_entries}
+    sorted_specs, sub_graph, _ = _unified_topo_sort(
+        root, filter_specs=plan_specs
+    )
+    spec_order = {s: i for i, s in enumerate(sorted_specs)}
+    plan_entries.sort(key=lambda e: spec_order.get(e["spec"], 999999))
+
+    batches = _compute_parallel_batches(
+        plan_entries, sub_graph, max_batch_size=max_batch_size
+    )
+
+    return {
+        "batches": [
+            {
+                "batch_index": i,
+                "files": batch,
+                "size": len(batch),
+            }
+            for i, batch in enumerate(batches)
+        ],
+        "skipped": skipped,
+        "resumed_from": failed_files,
+        "already_done": len(succeeded_files),
+        "stats": {
+            "total_stale": len(plan_entries) + len(skipped),
+            "total_batches": len(batches),
+            "to_regenerate": len(plan_entries),
+            "skipped_need_confirm": len(skipped),
+        },
+        "build_order": sorted_specs,
+    }
+
+
+def render_dependency_graph(
+    directory: str,
+    scope: list[str] | None = None,
+    include_code: bool = True,
+    stale_only: bool = False,
+) -> dict:
+    """Render a Mermaid dependency graph of the spec/concrete/code layers.
+
+    Args:
+        directory: Project root directory.
+        scope: Optional list of spec paths to focus on (with their transitive
+               dependents). If None, renders the full project graph.
+        include_code: Whether to include managed code file nodes.
+        stale_only: If True, only include nodes on paths that lead to
+                    stale/ghost-stale managed files. Helps prioritize syncs.
+
+    Returns:
+        dict with:
+          - mermaid: The Mermaid graph source string
+          - stats: Summary counts
+          - nodes: List of node dicts for programmatic use
+    """
+    root = Path(directory).resolve()
+
+    # Gather all specs and their deps
+    all_specs: dict[str, list[str]] = {}
+    for s in sorted(root.rglob("*.spec.md")):
+        rel = str(s.relative_to(root))
+        try:
+            content = s.read_text(encoding="utf-8")
+        except (OSError, UnicodeDecodeError):
+            continue
+        all_specs[rel] = parse_frontmatter(content)
+
+    # Gather all impl files
+    all_impls: dict[str, dict] = {}
+    for impl_path in sorted(root.rglob("*.impl.md")):
+        rel = str(impl_path.relative_to(root))
+        try:
+            content = impl_path.read_text(encoding="utf-8")
+        except (OSError, UnicodeDecodeError):
+            continue
+        all_impls[rel] = parse_concrete_frontmatter(content)
+
+    # If scope is set, compute the affected subgraph (dual-layer aware)
+    if scope:
+        # Build reverse dep map for abstract specs
+        reverse_deps: dict[str, list[str]] = {s: [] for s in all_specs}
+        for spec, deps in all_specs.items():
+            for dep in deps:
+                reverse_deps.setdefault(dep, []).append(spec)
+
+        # BFS from scope to find all transitively affected abstract specs
+        in_scope_specs: set[str] = set()
+        queue = list(scope)
+        while queue:
+            current = queue.pop(0)
+            if current in in_scope_specs:
+                continue
+            in_scope_specs.add(current)
+            for dep in all_specs.get(current, []):
+                queue.append(dep)
+            for dependent in reverse_deps.get(current, []):
+                queue.append(dependent)
+
+        # Dual-layer expansion: map each in-scope spec to its impl partner
+        in_scope_impls: set[str] = set()
+        spec_to_impl_map: dict[str, str] = {}
+        for impl_path, meta in all_impls.items():
+            src = meta.get("source_spec")
+            if src:
+                spec_to_impl_map[src] = impl_path
+
+        # Seed concrete scope with impls whose source-spec is in scope
+        for spec in in_scope_specs:
+            impl = spec_to_impl_map.get(spec)
+            if impl:
+                in_scope_impls.add(impl)
+
+        # Also seed with any impl.md paths directly in the scope input
+        for s in scope:
+            if s in all_impls:
+                in_scope_impls.add(s)
+
+        # BFS through concrete dep graph (both directions) to find
+        # all transitively affected impls
+        reverse_concrete: dict[str, list[str]] = {i: [] for i in all_impls}
+        for impl_path, meta in all_impls.items():
+            for dep in meta.get("concrete_dependencies", []):
+                reverse_concrete.setdefault(dep, []).append(impl_path)
+            extends = meta.get("extends")
+            if extends:
+                reverse_concrete.setdefault(extends, []).append(impl_path)
+
+        impl_queue = list(in_scope_impls)
+        impl_visited: set[str] = set()
+        while impl_queue:
+            current = impl_queue.pop(0)
+            if current in impl_visited:
+                continue
+            impl_visited.add(current)
+            in_scope_impls.add(current)
+            # Downstream: impls that depend on this one
+            for dependent in reverse_concrete.get(current, []):
+                impl_queue.append(dependent)
+            # Upstream: impls this one depends on
+            meta = all_impls.get(current, {})
+            for dep in meta.get("concrete_dependencies", []):
+                impl_queue.append(dep)
+            extends = meta.get("extends")
+            if extends:
+                impl_queue.append(extends)
+
+        # Also pull in specs for any impls we discovered through concrete deps
+        for impl_path in in_scope_impls:
+            meta = all_impls.get(impl_path, {})
+            src = meta.get("source_spec")
+            if src and src in all_specs:
+                in_scope_specs.add(src)
+
+        # Filter specs and impls to scope
+        all_specs = {k: v for k, v in all_specs.items() if k in in_scope_specs}
+        all_impls = {k: v for k, v in all_impls.items() if k in in_scope_impls}
+
+    # Get freshness data for staleness coloring
+    try:
+        freshness = check_freshness(str(root))
+        state_map = {f["managed"]: f["state"] for f in freshness.get("files", [])}
+    except (ValueError, OSError):
+        state_map = {}
+
+    # stale-only filter: causality-aware pruning.
+    # Two-pass algorithm:
+    #   Pass 1: Identify "seed" nodes — managed files that are stale/ghost-stale,
+    #           plus their directly associated specs and impls.
+    #   Pass 2: For every seed impl, recursively trace upstream concrete providers
+    #           (extends + concrete-dependencies) and mark them as "context providers"
+    #           so the user can see the full infection path.
+    context_provider_impls: set[str] = set()  # impls kept only for causal context
+
+    if stale_only:
+        stale_managed = {
+            path for path, state in state_map.items()
+            if state not in ("fresh",)
+        }
+        if not stale_managed:
+            # Nothing stale — return empty graph
+            return {
+                "mermaid": "graph TD\n    empty[\"All files are fresh\"]",
+                "stats": {"abstract_specs": 0, "concrete_specs": 0, "managed_files": 0, "total_nodes": 0},
+                "nodes": [],
+            }
+
+        # Pass 1: Walk backward from stale managed files to find seed specs/impls
+        stale_specs: set[str] = set()
+        stale_impls: set[str] = set()
+        for managed in stale_managed:
+            # Find the spec that generates this managed file
+            spec = managed + ".spec.md"
+            if spec in all_specs:
+                stale_specs.add(spec)
+            # Check freshness entries for spec info
+            for f in freshness.get("files", []):
+                if f["managed"] == managed and f.get("spec"):
+                    if f["spec"] in all_specs:
+                        stale_specs.add(f["spec"])
+
+        # Include upstream abstract deps of stale specs
+        stale_spec_closure: set[str] = set()
+        sq = list(stale_specs)
+        while sq:
+            current = sq.pop(0)
+            if current in stale_spec_closure:
+                continue
+            stale_spec_closure.add(current)
+            for dep in all_specs.get(current, []):
+                sq.append(dep)
+        stale_specs = stale_spec_closure
+
+        # Find impls whose source-spec is stale
+        for impl_path, meta in all_impls.items():
+            src = meta.get("source_spec")
+            if src in stale_specs:
+                stale_impls.add(impl_path)
+
+        # Pass 2: For every seed impl, recursively trace upstream concrete
+        # providers (extends + concrete-dependencies).  These are the
+        # "staleness providers" — the causal source of ghost-staleness.
+        impl_queue = list(stale_impls)
+        visited_impls: set[str] = set(stale_impls)
+        while impl_queue:
+            current = impl_queue.pop(0)
+            meta = all_impls.get(current, {})
+            upstream = list(meta.get("concrete_dependencies", []))
+            extends = meta.get("extends")
+            if extends:
+                upstream.append(extends)
+            for dep_impl in upstream:
+                if dep_impl not in visited_impls and dep_impl in all_impls:
+                    visited_impls.add(dep_impl)
+                    impl_queue.append(dep_impl)
+                    if dep_impl not in stale_impls:
+                        context_provider_impls.add(dep_impl)
+
+        stale_impls = visited_impls
+
+        # Also pull in specs for context-provider impls so their abstract
+        # nodes show up in the graph
+        for impl_path in context_provider_impls:
+            meta = all_impls.get(impl_path, {})
+            src = meta.get("source_spec")
+            if src and src in all_specs:
+                stale_specs.add(src)
+
+        all_specs = {k: v for k, v in all_specs.items() if k in stale_specs}
+        all_impls = {k: v for k, v in all_impls.items() if k in stale_impls}
+
+    # Build Mermaid graph
+    lines = ["graph TD"]
+    node_ids: dict[str, str] = {}  # path -> sanitized node ID
+    node_counter = [0]
+    nodes_info = []
+
+    def _node_id(path: str) -> str:
+        if path not in node_ids:
+            node_ids[path] = f"n{node_counter[0]}"
+            node_counter[0] += 1
+        return node_ids[path]
+
+    def _short(path: str) -> str:
+        """Shorten path for display."""
+        parts = path.rsplit("/", 1)
+        return parts[-1] if len(parts) > 1 else path
+
+    # Style definitions
+    lines.append("")
+    lines.append("    %% Staleness colors")
+    lines.append("    classDef fresh fill:#2d5a2d,stroke:#4a4,color:#fff")
+    lines.append("    classDef stale fill:#8b4513,stroke:#d90,color:#fff")
+    lines.append("    classDef ghostStale fill:#4a3060,stroke:#a6f,color:#fff")
+    lines.append("    classDef modified fill:#8b6914,stroke:#da0,color:#fff")
+    lines.append("    classDef conflict fill:#8b1a1a,stroke:#f44,color:#fff")
+    lines.append("    classDef new fill:#1a4a6b,stroke:#4af,color:#fff")
+    lines.append("    classDef spec fill:#1a3a5a,stroke:#58f,color:#fff")
+    lines.append("    classDef impl fill:#3a2a5a,stroke:#a8f,color:#fff")
+    lines.append("    classDef base fill:#2a3a3a,stroke:#8aa,color:#fff")
+    lines.append("    classDef contextProvider fill:#3a3a3a,stroke:#888,color:#aaa,stroke-dasharray:5 5")
+
+    # Abstract spec nodes
+    if all_specs:
+        lines.append("")
+        lines.append("    %% Abstract Specs")
+        for spec in sorted(all_specs):
+            nid = _node_id(spec)
+            label = _short(spec).replace(".spec.md", "")
+            lines.append(f'    {nid}["{label}\\n<small>.spec.md</small>"]')
+            lines.append(f"    class {nid} spec")
+            nodes_info.append({"id": nid, "path": spec, "layer": "abstract", "type": "spec"})
+
+    # Abstract spec dependency edges
+    for spec, deps in sorted(all_specs.items()):
+        for dep in deps:
+            if dep in node_ids:
+                lines.append(f"    {_node_id(dep)} --> {_node_id(spec)}")
+
+    # Concrete spec nodes
+    if all_impls:
+        lines.append("")
+        lines.append("    %% Concrete Specs")
+        for impl, meta in sorted(all_impls.items()):
+            nid = _node_id(impl)
+            label = _short(impl).replace(".impl.md", "")
+            is_context = impl in context_provider_impls
+            is_base = not meta.get("source_spec")
+            if is_base:
+                lines.append(f'    {nid}{{"{label}\\n<small>base .impl.md</small>"}}')
+                css_class = "contextProvider" if is_context else "base"
+                lines.append(f"    class {nid} {css_class}")
+                node_type = "context_provider" if is_context else "base"
+                nodes_info.append({"id": nid, "path": impl, "layer": "concrete", "type": node_type})
+            else:
+                lines.append(f'    {nid}[/"{label}\\n<small>.impl.md</small>"/]')
+                css_class = "contextProvider" if is_context else "impl"
+                lines.append(f"    class {nid} {css_class}")
+                node_type = "context_provider" if is_context else "impl"
+                nodes_info.append({"id": nid, "path": impl, "layer": "concrete", "type": node_type})
+
+    # Concrete spec edges: source-spec link, extends, concrete-dependencies
+    for impl, meta in sorted(all_impls.items()):
+        source = meta.get("source_spec")
+        if source and source in node_ids:
+            lines.append(f"    {_node_id(source)} -.->|lowers to| {_node_id(impl)}")
+
+        extends = meta.get("extends")
+        if extends and extends in node_ids:
+            lines.append(f"    {_node_id(extends)} ==>|extends| {_node_id(impl)}")
+        elif extends:
+            # Parent might be out of scope — add it as a reference node
+            pnid = _node_id(extends)
+            plabel = _short(extends).replace(".impl.md", "")
+            lines.append(f'    {pnid}{{"{plabel}\\n<small>base</small>"}}')
+            lines.append(f"    class {pnid} base")
+            lines.append(f"    {pnid} ==>|extends| {_node_id(impl)}")
+
+        for dep in meta.get("concrete_dependencies", []):
+            if dep in node_ids:
+                lines.append(f"    {_node_id(dep)} -->|concrete dep| {_node_id(impl)}")
+
+    # Managed code file nodes
+    if include_code:
+        code_nodes = set()
+        lines.append("")
+        lines.append("    %% Managed Code Files")
+
+        for spec in sorted(all_specs):
+            # Multi-target check
+            impl_companion = re.sub(r"\.spec\.md$", ".impl.md", spec)
+            if impl_companion in all_impls:
+                targets = all_impls[impl_companion].get("targets", [])
+                if targets:
+                    for target in targets:
+                        managed = target.get("path", "")
+                        if managed and managed not in code_nodes:
+                            code_nodes.add(managed)
+                            nid = _node_id(managed)
+                            label = _short(managed)
+                            state = state_map.get(managed, "new")
+                            lines.append(f'    {nid}(["{label}"])')
+                            css = _state_to_class(state)
+                            lines.append(f"    class {nid} {css}")
+                            lines.append(f"    {_node_id(spec)} -->|generates| {nid}")
+                            nodes_info.append({"id": nid, "path": managed, "layer": "code", "state": state})
+                    continue
+
+            # Unit specs list their managed files in a ## Files section
+            if spec.endswith(".unit.spec.md"):
+                try:
+                    spec_content = (root / spec).read_text(encoding="utf-8")
+                except (OSError, UnicodeDecodeError):
+                    continue
+                spec_dir = str(Path(spec).parent)
+                in_files = False
+                for sline in spec_content.split("\n"):
+                    if re.match(r"^## Files", sline):
+                        in_files = True
+                        continue
+                    if in_files:
+                        if re.match(r"^## ", sline):
+                            break
+                        fm = re.match(r"^\s*-\s+`([^`]+)`", sline)
+                        if fm:
+                            managed = str(Path(spec_dir) / fm.group(1))
+                            if managed not in code_nodes:
+                                code_nodes.add(managed)
+                                nid = _node_id(managed)
+                                label = _short(managed)
+                                state = state_map.get(managed, "new")
+                                lines.append(f'    {nid}(["{label}"])')
+                                css = _state_to_class(state)
+                                lines.append(f"    class {nid} {css}")
+                                lines.append(f"    {_node_id(spec)} -->|generates| {nid}")
+                                nodes_info.append({"id": nid, "path": managed, "layer": "code", "state": state})
+                continue
+
+            # Single target
+            managed = re.sub(r"\.spec\.md$", "", spec)
+            if managed not in code_nodes:
+                code_nodes.add(managed)
+                nid = _node_id(managed)
+                label = _short(managed)
+                state = state_map.get(managed, "new")
+                lines.append(f'    {nid}(["{label}"])')
+                css = _state_to_class(state)
+                lines.append(f"    class {nid} {css}")
+                lines.append(f"    {_node_id(spec)} -->|generates| {nid}")
+                nodes_info.append({"id": nid, "path": managed, "layer": "code", "state": state})
+
+    mermaid = "\n".join(lines)
+    spec_count = len(all_specs)
+    impl_count = len(all_impls)
+    code_count = sum(1 for n in nodes_info if n["layer"] == "code")
+
+    return {
+        "mermaid": mermaid,
+        "stats": {
+            "abstract_specs": spec_count,
+            "concrete_specs": impl_count,
+            "managed_files": code_count,
+            "total_nodes": len(nodes_info),
+        },
+        "nodes": nodes_info,
+    }
+
+
+def _state_to_class(state: str) -> str:
+    """Map a staleness state to a Mermaid CSS class name."""
+    return {
+        "fresh": "fresh",
+        "stale": "stale",
+        "ghost-stale": "ghostStale",
+        "modified": "modified",
+        "conflict": "conflict",
+        "new": "new",
+        "old_format": "stale",
+    }.get(state, "new")
 
 
 def file_tree(directory: str) -> list[str]:
@@ -629,7 +3173,10 @@ def file_tree(directory: str) -> list[str]:
 def main():
     """CLI entry point."""
     if len(sys.argv) < 2:
-        print("Usage: orchestrator.py <discover|build-order|deps|check-freshness|file-tree> [args]", file=sys.stderr)
+        cmds = ("discover|build-order|deps|check-freshness|concrete-order"
+                "|concrete-deps|ripple-check|deep-sync-plan|bulk-sync-plan"
+                "|resume-sync-plan|graph|file-tree")
+        print(f"Usage: orchestrator.py <{cmds}> [args]", file=sys.stderr)
         sys.exit(1)
 
     command = sys.argv[1]
@@ -642,7 +3189,7 @@ def main():
         extensions = None
         if "--extensions" in sys.argv:
             ext_idx = sys.argv.index("--extensions")
-            extensions = sys.argv[ext_idx + 1:]
+            extensions = sys.argv[ext_idx + 1 :]
             if not extensions:
                 print("Usage: orchestrator.py discover <directory> [--extensions .py .rs]", file=sys.stderr)
                 sys.exit(1)
@@ -711,6 +3258,241 @@ def main():
         except (ValueError, OSError, UnicodeDecodeError) as e:
             print(json.dumps({"error": str(e)}), file=sys.stderr)
             sys.exit(2)
+
+    elif command == "concrete-order":
+        directory = sys.argv[2] if len(sys.argv) > 2 else "."
+        try:
+            result = build_concrete_order(directory)
+            print(json.dumps(result, indent=2))
+        except ValueError as e:
+            error_msg = str(e)
+            if "Cycle detected" in error_msg:
+                print(
+                    json.dumps(
+                        {
+                            "error": error_msg,
+                            "hint": "Circular concrete-dependencies found. "
+                            "Break the cycle by removing one direction of the dependency.",
+                        }
+                    ),
+                    file=sys.stderr,
+                )
+            else:
+                print(json.dumps({"error": error_msg}), file=sys.stderr)
+            sys.exit(1)
+
+    elif command == "concrete-deps":
+        if len(sys.argv) < 3:
+            print("Usage: orchestrator.py concrete-deps <impl-path> [--root <project-root>] [--flatten]", file=sys.stderr)
+            sys.exit(1)
+        impl_path = sys.argv[2]
+        project_root = "."
+        if "--root" in sys.argv:
+            root_idx = sys.argv.index("--root")
+            if root_idx + 1 >= len(sys.argv):
+                print("Usage: orchestrator.py concrete-deps <impl-path> [--root <project-root>] [--flatten]", file=sys.stderr)
+                sys.exit(1)
+            project_root = sys.argv[root_idx + 1]
+        flatten = "--flatten" in sys.argv
+        try:
+            impl = Path(impl_path)
+            if not impl.exists():
+                print(json.dumps({"error": f"File not found: {impl_path}"}), file=sys.stderr)
+                sys.exit(1)
+            content = impl.read_text(encoding="utf-8")
+            meta = parse_concrete_frontmatter(content)
+            deps = meta.get("concrete_dependencies", [])
+            deps_hash = compute_concrete_deps_hash(str(impl), project_root)
+            manifest = compute_concrete_manifest(str(impl), project_root)
+            result = {
+                "impl_path": impl_path,
+                "concrete_dependencies": deps,
+                "deps_hash": deps_hash,
+                "manifest": manifest,
+                "manifest_header": format_manifest_header(manifest) if manifest else None,
+                "source_spec": meta.get("source_spec"),
+                "complexity": meta.get("complexity"),
+                "ephemeral": meta.get("ephemeral", True),
+            }
+            if flatten:
+                result["flattened"] = flatten_inheritance_chain(str(impl), project_root)
+            print(json.dumps(result, indent=2))
+        except (OSError, UnicodeDecodeError) as e:
+            print(json.dumps({"error": str(e)}), file=sys.stderr)
+            sys.exit(1)
+
+    elif command == "ripple-check":
+        if len(sys.argv) < 3:
+            print(
+                "Usage: orchestrator.py ripple-check <spec-path> [<spec-path>...] [--root <project-root>]",
+                file=sys.stderr,
+            )
+            sys.exit(1)
+        project_root = "."
+        spec_paths = []
+        i = 2
+        while i < len(sys.argv):
+            if sys.argv[i] == "--root":
+                if i + 1 >= len(sys.argv):
+                    print("--root requires a value", file=sys.stderr)
+                    sys.exit(1)
+                project_root = sys.argv[i + 1]
+                i += 2
+            else:
+                spec_paths.append(sys.argv[i])
+                i += 1
+        try:
+            result = ripple_check(spec_paths, project_root)
+            print(json.dumps(result, indent=2))
+        except (ValueError, OSError, UnicodeDecodeError) as e:
+            print(json.dumps({"error": str(e)}), file=sys.stderr)
+            sys.exit(1)
+
+    elif command == "deep-sync-plan":
+        if len(sys.argv) < 3:
+            print("Usage: orchestrator.py deep-sync-plan <file-path> [--root <dir>] [--force]", file=sys.stderr)
+            sys.exit(1)
+        file_path = sys.argv[2]
+        project_root = "."
+        force = False
+        i = 3
+        while i < len(sys.argv):
+            if sys.argv[i] == "--root" and i + 1 < len(sys.argv):
+                project_root = sys.argv[i + 1]
+                i += 2
+            elif sys.argv[i] == "--force":
+                force = True
+                i += 1
+            else:
+                i += 1
+        try:
+            result = compute_deep_sync_plan(file_path, project_root, force=force)
+            print(json.dumps(result, indent=2))
+        except (ValueError, OSError, UnicodeDecodeError) as e:
+            print(json.dumps({"error": str(e)}), file=sys.stderr)
+            sys.exit(1)
+
+    elif command == "bulk-sync-plan":
+        project_root = "."
+        force = False
+        max_batch_size = 8
+        i = 2
+        while i < len(sys.argv):
+            if sys.argv[i] == "--root" and i + 1 < len(sys.argv):
+                project_root = sys.argv[i + 1]
+                i += 2
+            elif sys.argv[i] == "--force":
+                force = True
+                i += 1
+            elif sys.argv[i] == "--max-batch" and i + 1 < len(sys.argv):
+                try:
+                    max_batch_size = int(sys.argv[i + 1])
+                except ValueError:
+                    print("--max-batch requires an integer", file=sys.stderr)
+                    sys.exit(1)
+                i += 2
+            else:
+                i += 1
+        try:
+            result = compute_bulk_sync_plan(project_root, force=force, max_batch_size=max_batch_size)
+            print(json.dumps(result, indent=2))
+        except (ValueError, OSError, UnicodeDecodeError) as e:
+            print(json.dumps({"error": str(e)}), file=sys.stderr)
+            sys.exit(1)
+
+    elif command == "resume-sync-plan":
+        project_root = "."
+        force = False
+        max_batch_size = 8
+        failed: list[str] = []
+        succeeded: list[str] = []
+        i = 2
+        while i < len(sys.argv):
+            if sys.argv[i] == "--root" and i + 1 < len(sys.argv):
+                project_root = sys.argv[i + 1]
+                i += 2
+            elif sys.argv[i] == "--force":
+                force = True
+                i += 1
+            elif sys.argv[i] == "--max-batch" and i + 1 < len(sys.argv):
+                try:
+                    max_batch_size = int(sys.argv[i + 1])
+                except ValueError:
+                    print("--max-batch requires an integer", file=sys.stderr)
+                    sys.exit(1)
+                i += 2
+            elif sys.argv[i] == "--failed" and i + 1 < len(sys.argv):
+                failed = sys.argv[i + 1].split(",")
+                i += 2
+            elif sys.argv[i] == "--succeeded" and i + 1 < len(sys.argv):
+                succeeded = sys.argv[i + 1].split(",")
+                i += 2
+            else:
+                i += 1
+        if not failed:
+            print(
+                "Usage: orchestrator.py resume-sync-plan "
+                "--failed f1,f2 --succeeded s1,s2 [--root <dir>]",
+                file=sys.stderr,
+            )
+            sys.exit(1)
+        try:
+            result = compute_resume_plan(
+                project_root,
+                failed_files=failed,
+                succeeded_files=succeeded,
+                force=force,
+                max_batch_size=max_batch_size,
+            )
+            print(json.dumps(result, indent=2))
+        except (ValueError, OSError, UnicodeDecodeError) as e:
+            print(json.dumps({"error": str(e)}), file=sys.stderr)
+            sys.exit(1)
+
+    elif command == "graph":
+        directory = "."
+        scope = []
+        no_code = False
+        stale_only = False
+        i = 2
+        while i < len(sys.argv):
+            if sys.argv[i] == "--root":
+                if i + 1 < len(sys.argv):
+                    directory = sys.argv[i + 1]
+                    i += 2
+                else:
+                    print("--root requires a value", file=sys.stderr)
+                    sys.exit(1)
+            elif sys.argv[i] == "--no-code":
+                no_code = True
+                i += 1
+            elif sys.argv[i] == "--stale-only":
+                stale_only = True
+                i += 1
+            elif sys.argv[i] == "--scope":
+                # Collect all following non-flag args as scope specs
+                i += 1
+                while i < len(sys.argv) and not sys.argv[i].startswith("--"):
+                    scope.append(sys.argv[i])
+                    i += 1
+            else:
+                # Positional: treat as directory or scope spec
+                if not scope:
+                    directory = sys.argv[i]
+                else:
+                    scope.append(sys.argv[i])
+                i += 1
+        try:
+            result = render_dependency_graph(
+                directory,
+                scope=scope if scope else None,
+                include_code=not no_code,
+                stale_only=stale_only,
+            )
+            print(json.dumps(result, indent=2))
+        except (ValueError, OSError, UnicodeDecodeError) as e:
+            print(json.dumps({"error": str(e)}), file=sys.stderr)
+            sys.exit(1)
 
     elif command == "file-tree":
         directory = sys.argv[2] if len(sys.argv) > 2 else "."

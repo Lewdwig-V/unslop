@@ -121,6 +121,8 @@ When `unslop` detects a `.unslop/` directory in your project, it auto-activates 
 | "Just fix this null check" | `/unslop:change --tactical` |
 | "Is this implementation solid?" | `/unslop:harden` |
 | "What's out of date?" | `/unslop:status` |
+| "Sync everything that's stale" | `/unslop:sync --stale-only` |
+| "Why is X ghost-stale?" | `/unslop:graph --stale-only` |
 | "Do these specs agree?" | `/unslop:coherence` |
 
 If you explicitly ask to edit a managed file directly, unslop warns once (the file will show as `modified` in status) and steps aside. It's a tool, not a gatekeeper.
@@ -218,6 +220,28 @@ Every managed file carries a dual-hash header:
 
 Four states: **fresh** (both hashes match), **stale** (spec changed), **modified** (code edited directly), **conflict** (both changed). `/unslop:status` reports all of these. CI can enforce freshness via `check-freshness`.
 
+### Ghost staleness
+
+When a concrete spec (`*.impl.md`) changes, all downstream managed files that depend on it through `extends` or `concrete-dependencies` become **ghost-stale** -- their abstract spec hasn't changed, but their implementation strategy has. Ghost staleness is tracked via a per-dependency manifest in the managed file header:
+
+```python
+# concrete-manifest:core.impl.md:a3f8c2e9b7d1,utils.impl.md:7f2e1b8a9c04
+```
+
+`/unslop:graph --stale-only` renders the **causal subgraph** -- not just stale nodes, but the upstream concrete providers that triggered the staleness. Context providers (the cause) are styled with dashed grey borders so you can trace the infection path from root cause to symptom, even when the cause has no managed output of its own.
+
+### Bulk sync
+
+`/unslop:sync --stale-only` scans the entire project for stale files and batches them into worktree groups that respect topological order from both abstract (`depends-on`) and concrete (`extends`/`concrete-dependencies`) graphs. Files within a batch share no dependency edges, so they can be processed efficiently in a single worktree.
+
+```
+/unslop:sync --stale-only                    # sync all stale files in batched topo order
+/unslop:sync --stale-only --dry-run          # show the plan without regenerating
+/unslop:sync --stale-only --force            # include modified/conflict files
+/unslop:sync --stale-only --max-batch 4      # cap files per worktree batch
+/unslop:sync src/retry.py --deep             # sync one file + its downstream blast radius
+```
+
 ## Commands
 
 | Command | Description |
@@ -227,10 +251,13 @@ Four states: **fresh** (both hashes match), **stale** (spec changed), **modified
 | `/unslop:takeover <file\|dir>` | Bring existing code under spec management |
 | `/unslop:generate` | Regenerate all stale managed files |
 | `/unslop:sync <file>` | Regenerate one specific managed file |
+| `/unslop:sync <file> --deep` | Regenerate a file and its entire downstream blast radius |
+| `/unslop:sync --stale-only` | Batch-sync all stale files in dependency order |
 | `/unslop:status` | List managed files, staleness, pending changes |
 | `/unslop:change <file> "desc" [--tactical]` | Record or immediately execute a change request |
 | `/unslop:harden <spec-path>` | Stress-test a spec for completeness and edge cases |
 | `/unslop:coherence [spec-path]` | Check cross-spec consistency across dependencies |
+| `/unslop:graph [--stale-only]` | Render Mermaid dependency graph (causal subgraph if stale-only) |
 
 ## Skills
 
@@ -239,9 +266,10 @@ Four states: **fresh** (both hashes match), **stale** (spec changed), **modified
 | Skill | Purpose |
 |---|---|
 | **spec-language** | Vocabulary guide for writing specs -- intent vs implementation |
+| **concrete-spec** | Writing concrete specs (strategy-focused, compiler IR model) |
 | **generation** | Two-stage execution model, quality gates, test policy |
 | **takeover** | Takeover pipeline, convergence loop, archive conventions |
-| **triage** | Auto-routes user intent to the correct unslop command |
+| **triage** | Auto-routes user intent to the correct unslop command (sync, deep sync, bulk sync, graph, harden, etc.) |
 | **domain/fastapi** | FastAPI-specific generation priors (dependency injection, schemas, async) |
 
 Domain skills are additive -- they augment the generation skill with framework conventions. Community contributions for React, SQLAlchemy, Terraform, and other frameworks are welcome.

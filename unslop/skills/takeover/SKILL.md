@@ -8,16 +8,17 @@ version: 0.1.0
 
 ## Pipeline Overview
 
-The takeover pipeline brings an existing file under spec management by extracting its intent, archiving the original, and regenerating it from a spec. The spec becomes the source of truth; the original code is discarded.
+The takeover pipeline brings an existing file under spec management by **raising** it through unslop's compiler IR layers: Code → Concrete Spec → Abstract Spec. This two-phase lifting is more accurate than jumping directly from code to abstract spec, because the intermediate Concrete Spec preserves algorithmic decisions that may be load-bearing.
 
 Steps:
 
 1. **Discover** — Read the target file and locate its tests
-2. **Draft Spec** — Extract intent from code and tests; get user approval
-3. **Archive** — Archive the original to `.unslop/archive/` before it is replaced
-4. **Generate** — Regenerate the file from the approved spec only
-5. **Validate** — Run tests; commit if green, enter convergence loop if red
-6. **Convergence Loop** — Enrich the spec and regenerate until tests pass or iterations are exhausted
+2. **Raise to Concrete** — Extract the algorithm, patterns, and type structure into a Concrete Spec (the current "How")
+3. **Raise to Abstract** — Extract observable behavior and constraints into an Abstract Spec (the original "Why")
+4. **Archive** — Archive the original to `.unslop/archive/` before it is replaced
+5. **Lower & Generate** — Lower through a (possibly new) Concrete Spec and regenerate code
+6. **Validate** — Run tests; commit if green, enter convergence loop if red
+7. **Convergence Loop** — Enrich the spec and regenerate until tests pass or iterations are exhausted
 
 ---
 
@@ -44,22 +45,48 @@ Do not continue past this point until the user explicitly confirms they want to 
 
 ---
 
-## Step 2: Draft Spec
+## Step 2: Raise to Concrete Spec
+
+Use the **unslop/concrete-spec** skill for format guidance throughout this step.
+
+Read the target file and all discovered test files. Extract the implementation strategy:
+
+- **Algorithm** — What algorithm or approach does the code use? Express as pseudocode.
+- **Patterns** — What design patterns are in play? (e.g., decorator, strategy, observer)
+- **Type structure** — What are the key types/interfaces and their relationships?
+- **Data flow** — How does data move through the system? (Mermaid diagrams for complex flows)
+- **Edge cases** — What special cases does the code handle? Which are intentional vs incidental?
+
+Write a Concrete Spec (`*.impl.md`) capturing the current "How" — the algorithm, structure, and patterns the legacy code uses. This is a **faithful description** of existing behavior, bugs and all. Do not idealize.
+
+**Present the Concrete Spec to the user only if the file is complex** (multiple algorithms, async flows, non-obvious state machines). For straightforward files, proceed directly to Step 2b.
+
+> "Here's the implementation strategy I extracted from the existing code. Note any algorithmic choices that are intentional vs incidental — this will help me extract the right abstract spec."
+
+The Concrete Spec is ephemeral during takeover — it serves as a stepping stone to the Abstract Spec and as a reference during convergence. It is not committed unless the user later promotes it.
+
+---
+
+## Step 2b: Raise to Abstract Spec
 
 Use the **unslop/spec-language** skill for writing guidance throughout this step.
 
-Read the target file and all discovered test files. From them, extract:
+From the Concrete Spec (and the original code/tests), extract the **observable behavior**:
 
 - **Intent** — What is this code for? What problem does it solve?
 - **Contracts** — What are its inputs and outputs? What invariants hold?
 - **Error conditions** — What inputs or states are invalid? How are errors surfaced?
 - **Constraints** — Size limits, retry counts, timeouts, ordering guarantees, concurrency expectations
 
-**Do NOT copy implementation details into the spec.** Data structures, algorithms, variable names, and internal control flow belong in code, not in the spec. Describe what the code does, not how it does it.
+**Do NOT copy implementation details into the abstract spec.** The Concrete Spec captures the "How" — the Abstract Spec captures only the "What" and "Why." Algorithms, data structures, variable names, and internal control flow belong in the Concrete Spec or in code, not in the Abstract Spec.
 
-Present the draft spec to the user:
+The two-phase raising makes this extraction more accurate: the Architect can reference the Concrete Spec to distinguish between:
+- **Intentional algorithmic choices** (e.g., "uses exponential backoff" → constraint in Abstract Spec: "must prevent thundering herds")
+- **Incidental implementation details** (e.g., "uses a dict for caching" → omit from Abstract Spec, leave to Builder)
 
-> "Review this spec. Does it capture what this code is supposed to do? I'll regenerate fresh code from this spec alone, so anything missing here will be lost."
+Present the draft Abstract Spec to the user:
+
+> "Review this spec. Does it capture what this code is supposed to do? I'll regenerate fresh code from this spec alone, so anything missing here will be lost. The implementation strategy (algorithm, patterns) will be re-derived during generation."
 
 **Wait for explicit user approval before proceeding.** Incorporate any corrections the user requests and re-present if needed. Do not advance to Step 3 until the user says the spec is correct.
 
@@ -81,18 +108,21 @@ This archive is a safety net. The user can manually recover the original from it
 
 ---
 
-## Step 4: Generate (Stage B -- Builder in Worktree)
+## Step 4: Lower & Generate (Stage A.2 + Stage B)
 
-Use the **unslop/generation** skill's two-stage execution model.
+Use the **unslop/generation** skill's multi-stage execution model.
 
 **CRITICAL: Takeover always uses full regeneration mode (Mode A). The Builder does NOT read the archived original.**
 
-Dispatch a Builder Agent with:
+**Stage A.2 (Lowering):** The generation skill's Stage A.2 runs to derive a fresh Concrete Spec from the approved Abstract Spec. During takeover, the previously raised Concrete Spec (from Step 2) is available as reference — the Strategist may reuse algorithmic choices that the user confirmed as intentional, but is free to choose a different strategy if the Abstract Spec permits it.
+
+**Stage B (Building):** Dispatch a Builder Agent with:
 - test_policy: `"Write or extend tests as needed for newly explicit constraints"`
 - Mode A (full regeneration) -- always, no incremental for takeover
-- The spec path as the sole source of truth
+- The abstract spec path as the primary source of truth
+- The concrete spec (from Stage A.2) as strategic guidance
 
-The Architect stage (Steps 1-2) already ran in the user's session -- it read the code, drafted the spec, and got user approval. The Builder starts fresh with zero knowledge of the original code.
+The Architect stage (Steps 1-2b) already ran in the user's session -- it read the code, raised through concrete to abstract, and got user approval. The Builder starts fresh with zero knowledge of the original code.
 
 ---
 
@@ -104,13 +134,15 @@ After the Builder Agent completes:
 
 - Worktree merges automatically
 - Compute `output-hash` on merged code, update `@unslop-managed` header
-- Commit the spec file and the generated file together as a single atomic commit
+- Handle Concrete Spec: ephemeral by default (discard), unless `complexity: high` or user requested promotion
+- Commit the abstract spec and the generated file (+ concrete spec if permanent) together as a single atomic commit
 - Report success to the calling command
 
 **If BLOCKED or tests fail:**
 
 - Discard the worktree
 - Enter the convergence loop (Step 6) using the Builder's failure report
+- The raised Concrete Spec from Step 2 is available as diagnostic context during convergence
 
 ---
 
@@ -122,15 +154,19 @@ For each iteration:
 
 a. **Read the Builder's failure report** -- failing test names, assertion messages, what was attempted, suspected spec gaps. Do NOT request raw test output or code snippets.
 
-b. **Enrich the spec (Stage A)** -- Based on the failure report's suspected spec gaps, add missing constraints in spec-language voice. The Architect identifies gaps only -- it does NOT copy implementation suggestions from the Builder.
+b. **Diagnose using the Concrete Spec** -- The raised Concrete Spec from Step 2 provides context for why the original code handled certain cases. Compare the Builder's failure report against the Concrete Spec to identify algorithmic choices that were load-bearing but not captured in the Abstract Spec.
 
-c. **Get user approval** -- Present the enriched spec to the user. Wait for approval.
+c. **Enrich the Abstract Spec (Stage A.1)** -- Based on the failure report and Concrete Spec context, add missing constraints in spec-language voice. The Architect identifies gaps only -- it does NOT copy implementation suggestions from the Builder.
 
-d. **Stage the spec update** -- `git add <spec_path>`. Do NOT commit.
+d. **Get user approval** -- Present the enriched spec to the user. Wait for approval.
 
-e. **Dispatch a new Builder (Stage B)** -- Fresh Agent, new worktree. The Builder never knows why the spec changed. test_policy: `"Write or extend tests as needed for newly explicit constraints"`.
+e. **Stage the spec update** -- `git add <spec_path>`. Do NOT commit.
 
-f. **Verify** -- Same as Step 5. If green: commit atomically, done. If red: next iteration.
+f. **Re-lower (Stage A.2)** -- The Strategist derives a fresh Concrete Spec from the enriched Abstract Spec.
+
+g. **Dispatch a new Builder (Stage B)** -- Fresh Agent, new worktree. The Builder never knows why the spec changed. test_policy: `"Write or extend tests as needed for newly explicit constraints"`.
+
+h. **Verify** -- Same as Step 5. If green: commit atomically, done. If red: next iteration.
 
 **If maximum iterations reached:** discard the worktree, revert the staged spec update. Present:
 - The Builder's latest failure report

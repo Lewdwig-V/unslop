@@ -8,11 +8,35 @@ version: 0.1.0
 
 ## Core Principle
 
-Specs describe **intent**, not implementation. A spec defines what a file must do, what constraints it must satisfy, and what behavior it must exhibit — not how to achieve any of those things. Code is disposable; specs are the source of truth.
+The two spec layers have different stances. **Abstract Specs** describe **intent** — what a file must do, what constraints it must satisfy, what behavior it must exhibit. **Concrete Specs** describe **strategy** — what algorithm, pattern, or type structure delivers those guarantees, in language-agnostic terms. Neither layer contains target-language code; code is disposable, specs are the source of truth.
+
+## The Two-Layer Spec Model
+
+Unslop uses a compiler-inspired two-layer spec architecture:
+
+| Layer | File | Describes | Analogy |
+|---|---|---|---|
+| **Abstract Spec** | `*.spec.md` | Observable behavior, constraints, contracts | High-Level IR (the "What" and "Why") |
+| **Concrete Spec** | `*.impl.md` | Algorithm, patterns, type structure | Mid-Level IR (the "How") |
+
+**This skill primarily governs Abstract Specs.** The Pseudocode Discipline section below also applies to Concrete Specs. For broader Concrete Spec writing guidance (Strategy, Lowering Notes, Type Sketch), see the `unslop/concrete-spec` skill.
+
+The boundary between the two layers follows a simple rule: **if it's observable from outside the module, it belongs in the Abstract Spec. If it's an internal strategy choice, it belongs in the Concrete Spec (or nowhere — most strategy choices are ephemeral).**
+
+Examples of the boundary:
+
+| Abstract Spec (*.spec.md) | Concrete Spec (*.impl.md) |
+|---|---|
+| "Retries with exponential backoff, max 5 attempts" | "Full Jitter algorithm: `sleep = cap * random()`" |
+| "Results are sorted by relevance score" | "Uses a min-heap for top-K selection, O(n log k)" |
+| "Deduplicates within a 5-minute window" | "Sliding window with a hash set, pruned on insert" |
+| "Responses cached for 5 minutes" | "LRU cache with TTL, max 1000 entries" |
+
+The Abstract Spec says **what guarantee the caller gets**. The Concrete Spec says **what algorithm delivers that guarantee**. The generated code says **how that algorithm is expressed in the target language**.
 
 ## Vocabulary Guide
 
-Specs are written in terms of observable behavior, contracts, and constraints. They are not written in terms of data structures, algorithms, or control flow.
+Abstract specs are written in terms of observable behavior, contracts, and constraints — not data structures, algorithms, or control flow. (Concrete specs intentionally use algorithm and pattern vocabulary; the restrictions below apply to `*.spec.md` files.)
 
 | Good (intent) | Bad (implementation) |
 |---|---|
@@ -147,6 +171,96 @@ Use per-file specs when:
 - Files are loosely coupled and can be described independently
 - The unit has more than ~10 files (context limits)
 - Different files have different dependency chains
+
+## Pseudocode Discipline
+
+Pseudocode appears in Concrete Specs (`*.impl.md`) inside ` ```pseudocode ` fenced blocks. It is the Middle-End IR — a human-readable blueprint for logic that bridges high-level intent and machine execution. These constraints ensure pseudocode remains a high-fidelity lowering target that the Builder can reliably "compile."
+
+### Definition
+
+- **What it IS**: A structured, language-agnostic representation of an algorithm's essential logic. It describes *how the math or logic works*, not how a language's library handles it.
+- **What it IS NOT**: Compilable code. It must avoid language-specific syntax (semicolons, curly braces, strict imports, type annotations with language-specific notation).
+
+### Structural Rules
+
+These rules ensure unambiguous parsing by both humans and the Builder:
+
+1. **One statement per line.** Each line represents a single logical action. Multi-statement lines obscure control flow.
+
+2. **Capitalized keywords for flow control.** Use a consistent set:
+   - Control flow: `IF`, `ELSE IF`, `ELSE`, `WHILE`, `FOR`, `REPEAT UNTIL`
+   - Operations: `SET`, `RETURN`, `RAISE`, `CALL`, `EMIT`
+   - Exception handling: `TRY`, `CATCH`
+   - Scope: `FUNCTION ... END FUNCTION`, `BEGIN ... END` for non-function blocks
+
+3. **Indentation-based hierarchy.** Mandatory indentation (2 or 4 spaces, consistent within a block) to show scope and nesting. No braces, no `end` keywords for control flow (scope is implicit from indentation, like Python but without the colon).
+
+4. **Operator discipline is context-sensitive.** The linter enforces different rules depending on the statement type:
+   - **Assignment contexts** (`SET`, `FOR`, `INCREMENT`, `DECREMENT`): MUST use `←` (or `:=` as fallback). Never bare `=`. These statements initialize or mutate state — `FOR i ← 0 TO 9`, not `FOR i = 0 TO 9`.
+   - **Comparison contexts** (`IF`, `ELSE IF`, `WHILE`, `UNTIL`, `WHEN`, `ASSERT`): bare `=` is allowed as equality comparison. `UNTIL status = DONE` is correct — it's a boolean test, not an assignment.
+   - **All other lines**: bare `=` is flagged as a violation (use `SET ... ←` to make intent explicit).
+
+5. **Descriptive names, not abbreviations.** `delay`, `attempts`, `upper_bound` — not `d`, `a`, `ub`. Named constants for magic numbers: `MAX_RETRY_ATTEMPTS` not `5`.
+
+### Level of Abstraction (The Goldilocks Rule)
+
+Pseudocode must be detailed enough to be unambiguous but abstract enough to stay portable:
+
+**Elide:**
+- Boilerplate: memory allocation, imports, variable declarations (unless safety-critical)
+- Type annotations (these belong in `## Type Sketch`)
+- Library initialization and teardown
+
+**Include:**
+- Every conditional branch, especially error paths and edge cases
+- The exact mathematical formula for computed values (e.g., `delay ← random_uniform(0, upper_bound)`)
+- Loop bounds and termination conditions
+- Named constants with their semantic meaning
+- Complexity annotations where relevant: `// O(n log n)`, `// amortized O(1)`
+
+### Implementation Invariance
+
+The pseudocode must remain implementation-independent:
+
+- **No library calls.** Instead of `auth_lib.verify(token)`, write `VERIFY token_signature AGAINST public_key`. Instead of `random.uniform(0, n)`, write `random_uniform(0, n)` — a mathematical operation, not a library invocation.
+- **No language-specific syntax.** No `def`, `func`, `fn`, `let`, `var`, `const`, `:=` (Go-style), `->` (Rust/Haskell), `lambda`, `=>`. Use the capitalized keywords above.
+- **Mathematical notation over prose** where it is more precise: `delay ← MIN(base × 2^attempt, cap)` is clearer than "set the delay to the smaller of the exponential value and the cap."
+- **Generic data operations.** Use `APPEND item TO collection`, `REMOVE item FROM collection`, `LOOKUP key IN map` — not language-specific method syntax.
+
+### Concrete Spec Example (Compliant)
+
+````pseudocode
+FUNCTION retry(operation, config)
+    SET last_error ← null
+
+    FOR attempt ← 0 TO config.max_retries - 1
+        TRY
+            SET result ← CALL operation()
+            RETURN result
+        CATCH error
+            SET last_error ← error
+
+            IF attempt < config.max_retries - 1
+                SET upper_bound ← MIN(config.base_delay × 2^attempt, config.max_delay)
+                SET delay ← random_uniform(0, upper_bound)    // Full Jitter
+                WAIT delay
+
+    RAISE MaxRetriesExceeded(config.max_retries, last_error)
+END FUNCTION
+````
+
+### Common Violations
+
+| Violation | Example | Fix |
+|---|---|---|
+| Language-specific keyword | `def retry(...)` | `FUNCTION retry(...)` |
+| Library call | `time.sleep(delay)` | `WAIT delay` |
+| Bare assignment | `delay = x` | `SET delay ← x` |
+| FOR with bare `=` | `FOR i = 0 TO 9` | `FOR i ← 0 TO 9` |
+| Abbreviated names | `d`, `cfg`, `e` | `delay`, `config`, `error` |
+| Missing edge case | No error branch | Add `CATCH` / `IF error` |
+| Magic number | `if attempts > 5` | `IF attempts > MAX_RETRY_ATTEMPTS` |
+| Multi-statement line | `x = 1; y = 2` | Two separate lines |
 
 ## Skeleton Template
 

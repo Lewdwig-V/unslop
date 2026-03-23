@@ -52,6 +52,15 @@ Note: N files are stale due to project principle changes.
 
 For files classified as fresh, check if any of their dependencies (from `depends-on` frontmatter in their spec) are stale or conflict. If so, reclassify as `stale*` with the note `(dependency stale)`. To detect transitive staleness, call `python ${CLAUDE_PLUGIN_ROOT}/scripts/orchestrator.py deps <spec-path> --root .` and check each dependency's classification using the hash-based method above. If Python is not available, skip transitive staleness checks and note: `(dependency checking unavailable — install Python 3.8+)`.
 
+**Concrete spec ghost staleness.** For files classified as fresh, check if a permanent concrete spec (`*.impl.md`) exists with `concrete-dependencies` in its frontmatter. If any upstream concrete dependency has changed (use `python ${CLAUDE_PLUGIN_ROOT}/scripts/orchestrator.py concrete-deps <impl-path> --root .`), reclassify as `ghost-stale` with the note indicating which upstream changed:
+
+```
+  ghost-stale  src/api/handler.py     <- src/api/handler.py.spec.md
+                                          upstream concrete spec changed: src/core/pool.py.impl.md
+```
+
+Ghost staleness means the abstract spec and generated code are both unchanged, but an upstream implementation strategy has shifted — the Builder needs to re-lower through a fresh concrete spec.
+
 ---
 
 **Unit spec classification.** For each `*.unit.spec.md` file:
@@ -94,6 +103,7 @@ Rules for the display:
 - For **conflict** entries, include the note `(spec and code both changed)`.
 - For **old_format** entries, include the note `(old header — regenerate to update)`.
 - For **stale\*** entries, include the note `(dependency stale)`.
+- For **ghost-stale** entries, include the note `(upstream concrete spec changed: <path>)`.
 - If a spec has `depends-on` frontmatter, show the dependencies on an indented line below the entry.
 - For unit specs (`*.unit.spec.md`): display under a `Unit specs:` section showing the directory path, spec name, and file count rather than listing each managed file individually.
 - If there are no entries in a section, omit that section header entirely.

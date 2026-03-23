@@ -36,9 +36,116 @@ The Architect processes change intent and updates the spec. It runs in the user'
 
 **Exception:** During `/unslop:takeover`, the Architect reads existing source code and tests -- the point of takeover is extracting intent FROM code. Stage B still runs in a clean worktree.
 
+### Stage A.2: Implementation Strategist (Current Session)
+
+After the Architect finalizes the Abstract Spec (Stage A.1) and before dispatching the Builder, an implementation strategy step drafts a Concrete Spec — the "Middle-End IR" that bridges intent and code.
+
+**Persona:** Senior Implementation Engineer. Thinks in algorithms and patterns, not business requirements or syntax.
+
+**Inputs:**
+- Approved Abstract Spec (`*.spec.md`)
+- `.unslop/principles.md`
+- Existing Concrete Spec (`*.impl.md`) if one exists and is permanent
+- File tree (names only)
+- Domain skills (loaded in Phase 0d)
+
+**Output:**
+- A Concrete Spec (`*.impl.md`) written to the worktree or working directory
+
+**When Stage A.2 runs:**
+- **Always** for new files and takeover (full pipeline)
+- **Always** for `--force` regeneration
+- **Skipped** for incremental mode (`--incremental`) unless the spec delta changes algorithmic behavior
+- **Skipped** if a permanent Concrete Spec (`ephemeral: false`) already exists and the Abstract Spec hasn't changed
+
+**Ephemeral vs Permanent:**
+- By default, the Concrete Spec is **ephemeral** — generated in the worktree as the Builder's strategic input, discarded after successful generation
+- Promoted to **permanent** via `/unslop:harden --promote`, or automatically if the project or spec is marked `complexity: high` in `.unslop/config.json` or spec frontmatter
+- When permanent: lives alongside the Abstract Spec as `<file>.impl.md`, version-controlled, code-reviewed
+
+**Concrete Spec format:** See the `unslop/concrete-spec` skill for the full format specification. The key sections are:
+- `## Strategy` — pseudocode for the core algorithm
+- `## Pattern` — named design patterns and architectural approach
+- `## Type Sketch` — structural type signatures (language-agnostic)
+- `## Lowering Notes` — language-specific considerations (optional, only for permanent specs)
+
+**Strategy Inheritance:** If the concrete spec has `extends: <base.impl.md>` in its frontmatter, the Strategist resolves the inheritance chain via `resolve_inherited_sections()` before presenting the concrete spec to the Builder. The Builder receives the **resolved** concrete spec — it never sees the raw `extends` directive. Resolution uses three section-specific policies: `## Strategy` and `## Type Sketch` are **strict child-only** (parent is purged — a child that omits these fails Phase 0a.1 validation); `## Pattern` is **overridable** (child replaces parent by key, parent persists if child omits); `## Lowering Notes` is **additive** (parent + child merged by language heading). See the `unslop/concrete-spec` skill for full resolution semantics.
+
+The Strategist should use `extends` when generating concrete specs for modules that share architectural patterns (e.g., multiple FastAPI endpoints inheriting from `shared/fastapi-async.impl.md`). This reduces token cost and ensures consistency across related modules.
+
+**User approval:** Stage A.2 does NOT require user approval for ephemeral concrete specs. The user approved the Abstract Spec in Stage A.1 — the Concrete Spec is a derivation, not a new requirement. For permanent concrete specs, present a summary:
+
+> "Implementation strategy: [pattern name] using [algorithm]. Promoting to permanent. Review?"
+
+Only block on user rejection.
+
+---
+
 ### Stage B: Builder (Fresh Agent, Worktree Isolation)
 
-The Builder generates code from the spec. It runs as a fresh Agent in an isolated git worktree with zero conversation history.
+The Builder generates code from the specs. It runs as a fresh Agent in an isolated git worktree with zero conversation history.
+
+**Multi-target dispatch:** If the concrete spec has `targets` (instead of `target-language`), Stage B dispatches **parallel Builders** — one per target. Each Builder runs in its own worktree on branch `unslop/builder/<target-path-hash>`. All Builders receive the same Abstract Spec and `## Strategy`, but each gets its target-specific `## Lowering Notes` (filtered by language heading) and `targets[].notes`. See the `unslop/concrete-spec` skill for the full multi-target lowering specification.
+
+**Atomic merge for multi-target:** The controlling session waits for ALL parallel Builders to complete. If all report DONE with green tests: merge all worktrees and commit atomically. If any Builder fails: discard ALL worktrees and revert ALL staged spec updates. This all-or-nothing semantics prevents partial updates across language boundaries.
+
+**Multi-target status board:** When dispatching parallel Builders, the controlling session displays a live status board that updates as each Builder reports back. This replaces a generic spinner with actionable visibility into parallel execution.
+
+**Initial display** (immediately after dispatch):
+
+```
+Multi-target build: auth_logic.impl.md (2 targets)
+  [1/2] src/api/auth.py        (python)     building...
+  [2/2] frontend/src/api/auth.ts (typescript) building...
+```
+
+**As Builders complete**, update each line in place:
+
+```
+Multi-target build: auth_logic.impl.md (2 targets)
+  [1/2] src/api/auth.py        (python)     DONE  (14 tests, 3.2s)
+  [2/2] frontend/src/api/auth.ts (typescript) building...
+```
+
+**On completion** (all pass):
+
+```
+Multi-target build: auth_logic.impl.md (2 targets)
+  [1/2] src/api/auth.py        (python)     DONE  (14 tests, 3.2s)
+  [2/2] frontend/src/api/auth.ts (typescript) DONE  (8 tests, 1.7s)
+
+All targets passed. Merging atomically.
+```
+
+**On failure** (any target fails):
+
+```
+Multi-target build: auth_logic.impl.md (2 targets)
+  [1/2] src/api/auth.py        (python)     DONE  (14 tests, 3.2s)
+  [2/2] frontend/src/api/auth.ts (typescript) BLOCKED — 2 test failures
+
+Atomic merge aborted. All worktrees discarded.
+Failure in target [2/2]: frontend/src/api/auth.ts
+  See Builder failure report for details.
+```
+
+**Status states per target:**
+
+| State | Display | Meaning |
+|---|---|---|
+| `building...` | Yellow/neutral | Builder is running in its worktree |
+| `DONE` | Green | Builder succeeded, tests passed |
+| `DONE_WITH_CONCERNS` | Amber | Builder succeeded but flagged concerns |
+| `BLOCKED` | Red | Builder failed or tests failed |
+
+**On DONE_WITH_CONCERNS for any target**, surface concerns after the atomic merge:
+
+```
+All targets passed. Merging atomically.
+  Concerns flagged on 1 target — run /unslop:harden or ask to review.
+```
+
+**Single-target builds** (standard `target-language`) do NOT show the status board — the existing single-line progress reporting is sufficient.
 
 **Dispatch:**
 
@@ -49,24 +156,44 @@ Agent(
     prompt="""You are implementing changes to managed files based on their specs.
 
     Target spec: {spec_path}
+    Concrete spec: {impl_path_or_none}
     Test command: {test_command}
 
     {previous_failure}
 
     Instructions:
-    1. Read the spec at {spec_path}
-    2. Read .unslop/principles.md if it exists
-    3. Implement the code to match the spec exactly
-    4. {test_policy}
-    5. Run tests: {test_command}
-    6. If tests pass, report DONE with the list of changed files
-    7. If tests fail, iterate until green or report BLOCKED
+    1. Read the abstract spec at {spec_path} (source of truth for constraints)
+    2. Read the concrete spec at {impl_path} if provided (strategy guidance)
+    3. Read .unslop/principles.md if it exists
+    4. If no concrete spec was provided, draft an ephemeral one in the
+       worktree as your implementation plan before writing code
+    5. Implement the code guided by both specs:
+       - Abstract Spec governs WHAT (constraints, contracts, error behavior)
+       - Concrete Spec governs HOW (algorithm, pattern, structure)
+       - On conflict: Abstract Spec wins — always
+    6. {test_policy}
+    7. Run tests: {test_command}
+    8. If tests pass, report DONE with the list of changed files
+    9. If tests fail, iterate until green or report BLOCKED
 
-    The spec is your sole source of truth. Do not look for or follow
-    any change requests. If the spec seems incomplete, report
-    DONE_WITH_CONCERNS describing what appears to be missing."""
+    The abstract spec is your primary source of truth. The concrete spec
+    is strategic guidance. Do not look for or follow any change requests.
+    If the spec seems incomplete, report DONE_WITH_CONCERNS describing
+    what appears to be missing.
+
+    If the implementation turns out to be significantly harder than the
+    concrete spec's complexity score suggests (e.g., unexpected edge
+    cases, concurrency concerns, non-obvious invariants), include a
+    COMPLEXITY_UPGRADE proposal in your DONE_WITH_CONCERNS report:
+    'Propose complexity upgrade: medium → high. Reason: [explanation].'
+    The controlling session will re-evaluate promotion."""
 )
 ```
+
+**`{impl_path_or_none}` value:**
+- If a permanent Concrete Spec exists at the derived path (e.g., `src/retry.py.impl.md`): the path to that file.
+- If Stage A.2 generated an ephemeral Concrete Spec in the worktree: the worktree-relative path.
+- If neither exists: `"None — draft an ephemeral implementation strategy before coding."`
 
 **`{previous_failure}` value:**
 - If `.unslop/last-failure/<cache-key>.md` exists: `"Previous Implementation Failure:\n<contents of the failure report>"`. The Builder uses this to avoid repeating the same implementation choice.
@@ -83,9 +210,16 @@ After the Builder Agent completes:
 1. Check result status: DONE / DONE_WITH_CONCERNS / BLOCKED
 2. If DONE with green tests: Claude Code handles worktree merge automatically
 3. Compute `output-hash` on merged code, update `@unslop-managed` header
-4. Commit the staged spec update + merged code as a single atomic commit
-5. Delete `.unslop/last-failure/<cache-key>.md` if it exists (previous failure is now resolved)
-6. If DONE_WITH_CONCERNS: surface concerns as a one-liner after the commit:
+4. Handle the Concrete Spec artifact:
+   - If `ephemeral: true` (default): ensure the `*.impl.md` is NOT included in the merge — it served its purpose
+   - If `ephemeral: false` (promoted or high-complexity): include the `*.impl.md` in the merge and commit
+5. Commit the staged spec update + merged code (+ concrete spec if permanent) as a single atomic commit
+6. Delete `.unslop/last-failure/<cache-key>.md` if it exists (previous failure is now resolved)
+7. If DONE_WITH_CONCERNS and includes COMPLEXITY_UPGRADE: re-evaluate the concrete spec's complexity score. If the new score meets the project's `promote-threshold`, update the concrete spec's frontmatter to `ephemeral: false` and include it in the merge. Notify the user:
+
+> "Builder proposed complexity upgrade: [old] → [new]. Reason: [explanation]. Concrete spec promoted to permanent."
+
+8. If DONE_WITH_CONCERNS (without upgrade): surface concerns as a one-liner after the commit:
 
 > "Generation complete. Tests green. N concern(s) flagged -- run `/unslop:harden` or ask to review."
 
@@ -171,6 +305,32 @@ Only worktrees matching the `unslop/builder/*` pattern are flagged. User-created
 
 ---
 
+### Ripple-Effect Analysis (`--dry-run`)
+
+When invoked with `--dry-run`, the generation pipeline stops after classification and runs a ripple-effect analysis instead of dispatching Builders. This traces the "blast radius" of a spec change across all three layers of the compiler IR:
+
+**Layer 1 — Abstract Specs:** Which specs are directly changed (stale/new/conflict) and which are transitively affected via `depends-on` chains.
+
+**Layer 2 — Concrete Specs:** Which `*.impl.md` files need regeneration (their `source-spec` changed) and which become ghost-stale (their upstream `concrete-dependencies` or `extends` parent changed).
+
+**Layer 3 — Managed Code:** Which source files would be regenerated, in what build order, and which would become ghost-stale.
+
+**Implementation:** The orchestrator's `ripple-check` subcommand performs the analysis:
+
+```
+python ${CLAUDE_PLUGIN_ROOT}/scripts/orchestrator.py ripple-check <spec-path>... --root .
+```
+
+It returns a structured JSON report with:
+- `layers.abstract`: directly changed vs transitively affected spec counts
+- `layers.concrete`: affected impl files and ghost-stale impl files
+- `layers.code`: files that would be regenerated and ghost-stale files
+- `build_order`: topological order for the affected subgraph
+
+The `--dry-run` flag is read-only — no files are modified, no worktrees are spawned, no commits are made. This is the bulk-refactor equivalent of a compiler's "what would this optimization pass change" diagnostic.
+
+---
+
 ## 0. Pre-Generation Validation
 
 Before generating any code, validate the spec. This section runs first — if validation fails, no code is written.
@@ -189,6 +349,53 @@ Read the JSON output:
 - **`"status": "fail"`** — **stop immediately.** Report the issues to the user. Do not generate code. Tell them: "Spec failed structural validation. Fix the issues above and re-run."
 
 There is no override for structural validation failures.
+
+### Phase 0a.1: Pseudocode Linting (Concrete Specs Only)
+
+After Phase 0a passes, if the target includes a Concrete Spec (`*.impl.md`) — either a permanent sidecar or one generated by Stage A.2 — validate its pseudocode blocks against the Pseudocode Discipline defined in the `unslop/spec-language` skill.
+
+**Trigger:** This phase runs when:
+- A permanent `*.impl.md` exists for the target spec
+- Stage A.2 generated an ephemeral concrete spec
+- The target IS a concrete spec (e.g., during `/unslop:promote`)
+
+**Skip** if no concrete spec is involved in the current generation.
+
+Call the pseudocode linter:
+
+```
+python ${CLAUDE_PLUGIN_ROOT}/scripts/validate_pseudocode.py <impl-path>
+```
+
+The linter extracts all ` ```pseudocode ` fenced blocks from the file and checks:
+
+**Structural checks (machine-enforceable):**
+1. **Bare assignment**: Lines using `=` for assignment instead of `←` or `:=`
+2. **Language-specific keywords**: `def`, `func`, `fn`, `let`, `var`, `const`, `lambda`, `=>`
+3. **Multi-statement lines**: Lines containing `;` as a statement separator
+4. **Library calls**: Dot-notation method invocations (e.g., `time.sleep()`, `random.uniform()`) — flag as potential library puns
+5. **Missing scope boundaries**: `FUNCTION` without matching `END FUNCTION`
+6. **Abbreviated identifiers**: Single-character variable names (excluding loop counters `i`, `j`, `k` and common math symbols)
+
+**Advisory checks (model-assisted, not automated):**
+7. **Missing error paths**: Does every `TRY` have a `CATCH`? Are edge cases branched?
+8. **Magic numbers**: Numeric literals that should be named constants
+9. **Abstraction level**: Is the pseudocode too close to a specific language? Too vague to implement?
+
+**Result handling:**
+
+- **All checks pass:** Report "Pseudocode lint: clean." Proceed to Phase 0b.
+- **Structural violations found:** Report each violation with line number and fix suggestion:
+
+> "Pseudocode lint found N violation(s) in `<impl-path>`:
+> 1. Line 5: Bare assignment `delay = x` — use `SET delay ← x`
+> 2. Line 8: Library call `time.sleep(delay)` — use `WAIT delay`
+>
+> Fix the pseudocode and re-run, or override with `--force-pseudocode`."
+
+**Stop generation** on structural violations unless `--force-pseudocode` is passed, in which case report as warnings and proceed.
+
+- **Advisory findings only:** Report as warnings, proceed to Phase 0b. Advisory checks never block.
 
 ### Phase 0b: Ambiguity Detection
 
@@ -344,6 +551,49 @@ After checking external dependencies, check the contracts between files listed i
 
 **Stop generation** on incoherence. There is no `--force-incoherent` override -- coherence failures indicate real contract mismatches that will produce broken code.
 
+### Phase 0e.1: Concrete Spec Coherence (Implementation Strategy Layer)
+
+After abstract spec coherence passes, check for **strategy-level** consistency between concrete specs. This phase catches mismatches that are invisible at the abstract spec layer — two specs may have compatible contracts but incompatible implementation strategies.
+
+**Trigger:** Runs when:
+- The target spec has a permanent concrete spec (`*.impl.md` with `ephemeral: false`)
+- AND the target spec has `depends-on` entries whose dependencies also have permanent concrete specs
+
+If no permanent concrete specs are involved, skip to Section 1.
+
+**1. Build the concrete spec dependency graph:**
+
+For each `depends-on` entry in the target's abstract spec, check if a corresponding `*.impl.md` exists for the dependency. Collect all pairs where both sides have permanent concrete specs.
+
+**2. For each concrete spec pair, check implementation strategy coherence:**
+
+> Review the target concrete spec and dependency concrete spec for strategy-level incoherence. Focus on the boundary where the dependency's implementation choices affect the target's implementation choices.
+>
+> Check for:
+> - **Concurrency model compatibility:** Do both specs agree on sync vs async? If the dependency's `## Strategy` uses `AWAIT` or `YIELD`, does the target's strategy account for async calling conventions?
+> - **Type sketch compatibility:** Do the `## Type Sketch` sections agree on the shape of types crossing the boundary? (This is more detailed than the abstract spec check — it compares structural types, not just observable contracts.)
+> - **Pattern compatibility:** Do the `## Pattern` sections use compatible architectural approaches? (e.g., one uses "callback-based event handling" while the other assumes "synchronous return values")
+> - **Lowering notes conflict:** Do the `## Lowering Notes` sections for the same target language make conflicting assumptions? (e.g., one assumes `asyncio` while the other assumes threading)
+>
+> Do NOT flag:
+> - Differences in internal algorithm choice (the whole point of separate strategies)
+> - Different complexity scores
+> - Lowering notes for different target languages (they don't interact)
+
+**3. Result handling:**
+
+- **No strategy incoherence found:** Report "Concrete spec coherence: strategies are compatible." Proceed to Section 1.
+- **Strategy incoherence found:** Report each issue:
+
+> "Strategy incoherence between `<target.impl.md>` and `<dependency.impl.md>`:
+> - `<target>` strategy assumes: [quoted pseudocode or pattern]
+> - `<dependency>` strategy uses: [quoted pseudocode or pattern]
+> - Issue: [concurrency mismatch / type sketch mismatch / pattern incompatibility] — [brief explanation].
+>
+> Update one of the concrete specs, or override with `--force-strategy`."
+
+**Unlike abstract spec incoherence, strategy incoherence is overridable** with `--force-strategy`. The abstract spec contracts are still satisfied — the strategy mismatch may produce working but suboptimal code (e.g., sync wrappers around async calls). The override is available because strategy choices are more fluid than contract constraints.
+
 ---
 
 ## 1. Generation Mode Selection
@@ -418,8 +668,11 @@ Every generated file MUST begin with a two-line header using the correct comment
 
 **Line 1:** `@unslop-managed — do not edit directly. Edit <spec-path> instead.`
 **Line 2:** `spec-hash:<12hex> output-hash:<12hex> generated:<ISO8601>`
+**Line 3 (optional):** `concrete-manifest:<dep1.impl.md>:<12hex>,<dep2.impl.md>:<12hex>`
 
 Use UTC for the timestamp. Format: `2026-03-20T14:32:00Z`
+
+The `concrete-manifest` line is written when the file has permanent concrete spec dependencies. It stores the hash of each direct strategy provider at generation time, enabling **surgical** ghost-staleness detection — `check_freshness()` can pinpoint exactly which upstream dependency changed rather than reporting all deps as suspects.
 
 ### Comment Syntax by Extension
 
@@ -439,6 +692,7 @@ Python (`.py`):
 ```python
 # @unslop-managed — do not edit directly. Edit src/retry.py.spec.md instead.
 # spec-hash:a3f8c2e9b7d1 output-hash:4e2f1a8c9b03 principles-hash:7c4d9e1f2a05 generated:2026-03-20T14:32:00Z
+# concrete-manifest:shared/fastapi-async.impl.md:7f2e1b8a9c04,src/core/pool.py.impl.md:b3d5a1f8e290
 ```
 
 TypeScript (`.ts`):
@@ -466,11 +720,13 @@ When generating a file, follow this exact sequence:
 2. Apply Python `str.strip()` to the body, then compute its SHA-256 hash truncated to 12 hex chars → `output-hash`
 3. Read the spec file content and compute its SHA-256 hash truncated to 12 hex chars → `spec-hash`
 3b. If `.unslop/principles.md` exists, hash its content → `principles-hash`
+3c. If a permanent concrete spec (`*.impl.md`) exists with `concrete-dependencies` or `extends`, compute the manifest: call `python ${CLAUDE_PLUGIN_ROOT}/scripts/orchestrator.py concrete-deps <impl-path> --root .` and use the `manifest_header` field from the JSON output
 4. Write header line 1 (spec path — unchanged)
 5. Write header line 2: `spec-hash:<hash> output-hash:<hash> [principles-hash:<hash>] generated:<ISO8601 UTC timestamp>`
+5b. If manifest was computed in step 3c, write header line 3: `concrete-manifest:<manifest_header>`
 6. Write the body
 
-This ordering ensures the output-hash is computed before the header is written — the header is NOT included in the hash.
+This ordering ensures the output-hash is computed before the header is written — the header is NOT included in the hash. The concrete-manifest enables surgical ghost-staleness detection: when an upstream dependency changes, `check_freshness()` can identify the exact culprit instead of flagging all deps as suspects.
 
 ---
 
