@@ -39,7 +39,9 @@ If multiple indicators are found, or none are found, ask the user which test com
   "test_command": "<detected or user-provided command>",
   "test_command_note": "Detected from <source>",
   "exclude_patterns": [],
-  "exclude_patterns_note": "Additional directory patterns to exclude from discovery, beyond defaults"
+  "exclude_patterns_note": "Additional directory patterns to exclude from discovery, beyond defaults",
+  "promote-threshold": "high",
+  "promote-threshold_note": "Complexity level at which concrete specs (.impl.md) are auto-promoted to permanent. Options: low, medium, high"
 }
 ```
 

@@ -48,8 +48,8 @@ complexity: standard
 |---|---|---|
 | `source-spec` | yes | Path to the abstract spec this concretizes |
 | `target-language` | yes | Target language/platform for lowering |
-| `ephemeral` | no | Default `true`. Set `false` when promoted via `/unslop:harden --promote` or when project is `high_complexity` |
-| `complexity` | no | `standard` (default) or `high`. `high` triggers automatic promotion to permanent |
+| `ephemeral` | no | Default `true`. Set `false` when promoted via `/unslop:promote` or when complexity meets the project's `promote-threshold` |
+| `complexity` | no | `low`, `medium`, or `high`. Compared against the project's `promote-threshold` for auto-promotion |
 
 ### Required Sections
 
@@ -160,13 +160,46 @@ The concrete spec is the Builder's **internal monologue** — it exists to impro
 4. If tests pass and `ephemeral: true`: the concrete spec is **discarded** with the worktree — it served its purpose
 5. If tests pass and `ephemeral: false`: the concrete spec is **merged** with the generated code
 
+### Complexity Scoring
+
+The Strategist (Stage A.2) assesses complexity when drafting the Concrete Spec:
+
+| Score | Criteria | Examples |
+|---|---|---|
+| `low` | Single algorithm, linear control flow, few types | CRUD endpoint, config loader, simple validation |
+| `medium` | Multiple interacting algorithms, branching control flow, moderate type structure | Pagination with cursor management, rate limiter, connection pool |
+| `high` | Complex state machines, concurrent logic, intricate type hierarchies, non-obvious invariants | Jitter backoff, auth handshake, distributed lock, event sourcing |
+
+**Complexity is assessed, not declared.** The Strategist evaluates the algorithmic complexity of the implementation strategy, not the business importance.
+
+### Auto-Promotion Threshold
+
+The project-level threshold in `.unslop/config.json` determines which complexity levels trigger auto-promotion:
+
+```json
+{
+  "promote-threshold": "high"
+}
+```
+
+| `promote-threshold` | `low` complexity | `medium` complexity | `high` complexity |
+|---|---|---|---|
+| `"high"` (default) | ephemeral | ephemeral | **auto-promoted** |
+| `"medium"` | ephemeral | **auto-promoted** | **auto-promoted** |
+| `"low"` | **auto-promoted** | **auto-promoted** | **auto-promoted** |
+
+When auto-promoted, the Strategist notifies the user but does not block:
+
+> "Complexity assessed as `high` (meets promote threshold). Concrete spec will be retained as `<impl-path>`."
+
 ### When Concrete Specs Become Permanent
 
 A concrete spec is promoted from ephemeral to permanent in these cases:
 
-1. **Manual promotion**: User runs `/unslop:harden --promote <spec-path>` — the last generated concrete spec is saved alongside the abstract spec
-2. **High complexity**: Project-level or spec-level `complexity: high` in `.unslop/config.json` or spec frontmatter causes automatic retention
+1. **Manual promotion**: User runs `/unslop:promote <spec-path>` (or `/unslop:harden --promote <spec-path>`) — the current implementation strategy is saved alongside the abstract spec
+2. **Auto-promotion**: Assessed complexity meets or exceeds the project's `promote-threshold`
 3. **Cross-language projects**: When `target-language` differs across generations of the same abstract spec, concrete specs are retained to preserve the language-specific lowering notes
+4. **Builder-proposed upgrade**: If the Builder discovers during Stage B that the implementation is harder than the Strategist assessed (e.g., unexpected edge cases, concurrency concerns), it may propose a complexity upgrade in its DONE_WITH_CONCERNS report. The controlling session re-evaluates and promotes if the new score meets the threshold
 
 ### Permanent Concrete Spec Rules
 

@@ -113,7 +113,14 @@ Agent(
     The abstract spec is your primary source of truth. The concrete spec
     is strategic guidance. Do not look for or follow any change requests.
     If the spec seems incomplete, report DONE_WITH_CONCERNS describing
-    what appears to be missing."""
+    what appears to be missing.
+
+    If the implementation turns out to be significantly harder than the
+    concrete spec's complexity score suggests (e.g., unexpected edge
+    cases, concurrency concerns, non-obvious invariants), include a
+    COMPLEXITY_UPGRADE proposal in your DONE_WITH_CONCERNS report:
+    'Propose complexity upgrade: medium → high. Reason: [explanation].'
+    The controlling session will re-evaluate promotion."""
 )
 ```
 
@@ -142,7 +149,11 @@ After the Builder Agent completes:
    - If `ephemeral: false` (promoted or high-complexity): include the `*.impl.md` in the merge and commit
 5. Commit the staged spec update + merged code (+ concrete spec if permanent) as a single atomic commit
 6. Delete `.unslop/last-failure/<cache-key>.md` if it exists (previous failure is now resolved)
-7. If DONE_WITH_CONCERNS: surface concerns as a one-liner after the commit:
+7. If DONE_WITH_CONCERNS and includes COMPLEXITY_UPGRADE: re-evaluate the concrete spec's complexity score. If the new score meets the project's `promote-threshold`, update the concrete spec's frontmatter to `ephemeral: false` and include it in the merge. Notify the user:
+
+> "Builder proposed complexity upgrade: [old] → [new]. Reason: [explanation]. Concrete spec promoted to permanent."
+
+8. If DONE_WITH_CONCERNS (without upgrade): surface concerns as a one-liner after the commit:
 
 > "Generation complete. Tests green. N concern(s) flagged -- run `/unslop:harden` or ask to review."
 

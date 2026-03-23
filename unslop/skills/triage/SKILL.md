@@ -40,7 +40,7 @@ If the user asks about code quality, safety, edge cases, or robustness, route to
 If the user wants to understand, document, or preserve the implementation strategy (algorithm, patterns, data flow) of a managed file, route to concrete spec promotion.
 
 **Pattern:** "Document the implementation strategy", "Promote the concrete spec", "I want to preserve how this works", "Make the implementation strategy permanent", "Show me the algorithm"
-**Route:** `/unslop:harden <spec-path> --promote` to generate or promote a permanent Concrete Spec (`*.impl.md`) alongside the Abstract Spec.
+**Route:** `/unslop:promote <spec-path>` to generate or promote a permanent Concrete Spec (`*.impl.md`) alongside the Abstract Spec. Equivalent to `/unslop:harden <spec-path> --promote`.
 
 ## The Language Switch Prompt
 
