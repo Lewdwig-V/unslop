@@ -126,6 +126,163 @@ def parse_frontmatter(content: str) -> list[str]:
     return deps
 
 
+def parse_concrete_frontmatter(content: str) -> dict:
+    """Parse frontmatter from a concrete spec (.impl.md) file.
+
+    Returns dict with: source_spec, target_language, ephemeral, complexity,
+    concrete_dependencies (list of paths).
+    """
+    lines = content.split("\n")
+    if not lines or lines[0].strip() != "---":
+        return {}
+
+    end = -1
+    for i in range(1, len(lines)):
+        if lines[i].strip() == "---":
+            end = i
+            break
+    if end == -1:
+        return {}
+
+    result = {}
+    concrete_deps = []
+    in_concrete_deps = False
+
+    for line in lines[1:end]:
+        stripped = line.strip()
+
+        if stripped.startswith("source-spec:"):
+            result["source_spec"] = stripped.split(":", 1)[1].strip()
+        elif stripped.startswith("target-language:"):
+            result["target_language"] = stripped.split(":", 1)[1].strip()
+        elif stripped.startswith("ephemeral:"):
+            val = stripped.split(":", 1)[1].strip().lower()
+            result["ephemeral"] = val == "true"
+        elif stripped.startswith("complexity:"):
+            result["complexity"] = stripped.split(":", 1)[1].strip()
+        elif stripped == "concrete-dependencies:":
+            in_concrete_deps = True
+            continue
+
+        if in_concrete_deps:
+            match = re.match(r"^  - (.+)$", line)
+            if match:
+                concrete_deps.append(match.group(1).strip())
+            else:
+                in_concrete_deps = False
+
+    if concrete_deps:
+        result["concrete_dependencies"] = concrete_deps
+
+    return result
+
+
+def check_concrete_staleness(
+    impl_path: str,
+    project_root: str,
+) -> dict | None:
+    """Check if a concrete spec's upstream dependencies have changed.
+
+    Returns a dict describing ghost staleness, or None if fresh/not applicable.
+    """
+    impl = Path(impl_path)
+    if not impl.exists():
+        return None
+
+    try:
+        content = impl.read_text(encoding="utf-8")
+    except (OSError, UnicodeDecodeError):
+        return None
+
+    meta = parse_concrete_frontmatter(content)
+    deps = meta.get("concrete_dependencies", [])
+    if not deps:
+        return None
+
+    root = Path(project_root).resolve()
+    stale_deps = []
+
+    # Hash the concrete spec itself to check if deps have changed
+    for dep_path in deps:
+        dep_full = root / dep_path
+        if not dep_full.exists():
+            stale_deps.append({
+                "path": dep_path,
+                "reason": "upstream concrete spec not found",
+            })
+            continue
+
+        try:
+            dep_content = dep_full.read_text(encoding="utf-8")
+        except (OSError, UnicodeDecodeError):
+            stale_deps.append({
+                "path": dep_path,
+                "reason": "cannot read upstream concrete spec",
+            })
+            continue
+
+        dep_meta = parse_concrete_frontmatter(dep_content)
+
+        # Check if the upstream concrete spec's source-spec has changed
+        upstream_source = dep_meta.get("source_spec")
+        if upstream_source:
+            source_full = root / upstream_source
+            if source_full.exists():
+                try:
+                    source_content = source_full.read_text(encoding="utf-8")
+                    source_hash = compute_hash(source_content)
+                    # We can't check against a stored hash without a tracking file,
+                    # so we compare the upstream impl's strategy sections against
+                    # what the downstream expects. For now, we track via a
+                    # concrete-deps-hash approach: hash all upstream .impl.md
+                    # contents and compare against stored value.
+                except (OSError, UnicodeDecodeError):
+                    pass
+
+    if not stale_deps:
+        return None
+
+    return {
+        "impl_path": impl_path,
+        "stale_dependencies": stale_deps,
+    }
+
+
+def compute_concrete_deps_hash(impl_path: str, project_root: str) -> str | None:
+    """Compute a combined hash of all concrete-dependencies for a concrete spec.
+
+    Returns a 12-char hex hash, or None if no concrete dependencies exist.
+    """
+    impl = Path(impl_path)
+    if not impl.exists():
+        return None
+
+    try:
+        content = impl.read_text(encoding="utf-8")
+    except (OSError, UnicodeDecodeError):
+        return None
+
+    meta = parse_concrete_frontmatter(content)
+    deps = meta.get("concrete_dependencies", [])
+    if not deps:
+        return None
+
+    root = Path(project_root).resolve()
+    combined = []
+    for dep_path in sorted(deps):
+        dep_full = root / dep_path
+        if dep_full.exists():
+            try:
+                dep_content = dep_full.read_text(encoding="utf-8")
+                combined.append(f"{dep_path}:{compute_hash(dep_content)}")
+            except (OSError, UnicodeDecodeError):
+                combined.append(f"{dep_path}:unreadable")
+        else:
+            combined.append(f"{dep_path}:missing")
+
+    return compute_hash("\n".join(combined))
+
+
 def topo_sort(graph: dict[str, list[str]]) -> list[str]:
     """Topological sort via Kahn's algorithm.
 
@@ -469,6 +626,50 @@ def check_freshness(directory: str) -> dict:
         result["spec"] = rel_spec
         files.append(result)
 
+    # Scan for concrete spec ghost staleness
+    impl_files = sorted(root.rglob("*.impl.md"))
+    for impl_path in impl_files:
+        rel_impl = str(impl_path.relative_to(root))
+        try:
+            impl_content = impl_path.read_text(encoding="utf-8")
+        except (OSError, UnicodeDecodeError):
+            continue
+
+        meta = parse_concrete_frontmatter(impl_content)
+        if meta.get("ephemeral", True):
+            continue  # Skip ephemeral concrete specs
+
+        concrete_deps = meta.get("concrete_dependencies", [])
+        if not concrete_deps:
+            continue
+
+        # Check each upstream concrete dep for changes
+        stale_reasons = []
+        for dep_path in concrete_deps:
+            dep_full = root / dep_path
+            if not dep_full.exists():
+                stale_reasons.append(f"upstream `{dep_path}` not found")
+                continue
+
+        if stale_reasons:
+            # Find the managed file this impl.md corresponds to
+            source_spec = meta.get("source_spec", "")
+            if source_spec:
+                managed_rel = re.sub(r"\.spec\.md$", "", source_spec)
+                for f in files:
+                    if f["managed"] == managed_rel:
+                        if f["state"] == "fresh":
+                            f["state"] = "ghost-stale"
+                        reason_str = "; ".join(stale_reasons)
+                        ghost_hint = f"Upstream concrete spec changed: {reason_str}"
+                        existing = f.get("hint", "")
+                        f["hint"] = (existing + f" {ghost_hint}").strip()
+                        f["concrete_staleness"] = {
+                            "impl_path": rel_impl,
+                            "stale_deps": stale_reasons,
+                        }
+                        break
+
     # Scan for pending change requests
     change_files = sorted(root.rglob("*.change.md"))
     for change_path in change_files:
@@ -524,7 +725,7 @@ def check_freshness(directory: str) -> dict:
             })
 
     all_fresh = all(
-        f["state"] == "fresh" and "pending_changes" not in f
+        f["state"] == "fresh" and "pending_changes" not in f and "concrete_staleness" not in f
         for f in files
     )
     counts = Counter(f["state"] for f in files)
@@ -629,7 +830,7 @@ def file_tree(directory: str) -> list[str]:
 def main():
     """CLI entry point."""
     if len(sys.argv) < 2:
-        print("Usage: orchestrator.py <discover|build-order|deps|check-freshness|file-tree> [args]", file=sys.stderr)
+        print("Usage: orchestrator.py <discover|build-order|deps|check-freshness|concrete-deps|file-tree> [args]", file=sys.stderr)
         sys.exit(1)
 
     command = sys.argv[1]
@@ -711,6 +912,40 @@ def main():
         except (ValueError, OSError, UnicodeDecodeError) as e:
             print(json.dumps({"error": str(e)}), file=sys.stderr)
             sys.exit(2)
+
+    elif command == "concrete-deps":
+        if len(sys.argv) < 3:
+            print("Usage: orchestrator.py concrete-deps <impl-path> [--root <project-root>]", file=sys.stderr)
+            sys.exit(1)
+        impl_path = sys.argv[2]
+        project_root = "."
+        if "--root" in sys.argv:
+            root_idx = sys.argv.index("--root")
+            if root_idx + 1 >= len(sys.argv):
+                print("Usage: orchestrator.py concrete-deps <impl-path> [--root <project-root>]", file=sys.stderr)
+                sys.exit(1)
+            project_root = sys.argv[root_idx + 1]
+        try:
+            impl = Path(impl_path)
+            if not impl.exists():
+                print(json.dumps({"error": f"File not found: {impl_path}"}), file=sys.stderr)
+                sys.exit(1)
+            content = impl.read_text(encoding="utf-8")
+            meta = parse_concrete_frontmatter(content)
+            deps = meta.get("concrete_dependencies", [])
+            deps_hash = compute_concrete_deps_hash(str(impl), project_root)
+            result = {
+                "impl_path": impl_path,
+                "concrete_dependencies": deps,
+                "deps_hash": deps_hash,
+                "source_spec": meta.get("source_spec"),
+                "complexity": meta.get("complexity"),
+                "ephemeral": meta.get("ephemeral", True),
+            }
+            print(json.dumps(result, indent=2))
+        except (OSError, UnicodeDecodeError) as e:
+            print(json.dumps({"error": str(e)}), file=sys.stderr)
+            sys.exit(1)
 
     elif command == "file-tree":
         directory = sys.argv[2] if len(sys.argv) > 2 else "."

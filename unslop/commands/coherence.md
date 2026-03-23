@@ -68,6 +68,63 @@ If no incoherences are found:
 
 > "All specs are coherent. 0 incoherences across N dependency pairs."
 
-**5. This command is read-only**
+**5. Concrete Spec Coherence (Strategy Layer)**
+
+After abstract spec coherence checks, extend the audit to permanent concrete specs (`*.impl.md`).
+
+**5a. Discover concrete specs:**
+
+For each spec pair checked in Step 3, look for corresponding permanent concrete specs:
+- `src/handler.py.spec.md` → `src/handler.py.impl.md`
+- `src/auth/tokens.py.spec.md` → `src/auth/tokens.py.impl.md`
+
+Collect pairs where both specs in a dependency relationship have permanent concrete specs.
+
+**5b. Strategy coherence checks:**
+
+For each concrete spec pair, apply the same checks defined in Phase 0e.1 of the generation skill:
+
+- **Concurrency model compatibility**: sync vs async mismatch
+- **Type sketch compatibility**: structural type disagreements at the boundary
+- **Pattern compatibility**: architectural approach conflicts
+- **Lowering notes conflict**: conflicting assumptions for the same target language
+
+**5c. Cascade detection:**
+
+For each concrete spec that has changed since its last generation (compare `source-spec` hash in frontmatter against current abstract spec hash):
+
+1. Find all downstream dependents that also have permanent concrete specs
+2. Flag them as potentially stale:
+
+> "Strategy cascade: `<changed.impl.md>` has changed. Downstream concrete specs may need re-lowering:
+> - `<dependent-1.impl.md>` — [reason: e.g., 'assumes sync calls to changed module']
+> - `<dependent-2.impl.md>` — [reason: e.g., 'type sketch references changed types']"
+
+Cascade detection is **advisory** — it flags potential issues but does not block.
+
+**5d. Report format:**
+
+Append concrete spec results to the existing report:
+
+```
+Concrete spec coherence:
+
+  <target.impl.md> <-> <dep.impl.md>
+    ✓ strategies compatible
+
+  <target.impl.md> <-> <dep.impl.md>
+    ✗ concurrency mismatch: target assumes sync, dependency uses AWAIT
+
+  Strategy cascade alerts:
+    ⚠ <changed.impl.md> changed — 2 downstream specs may need re-lowering
+
+N strategy issue(s) found. M cascade alert(s).
+```
+
+If no permanent concrete specs exist:
+
+> "No permanent concrete specs found. Strategy coherence checks skipped."
+
+**6. This command is read-only**
 
 Do not modify any files, generate any code, or run any tests. This is an audit command.

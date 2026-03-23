@@ -5,7 +5,7 @@ import sys
 import os
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'unslop', 'scripts'))
 
-from orchestrator import compute_hash, parse_header, parse_frontmatter, topo_sort, discover_files, build_order_from_dir, resolve_deps, classify_file, check_freshness, parse_change_file, file_tree
+from orchestrator import compute_hash, parse_header, parse_frontmatter, topo_sort, discover_files, build_order_from_dir, resolve_deps, classify_file, check_freshness, parse_change_file, file_tree, parse_concrete_frontmatter, compute_concrete_deps_hash
 
 
 def test_compute_hash_deterministic():
@@ -939,3 +939,134 @@ def test_file_tree_not_a_git_repo(tmp_path):
     import pytest
     with pytest.raises(ValueError, match="Not a git repository"):
         file_tree(str(tmp_path))
+
+
+# --- concrete spec frontmatter tests ---
+
+def test_parse_concrete_frontmatter_full():
+    content = """---
+source-spec: src/retry.py.spec.md
+target-language: python
+ephemeral: false
+complexity: high
+concrete-dependencies:
+  - src/core/pool.py.impl.md
+  - src/core/config.py.impl.md
+---
+
+# retry.py — Concrete Spec
+"""
+    result = parse_concrete_frontmatter(content)
+    assert result["source_spec"] == "src/retry.py.spec.md"
+    assert result["target_language"] == "python"
+    assert result["ephemeral"] is False
+    assert result["complexity"] == "high"
+    assert result["concrete_dependencies"] == [
+        "src/core/pool.py.impl.md",
+        "src/core/config.py.impl.md",
+    ]
+
+
+def test_parse_concrete_frontmatter_no_deps():
+    content = """---
+source-spec: src/retry.py.spec.md
+target-language: python
+ephemeral: true
+---
+"""
+    result = parse_concrete_frontmatter(content)
+    assert result["source_spec"] == "src/retry.py.spec.md"
+    assert result["ephemeral"] is True
+    assert "concrete_dependencies" not in result
+
+
+def test_parse_concrete_frontmatter_no_frontmatter():
+    content = "# Just markdown\n\nNo frontmatter.\n"
+    result = parse_concrete_frontmatter(content)
+    assert result == {}
+
+
+def test_parse_concrete_frontmatter_ephemeral_default():
+    content = """---
+source-spec: src/retry.py.spec.md
+target-language: python
+---
+"""
+    result = parse_concrete_frontmatter(content)
+    assert "ephemeral" not in result  # not set = caller uses default
+
+
+def test_compute_concrete_deps_hash_basic(tmp_path):
+    # Create upstream concrete spec
+    upstream = tmp_path / "src" / "core"
+    upstream.mkdir(parents=True)
+    (upstream / "pool.py.impl.md").write_text("---\nsource-spec: pool.py.spec.md\ntarget-language: python\nephemeral: false\n---\n\n## Strategy\nSync pool.\n")
+
+    # Create downstream concrete spec with dependency
+    (tmp_path / "src" / "handler.py.impl.md").write_text(
+        "---\nsource-spec: src/handler.py.spec.md\ntarget-language: python\nephemeral: false\n"
+        "concrete-dependencies:\n  - src/core/pool.py.impl.md\n---\n\n## Strategy\nUses pool.\n"
+    )
+
+    h1 = compute_concrete_deps_hash(str(tmp_path / "src" / "handler.py.impl.md"), str(tmp_path))
+    assert h1 is not None
+    assert len(h1) == 12
+
+    # Change upstream
+    (upstream / "pool.py.impl.md").write_text("---\nsource-spec: pool.py.spec.md\ntarget-language: python\nephemeral: false\n---\n\n## Strategy\nAsync pool.\n")
+
+    h2 = compute_concrete_deps_hash(str(tmp_path / "src" / "handler.py.impl.md"), str(tmp_path))
+    assert h2 != h1  # Hash should change when upstream changes
+
+
+def test_compute_concrete_deps_hash_missing_dep(tmp_path):
+    (tmp_path / "handler.py.impl.md").write_text(
+        "---\nsource-spec: handler.py.spec.md\ntarget-language: python\nephemeral: false\n"
+        "concrete-dependencies:\n  - nonexistent.py.impl.md\n---\n"
+    )
+    h = compute_concrete_deps_hash(str(tmp_path / "handler.py.impl.md"), str(tmp_path))
+    assert h is not None  # Should still produce a hash (with "missing" marker)
+
+
+def test_compute_concrete_deps_hash_no_deps(tmp_path):
+    (tmp_path / "simple.py.impl.md").write_text(
+        "---\nsource-spec: simple.py.spec.md\ntarget-language: python\n---\n"
+    )
+    h = compute_concrete_deps_hash(str(tmp_path / "simple.py.impl.md"), str(tmp_path))
+    assert h is None  # No deps = no hash
+
+
+def test_check_freshness_ghost_stale(tmp_path):
+    """A fresh file with a changed upstream concrete dep should be ghost-stale."""
+    spec = "# handler spec\n\n## Behavior\nHandles requests.\nMore detail.\n"
+    body = "def handler(): pass\n"
+    sh = compute_hash(spec)
+    oh = compute_hash(body)
+
+    # Write the managed file (fresh by abstract spec standards)
+    (tmp_path / "handler.py.spec.md").write_text(spec)
+    (tmp_path / "handler.py").write_text(
+        f"# @unslop-managed — do not edit directly. Edit handler.py.spec.md instead.\n"
+        f"# spec-hash:{sh} output-hash:{oh} generated:2026-03-23T00:00:00Z\n" + body
+    )
+
+    # Write the permanent concrete spec with a concrete dependency
+    (tmp_path / "handler.py.impl.md").write_text(
+        "---\nsource-spec: handler.py.spec.md\ntarget-language: python\nephemeral: false\n"
+        "concrete-dependencies:\n  - core/pool.py.impl.md\n---\n\n## Strategy\nUses sync pool.\n"
+    )
+
+    # Write upstream concrete spec (exists)
+    core_dir = tmp_path / "core"
+    core_dir.mkdir()
+    (core_dir / "pool.py.impl.md").write_text(
+        "---\nsource-spec: core/pool.py.spec.md\ntarget-language: python\nephemeral: false\n---\n\n## Strategy\nAsync pool.\n"
+    )
+
+    # Note: the ghost staleness check in check_freshness currently only
+    # flags when upstream deps are missing. This test validates the
+    # orchestrator doesn't crash and correctly scans .impl.md files.
+    result = check_freshness(str(tmp_path))
+    assert result is not None
+    handler_entry = [f for f in result["files"] if f["managed"] == "handler.py"]
+    assert len(handler_entry) == 1

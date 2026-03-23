@@ -459,6 +459,49 @@ After checking external dependencies, check the contracts between files listed i
 
 **Stop generation** on incoherence. There is no `--force-incoherent` override -- coherence failures indicate real contract mismatches that will produce broken code.
 
+### Phase 0e.1: Concrete Spec Coherence (Implementation Strategy Layer)
+
+After abstract spec coherence passes, check for **strategy-level** consistency between concrete specs. This phase catches mismatches that are invisible at the abstract spec layer — two specs may have compatible contracts but incompatible implementation strategies.
+
+**Trigger:** Runs when:
+- The target spec has a permanent concrete spec (`*.impl.md` with `ephemeral: false`)
+- AND the target spec has `depends-on` entries whose dependencies also have permanent concrete specs
+
+If no permanent concrete specs are involved, skip to Section 1.
+
+**1. Build the concrete spec dependency graph:**
+
+For each `depends-on` entry in the target's abstract spec, check if a corresponding `*.impl.md` exists for the dependency. Collect all pairs where both sides have permanent concrete specs.
+
+**2. For each concrete spec pair, check implementation strategy coherence:**
+
+> Review the target concrete spec and dependency concrete spec for strategy-level incoherence. Focus on the boundary where the dependency's implementation choices affect the target's implementation choices.
+>
+> Check for:
+> - **Concurrency model compatibility:** Do both specs agree on sync vs async? If the dependency's `## Strategy` uses `AWAIT` or `YIELD`, does the target's strategy account for async calling conventions?
+> - **Type sketch compatibility:** Do the `## Type Sketch` sections agree on the shape of types crossing the boundary? (This is more detailed than the abstract spec check — it compares structural types, not just observable contracts.)
+> - **Pattern compatibility:** Do the `## Pattern` sections use compatible architectural approaches? (e.g., one uses "callback-based event handling" while the other assumes "synchronous return values")
+> - **Lowering notes conflict:** Do the `## Lowering Notes` sections for the same target language make conflicting assumptions? (e.g., one assumes `asyncio` while the other assumes threading)
+>
+> Do NOT flag:
+> - Differences in internal algorithm choice (the whole point of separate strategies)
+> - Different complexity scores
+> - Lowering notes for different target languages (they don't interact)
+
+**3. Result handling:**
+
+- **No strategy incoherence found:** Report "Concrete spec coherence: strategies are compatible." Proceed to Section 1.
+- **Strategy incoherence found:** Report each issue:
+
+> "Strategy incoherence between `<target.impl.md>` and `<dependency.impl.md>`:
+> - `<target>` strategy assumes: [quoted pseudocode or pattern]
+> - `<dependency>` strategy uses: [quoted pseudocode or pattern]
+> - Issue: [concurrency mismatch / type sketch mismatch / pattern incompatibility] — [brief explanation].
+>
+> Update one of the concrete specs, or override with `--force-strategy`."
+
+**Unlike abstract spec incoherence, strategy incoherence is overridable** with `--force-strategy`. The abstract spec contracts are still satisfied — the strategy mismatch may produce working but suboptimal code (e.g., sync wrappers around async calls). The override is available because strategy choices are more fluid than contract constraints.
+
 ---
 
 ## 1. Generation Mode Selection

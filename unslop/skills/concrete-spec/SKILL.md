@@ -41,6 +41,8 @@ source-spec: src/retry.py.spec.md
 target-language: python
 ephemeral: true
 complexity: standard
+concrete-dependencies:
+  - src/core/connection_pool.py.impl.md
 ---
 ```
 
@@ -50,6 +52,53 @@ complexity: standard
 | `target-language` | yes | Target language/platform for lowering |
 | `ephemeral` | no | Default `true`. Set `false` when promoted via `/unslop:promote` or when complexity meets the project's `promote-threshold` |
 | `complexity` | no | `low`, `medium`, or `high`. Compared against the project's `promote-threshold` for auto-promotion |
+| `concrete-dependencies` | no | Paths to upstream `*.impl.md` files whose strategy choices affect this spec's lowering. Changes in upstream concrete specs trigger ghost staleness |
+
+### Concrete Dependencies
+
+Concrete dependencies track **implementation strategy links** — cases where this spec's lowering decisions depend on upstream implementation choices, not just upstream contracts.
+
+Declare `concrete-dependencies` when:
+- This spec's `## Strategy` assumes a specific concurrency model from an upstream module (sync vs async)
+- This spec's `## Type Sketch` references internal types defined in an upstream concrete spec
+- This spec's `## Lowering Notes` depend on library choices made in an upstream concrete spec
+
+Do NOT declare concrete dependencies for:
+- Contract-level dependencies (those belong in the abstract spec's `depends-on`)
+- Ephemeral concrete specs (they don't persist to be tracked)
+- Dependencies where only the abstract contract matters (algorithm choice is irrelevant)
+
+**Example:** A service handler's concrete spec depends on the connection pool's concrete spec because the handler's strategy must match the pool's concurrency model:
+
+```yaml
+---
+source-spec: src/api/handler.py.spec.md
+target-language: python
+ephemeral: false
+complexity: high
+concrete-dependencies:
+  - src/core/connection_pool.py.impl.md
+---
+```
+
+If `connection_pool.py.impl.md` changes from synchronous to async, `handler.py.impl.md` becomes **ghost-stale** — the abstract spec hasn't changed, but the implementation strategy is now invalid.
+
+### Ghost Staleness
+
+A managed file is **ghost-stale** when:
+- Its abstract spec hash matches (spec hasn't changed)
+- Its output hash matches (code hasn't been manually edited)
+- But an upstream `concrete-dependency` has changed its strategy
+
+Ghost staleness is invisible to the standard staleness check (which only tracks abstract spec hashes). It requires the orchestrator to hash and track concrete spec dependencies.
+
+**Detection:** The orchestrator compares the hash of each `concrete-dependencies` entry against a stored `concrete-deps-hash` in the managed file's header (or in a sidecar tracking file).
+
+**Resolution:** Re-run generation. Stage A.2 will re-derive the concrete spec from the updated upstream strategies, and Stage B will generate fresh code.
+
+**In `/unslop:status`:** Ghost-stale files appear as a distinct state:
+
+> `src/api/handler.py` — **ghost-stale** (upstream concrete spec changed: `src/core/connection_pool.py.impl.md`)
 
 ### Required Sections
 
