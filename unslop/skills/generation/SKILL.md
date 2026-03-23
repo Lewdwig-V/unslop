@@ -51,6 +51,8 @@ Agent(
     Target spec: {spec_path}
     Test command: {test_command}
 
+    {previous_failure}
+
     Instructions:
     1. Read the spec at {spec_path}
     2. Read .unslop/principles.md if it exists
@@ -65,6 +67,10 @@ Agent(
     DONE_WITH_CONCERNS describing what appears to be missing."""
 )
 ```
+
+**`{previous_failure}` value:**
+- If `.unslop/last-failure/<spec-filename>.md` exists: `"Previous Implementation Failure:\n<contents of the failure report>"`. The Builder uses this to avoid repeating the same implementation choice.
+- If no failure report exists: empty string (omitted from prompt).
 
 **`{test_policy}` values by originating command:**
 - **takeover:** `"Write or extend tests as needed for newly explicit constraints"`
@@ -114,11 +120,17 @@ When a Builder fails (BLOCKED or test failures), the controlling session writes 
 
 **Write:** After discarding the worktree and reverting the staged spec, write the Builder's failure report (Failing Tests, What Was Attempted, Suspected Spec Gaps) to the cache file. Overwrite any existing report for the same spec.
 
-**Read:** When Stage A (Architect) starts for any command (`/unslop:change`, `/unslop:generate`, `/unslop:sync`, `/unslop:takeover`), check for `.unslop/last-failure/<spec-filename>.md`. If present, surface a one-liner before proposing any spec changes:
+**Read:** Before dispatching any Builder or entering Stage A, the controlling command checks for `.unslop/last-failure/<spec-filename>.md`. This check runs at the command level -- before worktree creation, before any agent dispatch. If a report exists:
 
-> "Previous Builder attempt failed. Addressing: [one-line summary of top suspected spec gap]. Ask to review full post-mortem."
+1. **Surface to user:** Always display a one-liner:
 
-The Architect must not ignore this context -- it informs the next spec patch. But it does not block; the Architect proceeds to its normal flow after acknowledging.
+> "Resuming from previous failure: [one-line summary of top suspected spec gap]. Ask to review full post-mortem."
+
+2. **Route to the right stage:**
+   - **Commands with Stage A** (`/unslop:change`, `/unslop:takeover`): Inject the report as "Previous Attempt Post-Mortem" context for the Architect. The Architect uses it to inform the spec patch -- it must not ignore this context.
+   - **Commands without Stage A** (`/unslop:generate`, `/unslop:sync`): Inject the report into the Builder's worktree prompt as "Previous Implementation Failure." The Builder uses it to avoid repeating the same implementation choice that failed.
+
+The read does not block -- the command proceeds to its normal flow after acknowledging. But it fires before anything else, ensuring the failure context is the first thing in the agent's window.
 
 **Delete:** Only on Builder success. After the atomic commit (spec + code), delete the cache file for that spec. If the user cancels the Architect stage or abandons the run, the report persists for the next attempt.
 

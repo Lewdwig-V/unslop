@@ -21,6 +21,14 @@ Read `.unslop/config.json` to obtain the test command. If `config.json` does not
 
 **Check for `--force-ambiguous` flag:** If `$ARGUMENTS` contains `--force-ambiguous`, note this for the generation skill. When this flag is present, the generation skill's ambiguity detection (Section 0, Phase 0b) reports ambiguities as warnings instead of blocking generation.
 
+**2b. Check diagnostic cache**
+
+For each spec file found, check for `.unslop/last-failure/<spec-filename>.md`. If any failure reports exist, surface a one-liner for each before proceeding:
+
+> "Resuming from previous failure for `<spec-path>`: [one-line summary of top suspected spec gap]. Ask to review full post-mortem."
+
+Inject the failure report contents into the corresponding Builder's prompt via the `{previous_failure}` parameter (see generation skill).
+
 **3. Scan for spec files**
 
 Find all `*.spec.md` files in the project tree (excluding `.unslop/` and `node_modules/`).
