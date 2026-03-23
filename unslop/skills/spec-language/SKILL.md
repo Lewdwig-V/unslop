@@ -8,7 +8,7 @@ version: 0.1.0
 
 ## Core Principle
 
-Specs describe **intent**, not implementation. A spec defines what a file must do, what constraints it must satisfy, and what behavior it must exhibit — not how to achieve any of those things. Code is disposable; specs are the source of truth.
+The two spec layers have different stances. **Abstract Specs** describe **intent** — what a file must do, what constraints it must satisfy, what behavior it must exhibit. **Concrete Specs** describe **strategy** — what algorithm, pattern, or type structure delivers those guarantees, in language-agnostic terms. Neither layer contains target-language code; code is disposable, specs are the source of truth.
 
 ## The Two-Layer Spec Model
 
@@ -19,7 +19,7 @@ Unslop uses a compiler-inspired two-layer spec architecture:
 | **Abstract Spec** | `*.spec.md` | Observable behavior, constraints, contracts | High-Level IR (the "What" and "Why") |
 | **Concrete Spec** | `*.impl.md` | Algorithm, patterns, type structure | Mid-Level IR (the "How") |
 
-**This skill governs Abstract Specs only.** For Concrete Spec writing guidance, see the `unslop/concrete-spec` skill.
+**This skill primarily governs Abstract Specs.** The Pseudocode Discipline section below also applies to Concrete Specs. For broader Concrete Spec writing guidance (Strategy, Lowering Notes, Type Sketch), see the `unslop/concrete-spec` skill.
 
 The boundary between the two layers follows a simple rule: **if it's observable from outside the module, it belongs in the Abstract Spec. If it's an internal strategy choice, it belongs in the Concrete Spec (or nowhere — most strategy choices are ephemeral).**
 
@@ -36,7 +36,7 @@ The Abstract Spec says **what guarantee the caller gets**. The Concrete Spec say
 
 ## Vocabulary Guide
 
-Specs are written in terms of observable behavior, contracts, and constraints. They are not written in terms of data structures, algorithms, or control flow.
+Abstract specs are written in terms of observable behavior, contracts, and constraints — not data structures, algorithms, or control flow. (Concrete specs intentionally use algorithm and pattern vocabulary; the restrictions below apply to `*.spec.md` files.)
 
 | Good (intent) | Bad (implementation) |
 |---|---|
