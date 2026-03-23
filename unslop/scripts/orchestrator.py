@@ -1,4 +1,5 @@
 """unslop orchestrator — dependency resolution and file discovery for multi-file takeover."""
+
 from __future__ import annotations
 
 import hashlib
@@ -39,11 +40,11 @@ def parse_header(content: str) -> dict | None:
         stripped = line.strip()
         for prefix in ["#", "//", "--", "/*", "<!--"]:
             if stripped.startswith(prefix):
-                stripped = stripped[len(prefix):].strip()
+                stripped = stripped[len(prefix) :].strip()
                 break
         for suffix in ["*/", "-->"]:
             if stripped.endswith(suffix):
-                stripped = stripped[:-len(suffix)].strip()
+                stripped = stripped[: -len(suffix)].strip()
 
         if "@unslop-managed" in stripped:
             m = re.search(r"Edit (.+?) instead", stripped)
@@ -243,8 +244,7 @@ def resolve_extends_chain(impl_path: str, project_root: str) -> list[str]:
 
         if len(chain) > MAX_EXTENDS_DEPTH:
             raise ValueError(
-                f"Extends chain exceeds maximum depth of {MAX_EXTENDS_DEPTH}: "
-                f"{' → '.join(chain)}. Flatten the hierarchy."
+                f"Extends chain exceeds maximum depth of {MAX_EXTENDS_DEPTH}: {' → '.join(chain)}. Flatten the hierarchy."
             )
 
         full_path = root / current
@@ -447,7 +447,6 @@ def flatten_inheritance_chain(impl_path: str, project_root: str) -> dict:
     for section_name, resolved_content in resolved.items():
         if section_name == "Lowering Notes":
             # Attribute by language block
-            resolved_langs = _parse_language_blocks(resolved_content)
             lang_sources = {}
             # Walk levels child-first to find the most specific provider
             for level in reversed(levels):
@@ -458,7 +457,6 @@ def flatten_inheritance_chain(impl_path: str, project_root: str) -> dict:
                             lang_sources[lang] = level["impl"]
             attribution[section_name] = lang_sources
         elif section_name == "Pattern":
-            resolved_patterns = _parse_pattern_entries(resolved_content)
             pattern_sources = {}
             for level in reversed(levels):
                 raw = level["sections"].get("Pattern", "")
@@ -517,8 +515,7 @@ def build_concrete_order(directory: str) -> list[str]:
                 missing[dep] = []
     if missing:
         missing_names = ", ".join(sorted(missing.keys()))
-        print(json.dumps({"warning": f"Missing concrete dependency specs: {missing_names}"}),
-              file=sys.stderr)
+        print(json.dumps({"warning": f"Missing concrete dependency specs: {missing_names}"}), file=sys.stderr)
     graph.update(missing)
 
     return topo_sort(graph)
@@ -553,19 +550,23 @@ def check_concrete_staleness(
     for dep_path in providers:
         dep_full = root / dep_path
         if not dep_full.exists():
-            stale_deps.append({
-                "path": dep_path,
-                "reason": "upstream concrete spec not found",
-            })
+            stale_deps.append(
+                {
+                    "path": dep_path,
+                    "reason": "upstream concrete spec not found",
+                }
+            )
             continue
 
         try:
             dep_content = dep_full.read_text(encoding="utf-8")
         except (OSError, UnicodeDecodeError):
-            stale_deps.append({
-                "path": dep_path,
-                "reason": "cannot read upstream concrete spec",
-            })
+            stale_deps.append(
+                {
+                    "path": dep_path,
+                    "reason": "cannot read upstream concrete spec",
+                }
+            )
             continue
 
         dep_meta = parse_concrete_frontmatter(dep_content)
@@ -620,7 +621,9 @@ def get_registry_key_for_spec(source_spec: str) -> str:
 
 
 def _gather_recursive_providers(
-    root: Path, meta: dict, seen: set | None = None,
+    root: Path,
+    meta: dict,
+    seen: set | None = None,
 ) -> list[str]:
     """Recursively gather all strategy provider content from the full DAG.
 
@@ -682,7 +685,9 @@ def compute_concrete_deps_hash(impl_path: str, project_root: str) -> str | None:
 
 
 def _identify_changed_deps(
-    dep_paths: list[str], stored_combined_hash: str, project_root: str,
+    dep_paths: list[str],
+    stored_combined_hash: str,
+    project_root: str,
 ) -> list[str]:
     """Identify which concrete deps changed by hashing each individually.
 
@@ -749,8 +754,18 @@ def topo_sort(graph: dict[str, list[str]]) -> list[str]:
 
 
 EXCLUDED_DIRS = {
-    "__pycache__", "node_modules", "target", ".git", ".venv", "venv",
-    "dist", "build", ".tox", "vendor", ".mypy_cache", ".pytest_cache",
+    "__pycache__",
+    "node_modules",
+    "target",
+    ".git",
+    ".venv",
+    "venv",
+    "dist",
+    "build",
+    ".tox",
+    "vendor",
+    ".mypy_cache",
+    ".pytest_cache",
     ".eggs",
 }
 
@@ -904,12 +919,20 @@ def classify_file(managed_path: str, spec_path: str, project_root: str | None = 
     try:
         managed_content = managed.read_text(encoding="utf-8")
     except (OSError, UnicodeDecodeError) as e:
-        return {"managed": str(managed_path), "spec": str(spec_path), "state": "error",
-                "hint": f"Cannot read managed file: {e}"}
+        return {
+            "managed": str(managed_path),
+            "spec": str(spec_path),
+            "state": "error",
+            "hint": f"Cannot read managed file: {e}",
+        }
 
     if not spec.exists():
-        return {"managed": str(managed_path), "spec": str(spec_path), "state": "error",
-                "hint": "Spec file not found — the managed file references a spec that no longer exists."}
+        return {
+            "managed": str(managed_path),
+            "spec": str(spec_path),
+            "state": "error",
+            "hint": "Spec file not found — the managed file references a spec that no longer exists.",
+        }
 
     spec_content = spec.read_text(encoding="utf-8")
     header = parse_header(managed_content)
@@ -918,30 +941,46 @@ def classify_file(managed_path: str, spec_path: str, project_root: str | None = 
         return {"managed": str(managed_path), "spec": str(spec_path), "state": "unmanaged"}
 
     if header.get("old_format"):
-        return {"managed": str(managed_path), "spec": str(spec_path), "state": "old_format",
-                "warning": "Old header format (no hashes). Regenerate to update."}
+        return {
+            "managed": str(managed_path),
+            "spec": str(spec_path),
+            "state": "old_format",
+            "warning": "Old header format (no hashes). Regenerate to update.",
+        }
 
     if header["spec_hash"] is None or header["output_hash"] is None:
-        return {"managed": str(managed_path), "spec": str(spec_path), "state": "old_format",
-                "warning": "Header is missing hash fields. Regenerate to update."}
+        return {
+            "managed": str(managed_path),
+            "spec": str(spec_path),
+            "state": "old_format",
+            "warning": "Header is missing hash fields. Regenerate to update.",
+        }
 
     current_spec_hash = compute_hash(spec_content)
     body = get_body_below_header(managed_content)
     current_output_hash = compute_hash(body)
 
-    spec_match = (current_spec_hash == header["spec_hash"])
-    output_match = (current_output_hash == header["output_hash"])
+    spec_match = current_spec_hash == header["spec_hash"]
+    output_match = current_output_hash == header["output_hash"]
 
     if spec_match and output_match:
         result = {"managed": str(managed_path), "spec": str(spec_path), "state": "fresh"}
     elif spec_match and not output_match:
-        result = {"managed": str(managed_path), "spec": str(spec_path), "state": "modified",
-                  "hint": "Code was edited directly while spec is unchanged."}
+        result = {
+            "managed": str(managed_path),
+            "spec": str(spec_path),
+            "state": "modified",
+            "hint": "Code was edited directly while spec is unchanged.",
+        }
     elif not spec_match and output_match:
         result = {"managed": str(managed_path), "spec": str(spec_path), "state": "stale"}
     else:
-        result = {"managed": str(managed_path), "spec": str(spec_path), "state": "conflict",
-                  "hint": "Spec and code have both diverged. Resolve manually or use --force to overwrite edits."}
+        result = {
+            "managed": str(managed_path),
+            "spec": str(spec_path),
+            "state": "conflict",
+            "hint": "Spec and code have both diverged. Resolve manually or use --force to overwrite edits.",
+        }
 
     # Principles check (only when project_root is provided)
     if project_root is not None and header.get("principles_hash") is not None:
@@ -975,6 +1014,7 @@ def classify_file(managed_path: str, spec_path: str, project_root: str | None = 
 def check_freshness(directory: str) -> dict:
     """Check freshness of all managed files in directory."""
     from collections import Counter
+
     root = Path(directory).resolve()
     if not root.is_dir():
         raise ValueError(f"Directory does not exist: {directory}")
@@ -1002,8 +1042,14 @@ def check_freshness(directory: str) -> dict:
                         unit_files.append(m.group(1))
 
             if not unit_files:
-                files.append({"managed": str(spec_path.parent.relative_to(root)), "spec": rel_spec,
-                              "state": "error", "hint": "Unit spec has no files listed in ## Files section."})
+                files.append(
+                    {
+                        "managed": str(spec_path.parent.relative_to(root)),
+                        "spec": rel_spec,
+                        "state": "error",
+                        "hint": "Unit spec has no files listed in ## Files section.",
+                    }
+                )
                 continue
 
             worst_state = "fresh"
@@ -1105,17 +1151,19 @@ def check_freshness(directory: str) -> dict:
             # Collision detection: two impl specs claiming the same target
             if target_rel in target_owners and target_owners[target_rel] != rel_impl:
                 prev_owner = target_owners[target_rel]
-                files.append({
-                    "managed": target_rel,
-                    "spec": source_spec,
-                    "state": "error",
-                    "hint": (
-                        f"Target collision: `{target_rel}` claimed by both "
-                        f"`{prev_owner}` and `{rel_impl}`. "
-                        "Remove the duplicate target from one concrete spec."
-                    ),
-                    "impl_path": rel_impl,
-                })
+                files.append(
+                    {
+                        "managed": target_rel,
+                        "spec": source_spec,
+                        "state": "error",
+                        "hint": (
+                            f"Target collision: `{target_rel}` claimed by both "
+                            f"`{prev_owner}` and `{rel_impl}`. "
+                            "Remove the duplicate target from one concrete spec."
+                        ),
+                        "impl_path": rel_impl,
+                    }
+                )
                 continue
             target_owners[target_rel] = rel_impl
 
@@ -1127,36 +1175,44 @@ def check_freshness(directory: str) -> dict:
             target_full = root / target_rel
             if spec_full and spec_full.exists():
                 if not target_full.exists():
-                    files.append({
-                        "managed": target_rel,
-                        "spec": source_spec,
-                        "state": "stale",
-                        "impl_path": rel_impl,
-                    })
+                    files.append(
+                        {
+                            "managed": target_rel,
+                            "spec": source_spec,
+                            "state": "stale",
+                            "impl_path": rel_impl,
+                        }
+                    )
                 else:
                     result = classify_file(
-                        str(target_full), str(spec_full), project_root=str(root),
+                        str(target_full),
+                        str(spec_full),
+                        project_root=str(root),
                     )
                     result["managed"] = target_rel
                     result["spec"] = source_spec
                     result["impl_path"] = rel_impl
                     files.append(result)
             elif not target_full.exists():
-                files.append({
-                    "managed": target_rel,
-                    "spec": source_spec,
-                    "state": "stale",
-                    "hint": "Target file does not exist and spec not found.",
-                    "impl_path": rel_impl,
-                })
+                files.append(
+                    {
+                        "managed": target_rel,
+                        "spec": source_spec,
+                        "state": "stale",
+                        "hint": "Target file does not exist and spec not found.",
+                        "impl_path": rel_impl,
+                    }
+                )
             else:
-                files.append({
-                    "managed": target_rel,
-                    "spec": source_spec,
-                    "state": "error",
-                    "hint": f"Spec `{source_spec}` not found for target.",
-                    "impl_path": rel_impl,
-                })
+                files.append(
+                    {
+                        "managed": target_rel,
+                        "spec": source_spec,
+                        "state": "error",
+                        "hint": f"Spec `{source_spec}` not found for target.",
+                        "impl_path": rel_impl,
+                    }
+                )
 
     # Check for circular concrete dependencies before scanning
     try:
@@ -1164,13 +1220,15 @@ def check_freshness(directory: str) -> dict:
     except ValueError as e:
         if "Cycle detected" in str(e):
             # Add a warning entry for the cycle
-            files.append({
-                "managed": "(concrete dependency cycle)",
-                "spec": None,
-                "state": "error",
-                "hint": f"Circular concrete-dependencies detected: {e}. "
-                        "Break the cycle before concrete coherence can be checked.",
-            })
+            files.append(
+                {
+                    "managed": "(concrete dependency cycle)",
+                    "spec": None,
+                    "state": "error",
+                    "hint": f"Circular concrete-dependencies detected: {e}. "
+                    "Break the cycle before concrete coherence can be checked.",
+                }
+            )
 
     # Scan for concrete spec ghost staleness
     impl_files = sorted(root.rglob("*.impl.md"))
@@ -1259,7 +1317,9 @@ def check_freshness(directory: str) -> dict:
                     if stored_cdeps is not None and stored_cdeps != current_cdeps_hash:
                         # Identify which specific deps changed
                         changed = _identify_changed_deps(
-                            all_providers, stored_cdeps, str(root),
+                            all_providers,
+                            stored_cdeps,
+                            str(root),
                         )
                         for reason in changed:
                             stale_reasons.append(reason)
@@ -1343,18 +1403,17 @@ def check_freshness(directory: str) -> dict:
         if not matched:
             # Orphan change file -- no matching managed file
             print(json.dumps({"warning": f"Orphan change file: no managed file found for {managed_rel}"}), file=sys.stderr)
-            files.append({
-                "managed": managed_rel,
-                "spec": None,
-                "state": "error",
-                "hint": f"Change file exists but no matching spec found for {managed_rel}",
-                "pending_changes": counts,
-            })
+            files.append(
+                {
+                    "managed": managed_rel,
+                    "spec": None,
+                    "state": "error",
+                    "hint": f"Change file exists but no matching spec found for {managed_rel}",
+                    "pending_changes": counts,
+                }
+            )
 
-    all_fresh = all(
-        f["state"] == "fresh" and "pending_changes" not in f and "concrete_staleness" not in f
-        for f in files
-    )
+    all_fresh = all(f["state"] == "fresh" and "pending_changes" not in f and "concrete_staleness" not in f for f in files)
     counts = Counter(f["state"] for f in files)
     summary = ", ".join(f"{v} {k}" for k, v in sorted(counts.items()))
 
@@ -1369,26 +1428,21 @@ def parse_change_file(content: str) -> list[dict]:
     Malformed entries are skipped with a stderr warning.
     """
     lines = content.split("\n")
-    if not lines or not re.match(r'^<!--\s*unslop-changes\s+v\d+\s*-->', lines[0]):
+    if not lines or not re.match(r"^<!--\s*unslop-changes\s+v\d+\s*-->", lines[0]):
         return []
 
     entries = []
     current_entry = None
 
     for line in lines[1:]:
-        heading_match = re.match(
-            r'^### \[(\w+)\]\s+(.+?)(?:\s+--\s+(\S+))?\s*$', line
-        )
+        heading_match = re.match(r"^### \[(\w+)\]\s+(.+?)(?:\s+--\s+(\S+))?\s*$", line)
         if heading_match:
             if current_entry is not None:
                 current_entry["body"] = current_entry["body"].strip()
                 entries.append(current_entry)
             status = heading_match.group(1)
             if status not in ("pending", "tactical"):
-                print(
-                    json.dumps({"warning": f"Malformed change entry: unknown status [{status}]"}),
-                    file=sys.stderr
-                )
+                print(json.dumps({"warning": f"Malformed change entry: unknown status [{status}]"}), file=sys.stderr)
                 current_entry = None
                 continue
             current_entry = {
@@ -1405,20 +1459,22 @@ def parse_change_file(content: str) -> list[dict]:
         elif current_entry is not None:
             current_entry["body"] += line + "\n"
         elif line.strip().startswith("### ") and current_entry is None:
-            print(
-                json.dumps({"warning": f"Malformed change entry heading: {line.strip()!r}"}),
-                file=sys.stderr
-            )
+            print(json.dumps({"warning": f"Malformed change entry heading: {line.strip()!r}"}), file=sys.stderr)
 
     if current_entry is not None:
         current_entry["body"] = current_entry["body"].strip()
         entries.append(current_entry)
 
     if not entries and any(line.strip() for line in lines[1:]):
-        print(json.dumps({
-            "warning": "Change file has format marker but no parseable entries. "
-            "Expected ### [pending] or ### [tactical] headings."
-        }), file=sys.stderr)
+        print(
+            json.dumps(
+                {
+                    "warning": "Change file has format marker but no parseable entries. "
+                    "Expected ### [pending] or ### [tactical] headings."
+                }
+            ),
+            file=sys.stderr,
+        )
 
     return entries
 
@@ -1471,7 +1527,7 @@ def main():
         extensions = None
         if "--extensions" in sys.argv:
             ext_idx = sys.argv.index("--extensions")
-            extensions = sys.argv[ext_idx + 1:]
+            extensions = sys.argv[ext_idx + 1 :]
             if not extensions:
                 print("Usage: orchestrator.py discover <directory> [--extensions .py .rs]", file=sys.stderr)
                 sys.exit(1)
@@ -1549,10 +1605,16 @@ def main():
         except ValueError as e:
             error_msg = str(e)
             if "Cycle detected" in error_msg:
-                print(json.dumps({"error": error_msg,
-                                  "hint": "Circular concrete-dependencies found. "
-                                          "Break the cycle by removing one direction of the dependency."}),
-                      file=sys.stderr)
+                print(
+                    json.dumps(
+                        {
+                            "error": error_msg,
+                            "hint": "Circular concrete-dependencies found. "
+                            "Break the cycle by removing one direction of the dependency.",
+                        }
+                    ),
+                    file=sys.stderr,
+                )
             else:
                 print(json.dumps({"error": error_msg}), file=sys.stderr)
             sys.exit(1)
