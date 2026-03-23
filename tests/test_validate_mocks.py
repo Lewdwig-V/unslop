@@ -35,7 +35,7 @@ class TestLoadBoundaries:
 
 
 class TestMockTargetExtractor:
-    def _extract(self, source: str) -> list[dict]:
+    def _extract(self, source: str):
         import ast
 
         tree = ast.parse(source)
