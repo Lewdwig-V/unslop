@@ -985,6 +985,27 @@ def test_check_freshness_pending_intent_files_multi_file(tmp_path):
     assert all(pif["count"] == 1 for pif in result["pending_intent_files"])
 
 
+def test_cli_check_freshness_pending_intent_guidance(tmp_path):
+    """CLI check-freshness prints actionable guidance to stderr for pending changes."""
+    spec = "# spec\n\n## Behavior\nDoes stuff.\nMore detail.\n"
+    body = "def thing(): pass\n"
+    sh = compute_hash(spec)
+    oh = compute_hash(body)
+    (tmp_path / "thing.py.spec.md").write_text(spec)
+    (tmp_path / "thing.py").write_text(
+        f"# @unslop-managed \u2014 do not edit directly. Edit thing.py.spec.md instead.\n"
+        f"# spec-hash:{sh} output-hash:{oh} generated:2026-03-22T14:32:00Z\n" + body
+    )
+    (tmp_path / "thing.py.change.md").write_text(
+        "<!-- unslop-changes v1 -->\n### [pending] Add feature -- 2026-03-22T15:00:00Z\n\nAdd a feature.\n\n---\n"
+    )
+    r = _run_cli("check-freshness", str(tmp_path))
+    assert r.returncode == 1
+    assert "pending change(s) requiring interactive approval" in r.stderr
+    assert "thing.py" in r.stderr
+    assert "unslop:sync" in r.stderr
+
+
 def test_parse_header_without_concrete_deps_hash():
     lines = [
         "# @unslop-managed -- do not edit directly. Edit src/handler.py.spec.md instead.",
