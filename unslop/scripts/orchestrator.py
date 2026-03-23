@@ -265,14 +265,40 @@ def resolve_extends_chain(impl_path: str, project_root: str) -> list[str]:
     return chain
 
 
+"""Section-specific inheritance policies for resolve_inherited_sections().
+
+- STRICT_CHILD_ONLY: Parent section is purged during resolution. If the child
+  omits it, the resolved spec has no such section — Phase 0a.1 validation fails.
+- Additive (Lowering Notes): Parent and child are merged by language heading.
+- Overridable (Pattern, unknown sections): Child replaces parent if present;
+  parent persists if child omits.
+"""
+STRICT_CHILD_ONLY = {"Strategy", "Type Sketch"}
+
+
 def resolve_inherited_sections(impl_path: str, project_root: str) -> dict[str, str]:
     """Resolve all inherited sections for a concrete spec.
 
     Returns a dict of section_name -> resolved_content with inheritance applied.
-    Child sections override parent sections per the resolution rules.
+
+    Uses three inheritance policies:
+    - Strict Child-Only (Strategy, Type Sketch): parent is always purged.
+    - Additive (Lowering Notes): parent + child merged by language heading.
+    - Overridable (Pattern, others): child replaces parent; parent persists if child omits.
     """
     root = Path(project_root).resolve()
     chain = resolve_extends_chain(impl_path, project_root)
+
+    if len(chain) <= 1:
+        # No inheritance — just return the child's own sections
+        full = root / impl_path
+        if not full.exists():
+            return {}
+        try:
+            content = full.read_text(encoding="utf-8")
+        except (OSError, UnicodeDecodeError):
+            return {}
+        return _extract_sections(content)
 
     # Read sections from each level (most general first)
     # chain is [child, parent, grandparent] — reverse to get [grandparent, parent, child]
@@ -292,31 +318,40 @@ def resolve_inherited_sections(impl_path: str, project_root: str) -> dict[str, s
     if not sections_stack:
         return {}
 
-    # Merge: start from the most general, overlay with more specific
-    resolved = {}
-    for sections in sections_stack:
+    # Separate child (last in stack = most specific) from parents
+    parent_sections_list = sections_stack[:-1]
+    child_sections = sections_stack[-1]
+
+    # Step 1: Build resolved parent sections (merge all parent levels)
+    parent_resolved = {}
+    for sections in parent_sections_list:
         for name, content in sections.items():
-            if name == "Strategy":
-                # Strategy is never inherited — always use the most specific
-                resolved[name] = content
-            elif name == "Type Sketch":
-                # Type Sketch is never inherited — always use the most specific
-                resolved[name] = content
-            elif name == "Pattern":
-                # Pattern merges — child entries override by key
-                if name not in resolved:
-                    resolved[name] = content
+            if name == "Pattern":
+                if name not in parent_resolved:
+                    parent_resolved[name] = content
                 else:
-                    resolved[name] = _merge_pattern_sections(resolved[name], content)
+                    parent_resolved[name] = _merge_pattern_sections(parent_resolved[name], content)
             elif name == "Lowering Notes":
-                # Lowering Notes inherit + override by language heading
-                if name not in resolved:
-                    resolved[name] = content
+                if name not in parent_resolved:
+                    parent_resolved[name] = content
                 else:
-                    resolved[name] = _merge_lowering_notes(resolved[name], content)
+                    parent_resolved[name] = _merge_lowering_notes(parent_resolved[name], content)
             else:
-                # Unknown sections: child wins
-                resolved[name] = content
+                parent_resolved[name] = content
+
+    # Step 2: Purge strict child-only sections from parent
+    for section in STRICT_CHILD_ONLY:
+        parent_resolved.pop(section, None)
+
+    # Step 3: Start with purged parent, apply child overrides/additions
+    resolved = dict(parent_resolved)
+    for name, content in child_sections.items():
+        if name == "Lowering Notes" and name in resolved:
+            resolved[name] = _merge_lowering_notes(resolved[name], content)
+        elif name == "Pattern" and name in resolved:
+            resolved[name] = _merge_pattern_sections(resolved[name], content)
+        else:
+            resolved[name] = content
 
     return resolved
 
@@ -1479,6 +1514,293 @@ def parse_change_file(content: str) -> list[dict]:
     return entries
 
 
+def ripple_check(spec_paths: list[str], project_root: str) -> dict:
+    """Compute the ripple effect of changing one or more spec files.
+
+    For each input spec, traces downstream through:
+    1. Abstract layer: which specs depend on this one (via depends-on)?
+    2. Concrete layer: which impl.md files are affected (via source-spec, concrete-dependencies, extends)?
+    3. Code layer: which managed files would need regeneration?
+
+    Returns a structured report suitable for --dry-run display.
+    """
+    root = Path(project_root).resolve()
+
+    # Build the full abstract spec dependency graph (reverse edges = dependents)
+    all_specs = {}
+    for s in sorted(root.rglob("*.spec.md")):
+        rel = str(s.relative_to(root))
+        try:
+            content = s.read_text(encoding="utf-8")
+        except (OSError, UnicodeDecodeError):
+            continue
+        all_specs[rel] = parse_frontmatter(content)
+
+    # Build reverse dependency map: spec -> list of specs that depend on it
+    reverse_deps: dict[str, list[str]] = {s: [] for s in all_specs}
+    for spec, deps in all_specs.items():
+        for dep in deps:
+            if dep not in reverse_deps:
+                reverse_deps[dep] = []
+            reverse_deps[dep].append(spec)
+
+    # Build the concrete spec graph
+    all_impls: dict[str, dict] = {}
+    for impl_path in sorted(root.rglob("*.impl.md")):
+        rel = str(impl_path.relative_to(root))
+        try:
+            content = impl_path.read_text(encoding="utf-8")
+        except (OSError, UnicodeDecodeError):
+            continue
+        all_impls[rel] = parse_concrete_frontmatter(content)
+
+    # Build reverse concrete dep map: impl -> list of impls that depend on it
+    reverse_concrete: dict[str, list[str]] = {i: [] for i in all_impls}
+    for impl, meta in all_impls.items():
+        for dep in meta.get("concrete_dependencies", []):
+            if dep not in reverse_concrete:
+                reverse_concrete[dep] = []
+            reverse_concrete[dep].append(impl)
+        extends = meta.get("extends")
+        if extends:
+            if extends not in reverse_concrete:
+                reverse_concrete[extends] = []
+            reverse_concrete[extends].append(impl)
+
+    # Map source-spec -> impl paths
+    spec_to_impls: dict[str, list[str]] = {}
+    for impl, meta in all_impls.items():
+        src = meta.get("source_spec")
+        if src:
+            spec_to_impls.setdefault(src, []).append(impl)
+
+    # For each input spec, compute the full ripple
+    affected_specs: set[str] = set()
+    directly_changed: set[str] = set()
+
+    # Normalize input paths
+    normalized_inputs = []
+    for sp in spec_paths:
+        p = Path(sp)
+        if p.is_absolute():
+            try:
+                sp = str(p.relative_to(root))
+            except ValueError:
+                pass
+        normalized_inputs.append(sp)
+
+    # BFS to find all transitively affected specs
+    queue = list(normalized_inputs)
+    directly_changed.update(normalized_inputs)
+    visited: set[str] = set()
+
+    while queue:
+        current = queue.pop(0)
+        if current in visited:
+            continue
+        visited.add(current)
+        affected_specs.add(current)
+        for dependent in reverse_deps.get(current, []):
+            queue.append(dependent)
+
+    # Find affected concrete specs (from source-spec links + concrete deps)
+    affected_impls: set[str] = set()
+    impl_queue: list[str] = []
+
+    # Seed: impls whose source-spec is an affected abstract spec
+    for spec in affected_specs:
+        for impl in spec_to_impls.get(spec, []):
+            impl_queue.append(impl)
+
+    # BFS through concrete dependency graph
+    impl_visited: set[str] = set()
+    while impl_queue:
+        current = impl_queue.pop(0)
+        if current in impl_visited:
+            continue
+        impl_visited.add(current)
+        affected_impls.add(current)
+        for dependent in reverse_concrete.get(current, []):
+            impl_queue.append(dependent)
+
+    # Find affected managed files
+    affected_managed: list[dict] = []
+
+    for spec in sorted(affected_specs):
+        spec_path = root / spec
+        if not spec_path.exists():
+            continue
+
+        # Check for multi-target impl
+        impl_companion = spec_path.parent / re.sub(r"\.spec\.md$", ".impl.md", spec_path.name)
+        targets_handled = False
+
+        if impl_companion.exists():
+            try:
+                ic_content = impl_companion.read_text(encoding="utf-8")
+                ic_meta = parse_concrete_frontmatter(ic_content)
+                if ic_meta.get("targets"):
+                    targets_handled = True
+                    for target in ic_meta["targets"]:
+                        managed_rel = target.get("path", "")
+                        managed_full = root / managed_rel
+                        entry = {
+                            "managed": managed_rel,
+                            "spec": spec,
+                            "concrete": str(impl_companion.relative_to(root)),
+                            "exists": managed_full.exists(),
+                            "language": target.get("language", "unknown"),
+                            "cause": "direct" if spec in directly_changed else "transitive",
+                        }
+                        if managed_full.exists():
+                            result = classify_file(str(managed_full), str(spec_path), project_root=str(root))
+                            entry["current_state"] = result["state"]
+                        else:
+                            entry["current_state"] = "new"
+                        affected_managed.append(entry)
+            except (OSError, UnicodeDecodeError):
+                pass
+
+        if not targets_handled:
+            # Unit spec
+            if spec.endswith(".unit.spec.md"):
+                try:
+                    content = spec_path.read_text(encoding="utf-8")
+                    in_files = False
+                    for line in content.split("\n"):
+                        if re.match(r"^## Files", line):
+                            in_files = True
+                            continue
+                        if in_files:
+                            if re.match(r"^## ", line):
+                                break
+                            m = re.match(r"^\s*-\s+`([^`]+)`", line)
+                            if m:
+                                managed_rel = str((spec_path.parent / m.group(1)).relative_to(root))
+                                managed_full = root / managed_rel
+                                entry = {
+                                    "managed": managed_rel,
+                                    "spec": spec,
+                                    "exists": managed_full.exists(),
+                                    "cause": "direct" if spec in directly_changed else "transitive",
+                                }
+                                if managed_full.exists():
+                                    result = classify_file(str(managed_full), str(spec_path), project_root=str(root))
+                                    entry["current_state"] = result["state"]
+                                else:
+                                    entry["current_state"] = "new"
+                                affected_managed.append(entry)
+                except (OSError, UnicodeDecodeError):
+                    pass
+            else:
+                # Per-file spec
+                managed_name = re.sub(r"\.spec\.md$", "", spec_path.name)
+                managed_full = spec_path.parent / managed_name
+                managed_rel = str(managed_full.relative_to(root)) if managed_full.exists() else str(
+                    (spec_path.parent / managed_name).relative_to(root)
+                )
+                entry = {
+                    "managed": managed_rel,
+                    "spec": spec,
+                    "exists": managed_full.exists(),
+                    "cause": "direct" if spec in directly_changed else "transitive",
+                }
+                if managed_full.exists():
+                    result = classify_file(str(managed_full), str(spec_path), project_root=str(root))
+                    entry["current_state"] = result["state"]
+                else:
+                    entry["current_state"] = "new"
+                affected_managed.append(entry)
+
+    # Add concrete-only affected files (ghost staleness via concrete deps, not abstract deps)
+    concrete_only_impls = affected_impls - {
+        str((root / impl).relative_to(root))
+        for spec in affected_specs
+        for impl in spec_to_impls.get(spec, [])
+    }
+    ghost_stale_managed: list[dict] = []
+    for impl in sorted(concrete_only_impls):
+        meta = all_impls.get(impl, {})
+        src = meta.get("source_spec")
+        if not src:
+            continue
+        # This impl's abstract spec wasn't directly affected — ghost staleness
+        spec_path = root / src
+        targets = meta.get("targets", [])
+        if targets:
+            for target in targets:
+                managed_rel = target.get("path", "")
+                managed_full = root / managed_rel
+                ghost_stale_managed.append({
+                    "managed": managed_rel,
+                    "spec": src,
+                    "concrete": impl,
+                    "exists": managed_full.exists(),
+                    "cause": "ghost-stale",
+                    "ghost_source": impl,
+                    "current_state": "ghost-stale",
+                })
+        else:
+            managed_name = re.sub(r"\.spec\.md$", "", Path(src).name)
+            managed_full = root / Path(src).parent / managed_name
+            managed_rel = str(managed_full.relative_to(root)) if managed_full.exists() else str(
+                (Path(src).parent / managed_name)
+            )
+            ghost_stale_managed.append({
+                "managed": managed_rel,
+                "spec": src,
+                "concrete": impl,
+                "exists": managed_full.exists(),
+                "cause": "ghost-stale",
+                "ghost_source": impl,
+                "current_state": "ghost-stale",
+            })
+
+    # Build the summary
+    return {
+        "input_specs": normalized_inputs,
+        "layers": {
+            "abstract": {
+                "directly_changed": sorted(directly_changed),
+                "transitively_affected": sorted(affected_specs - directly_changed),
+                "total": len(affected_specs),
+            },
+            "concrete": {
+                "affected_impls": sorted(affected_impls),
+                "ghost_stale_impls": sorted(concrete_only_impls),
+                "total": len(affected_impls),
+            },
+            "code": {
+                "regenerate": affected_managed,
+                "ghost_stale": ghost_stale_managed,
+                "total_files": len(affected_managed) + len(ghost_stale_managed),
+            },
+        },
+        "build_order": _compute_ripple_build_order(affected_specs, all_specs),
+    }
+
+
+def _compute_ripple_build_order(affected_specs: set[str], all_specs: dict[str, list[str]]) -> list[str]:
+    """Compute build order for just the affected specs."""
+    # Build subgraph of only affected specs
+    subgraph: dict[str, list[str]] = {}
+    for spec in affected_specs:
+        deps = [d for d in all_specs.get(spec, []) if d in affected_specs]
+        subgraph[spec] = deps
+
+    # Add missing nodes
+    all_nodes = set(subgraph.keys())
+    for deps_list in list(subgraph.values()):
+        for dep in deps_list:
+            if dep not in all_nodes:
+                subgraph[dep] = []
+
+    try:
+        return topo_sort(subgraph)
+    except ValueError:
+        return sorted(affected_specs)
+
+
 def file_tree(directory: str) -> list[str]:
     """List git-tracked files in directory.
 
@@ -1513,7 +1835,7 @@ def file_tree(directory: str) -> list[str]:
 def main():
     """CLI entry point."""
     if len(sys.argv) < 2:
-        cmds = "discover|build-order|deps|check-freshness|concrete-order|concrete-deps|file-tree"
+        cmds = "discover|build-order|deps|check-freshness|concrete-order|concrete-deps|ripple-check|file-tree"
         print(f"Usage: orchestrator.py <{cmds}> [args]", file=sys.stderr)
         sys.exit(1)
 
@@ -1653,6 +1975,33 @@ def main():
                 result["flattened"] = flatten_inheritance_chain(str(impl), project_root)
             print(json.dumps(result, indent=2))
         except (OSError, UnicodeDecodeError) as e:
+            print(json.dumps({"error": str(e)}), file=sys.stderr)
+            sys.exit(1)
+
+    elif command == "ripple-check":
+        if len(sys.argv) < 3:
+            print(
+                "Usage: orchestrator.py ripple-check <spec-path> [<spec-path>...] [--root <project-root>]",
+                file=sys.stderr,
+            )
+            sys.exit(1)
+        project_root = "."
+        spec_paths = []
+        i = 2
+        while i < len(sys.argv):
+            if sys.argv[i] == "--root":
+                if i + 1 >= len(sys.argv):
+                    print("--root requires a value", file=sys.stderr)
+                    sys.exit(1)
+                project_root = sys.argv[i + 1]
+                i += 2
+            else:
+                spec_paths.append(sys.argv[i])
+                i += 1
+        try:
+            result = ripple_check(spec_paths, project_root)
+            print(json.dumps(result, indent=2))
+        except (ValueError, OSError, UnicodeDecodeError) as e:
             print(json.dumps({"error": str(e)}), file=sys.stderr)
             sys.exit(1)
 

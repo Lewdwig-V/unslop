@@ -69,7 +69,7 @@ After the Architect finalizes the Abstract Spec (Stage A.1) and before dispatchi
 - `## Type Sketch` — structural type signatures (language-agnostic)
 - `## Lowering Notes` — language-specific considerations (optional, only for permanent specs)
 
-**Strategy Inheritance:** If the concrete spec has `extends: <base.impl.md>` in its frontmatter, the Strategist resolves the inheritance chain before presenting the concrete spec to the Builder. The Builder receives the **resolved** concrete spec — it never sees the raw `extends` directive. Resolution rules: `## Strategy` and `## Type Sketch` come from the child only; `## Pattern` merges (child overrides by key); `## Lowering Notes` inherits with child overrides by language heading. See the `unslop/concrete-spec` skill for full resolution semantics.
+**Strategy Inheritance:** If the concrete spec has `extends: <base.impl.md>` in its frontmatter, the Strategist resolves the inheritance chain via `resolve_inherited_sections()` before presenting the concrete spec to the Builder. The Builder receives the **resolved** concrete spec — it never sees the raw `extends` directive. Resolution uses three section-specific policies: `## Strategy` and `## Type Sketch` are **strict child-only** (parent is purged — a child that omits these fails Phase 0a.1 validation); `## Pattern` is **overridable** (child replaces parent by key, parent persists if child omits); `## Lowering Notes` is **additive** (parent + child merged by language heading). See the `unslop/concrete-spec` skill for full resolution semantics.
 
 The Strategist should use `extends` when generating concrete specs for modules that share architectural patterns (e.g., multiple FastAPI endpoints inheriting from `shared/fastapi-async.impl.md`). This reduces token cost and ensures consistency across related modules.
 
@@ -302,6 +302,32 @@ On each generation command invocation, before dispatching any Builder, check for
 5. If the user declines: proceed without cleanup
 
 Only worktrees matching the `unslop/builder/*` pattern are flagged. User-created worktrees are never touched.
+
+---
+
+### Ripple-Effect Analysis (`--dry-run`)
+
+When invoked with `--dry-run`, the generation pipeline stops after classification and runs a ripple-effect analysis instead of dispatching Builders. This traces the "blast radius" of a spec change across all three layers of the compiler IR:
+
+**Layer 1 — Abstract Specs:** Which specs are directly changed (stale/new/conflict) and which are transitively affected via `depends-on` chains.
+
+**Layer 2 — Concrete Specs:** Which `*.impl.md` files need regeneration (their `source-spec` changed) and which become ghost-stale (their upstream `concrete-dependencies` or `extends` parent changed).
+
+**Layer 3 — Managed Code:** Which source files would be regenerated, in what build order, and which would become ghost-stale.
+
+**Implementation:** The orchestrator's `ripple-check` subcommand performs the analysis:
+
+```
+python ${CLAUDE_PLUGIN_ROOT}/scripts/orchestrator.py ripple-check <spec-path>... --root .
+```
+
+It returns a structured JSON report with:
+- `layers.abstract`: directly changed vs transitively affected spec counts
+- `layers.concrete`: affected impl files and ghost-stale impl files
+- `layers.code`: files that would be regenerated and ghost-stale files
+- `build_order`: topological order for the affected subgraph
+
+The `--dry-run` flag is read-only — no files are modified, no worktrees are spawned, no commits are made. This is the bulk-refactor equivalent of a compiler's "what would this optimization pass change" diagnostic.
 
 ---
 

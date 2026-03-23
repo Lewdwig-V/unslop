@@ -26,6 +26,8 @@ from orchestrator import (
     get_all_strategy_providers,
     get_registry_key_for_spec,
     flatten_inheritance_chain,
+    ripple_check,
+    STRICT_CHILD_ONLY,
 )
 
 
@@ -2218,3 +2220,243 @@ def test_check_freshness_deep_ghost_stale(tmp_path):
     assert parent_entry[0]["state"] == "ghost-stale", (
         f"Expected ghost-stale for parent after grandparent change, got: {parent_entry[0]}"
     )
+
+
+# --- strict child-only inheritance tests ---
+
+
+def test_strict_child_only_strategy_purged_when_child_omits(tmp_path):
+    """A child that omits ## Strategy should NOT inherit parent's strategy."""
+    shared = tmp_path / "shared"
+    shared.mkdir()
+    (shared / "base.impl.md").write_text(
+        "---\ntarget-language: python\n---\n\n"
+        "## Strategy\n\nParent generic fetch strategy.\n\n"
+        "## Pattern\n\n- **Concurrency**: async\n\n"
+        "## Lowering Notes\n\n### Python\n- Use asyncio\n"
+    )
+    (tmp_path / "child.impl.md").write_text(
+        "---\nsource-spec: child.spec.md\ntarget-language: python\n"
+        "extends: shared/base.impl.md\n---\n\n"
+        "## Pattern\n\n- **Error handling**: typed errors\n"
+    )
+    sections = resolve_inherited_sections("child.impl.md", str(tmp_path))
+    # Strategy must NOT be present — it was purged from parent and child didn't define one
+    assert "Strategy" not in sections
+    # Pattern should be merged
+    assert "Pattern" in sections
+    assert "Concurrency" in sections["Pattern"]
+    assert "Error handling" in sections["Pattern"]
+    # Lowering Notes should be inherited
+    assert "Lowering Notes" in sections
+    assert "asyncio" in sections["Lowering Notes"]
+
+
+def test_strict_child_only_type_sketch_purged_when_child_omits(tmp_path):
+    """A child that omits ## Type Sketch should NOT inherit parent's type sketch."""
+    shared = tmp_path / "shared"
+    shared.mkdir()
+    (shared / "base.impl.md").write_text(
+        "---\ntarget-language: python\n---\n\n"
+        "## Type Sketch\n\nBaseConfig { timeout: int }\n\n"
+        "## Pattern\n\n- **DI pattern**: Depends()\n"
+    )
+    (tmp_path / "child.impl.md").write_text(
+        "---\nsource-spec: child.spec.md\ntarget-language: python\n"
+        "extends: shared/base.impl.md\n---\n\n"
+        "## Strategy\n\nChild algorithm here.\n"
+    )
+    sections = resolve_inherited_sections("child.impl.md", str(tmp_path))
+    assert "Type Sketch" not in sections
+    assert "Strategy" in sections
+    assert "Child algorithm" in sections["Strategy"]
+    assert "Pattern" in sections
+
+
+def test_strict_child_only_constant_has_expected_sections():
+    """Verify the STRICT_CHILD_ONLY set contains the right sections."""
+    assert "Strategy" in STRICT_CHILD_ONLY
+    assert "Type Sketch" in STRICT_CHILD_ONLY
+    assert "Pattern" not in STRICT_CHILD_ONLY
+    assert "Lowering Notes" not in STRICT_CHILD_ONLY
+
+
+def test_strict_child_only_three_level_chain_purges_grandparent(tmp_path):
+    """In a 3-level chain, grandparent Strategy must not leak to grandchild."""
+    shared = tmp_path / "shared"
+    shared.mkdir()
+    (shared / "grandparent.impl.md").write_text(
+        "---\ntarget-language: python\n---\n\n"
+        "## Strategy\n\nGrandparent strategy — must NOT leak.\n\n"
+        "## Pattern\n\n- **Base**: grandparent pattern\n\n"
+        "## Lowering Notes\n\n### Python\n- grandparent note\n"
+    )
+    (shared / "parent.impl.md").write_text(
+        "---\ntarget-language: python\nextends: shared/grandparent.impl.md\n---\n\n"
+        "## Strategy\n\nParent strategy — also must NOT leak to child.\n\n"
+        "## Pattern\n\n- **Middle**: parent pattern\n"
+    )
+    (tmp_path / "child.impl.md").write_text(
+        "---\nsource-spec: child.spec.md\ntarget-language: python\n"
+        "extends: shared/parent.impl.md\n---\n\n"
+        "## Strategy\n\nChild's own unique strategy.\n"
+    )
+    sections = resolve_inherited_sections("child.impl.md", str(tmp_path))
+    assert "Child's own unique strategy" in sections["Strategy"]
+    assert "Grandparent strategy" not in sections.get("Strategy", "")
+    assert "Parent strategy" not in sections.get("Strategy", "")
+    # Pattern should merge from grandparent + parent
+    assert "Base" in sections["Pattern"]
+    assert "Middle" in sections["Pattern"]
+    # Lowering Notes inherited from grandparent
+    assert "grandparent note" in sections["Lowering Notes"]
+
+
+def test_strict_child_only_no_inheritance_returns_own_sections(tmp_path):
+    """A spec with no extends should return its own sections unchanged."""
+    (tmp_path / "standalone.impl.md").write_text(
+        "---\nsource-spec: standalone.spec.md\ntarget-language: python\n---\n\n"
+        "## Strategy\n\nStandalone algorithm.\n\n"
+        "## Type Sketch\n\nFoo { x: int }\n"
+    )
+    sections = resolve_inherited_sections("standalone.impl.md", str(tmp_path))
+    assert "Strategy" in sections
+    assert "Standalone algorithm" in sections["Strategy"]
+    assert "Type Sketch" in sections
+    assert "Foo" in sections["Type Sketch"]
+
+
+def test_strict_child_only_child_defines_both_strict_sections(tmp_path):
+    """If child defines Strategy and Type Sketch, those should appear (not parent's)."""
+    shared = tmp_path / "shared"
+    shared.mkdir()
+    (shared / "base.impl.md").write_text(
+        "---\ntarget-language: python\n---\n\n"
+        "## Strategy\n\nParent strategy.\n\n"
+        "## Type Sketch\n\nParentType { a: int }\n"
+    )
+    (tmp_path / "child.impl.md").write_text(
+        "---\nsource-spec: child.spec.md\ntarget-language: python\n"
+        "extends: shared/base.impl.md\n---\n\n"
+        "## Strategy\n\nChild strategy.\n\n"
+        "## Type Sketch\n\nChildType { b: string }\n"
+    )
+    sections = resolve_inherited_sections("child.impl.md", str(tmp_path))
+    assert "Child strategy" in sections["Strategy"]
+    assert "Parent strategy" not in sections["Strategy"]
+    assert "ChildType" in sections["Type Sketch"]
+    assert "ParentType" not in sections["Type Sketch"]
+
+
+# --- ripple-check tests ---
+
+
+def _make_managed_file(path, spec_path, body="pass"):
+    """Helper to create a managed file with proper header."""
+    from orchestrator import compute_hash
+
+    spec_content = path.parent.parent / spec_path if not isinstance(spec_path, str) else spec_path
+    # Read the actual spec to compute hash
+    spec_file = path.parent / spec_path if "/" not in str(spec_path) else path.parent.parent / spec_path
+    # We'll compute hashes from content
+    spec_hash = compute_hash(spec_file.read_text() if spec_file.exists() else "")
+    output_hash = compute_hash(body)
+    header = (
+        f"# @unslop-managed — do not edit directly. Edit {spec_path} instead.\n"
+        f"# spec-hash:{spec_hash} output-hash:{output_hash} generated:2026-03-23T00:00:00Z\n\n"
+    )
+    path.write_text(header + body)
+
+
+def test_ripple_check_single_spec_no_deps(tmp_path):
+    """Ripple check on a spec with no dependents should show only itself."""
+    (tmp_path / "src").mkdir()
+    (tmp_path / "src" / "retry.py.spec.md").write_text("# Retry Spec\n\nRetry with backoff.\n")
+    (tmp_path / "src" / "retry.py").write_text("# no header\ndef retry(): pass\n")
+
+    result = ripple_check(["src/retry.py.spec.md"], str(tmp_path))
+    assert result["layers"]["abstract"]["total"] == 1
+    assert "src/retry.py.spec.md" in result["layers"]["abstract"]["directly_changed"]
+    assert len(result["layers"]["abstract"]["transitively_affected"]) == 0
+    assert result["layers"]["code"]["total_files"] == 1
+    assert result["layers"]["code"]["regenerate"][0]["managed"] == "src/retry.py"
+
+
+def test_ripple_check_transitive_deps(tmp_path):
+    """Changing a spec should show transitively affected dependents."""
+    (tmp_path / "src").mkdir()
+    # A -> B -> C (C depends on B, B depends on A)
+    (tmp_path / "src" / "a.py.spec.md").write_text("# A Spec\n")
+    (tmp_path / "src" / "b.py.spec.md").write_text(
+        "---\ndepends-on:\n  - src/a.py.spec.md\n---\n# B Spec\n"
+    )
+    (tmp_path / "src" / "c.py.spec.md").write_text(
+        "---\ndepends-on:\n  - src/b.py.spec.md\n---\n# C Spec\n"
+    )
+
+    result = ripple_check(["src/a.py.spec.md"], str(tmp_path))
+    assert result["layers"]["abstract"]["total"] == 3
+    assert "src/a.py.spec.md" in result["layers"]["abstract"]["directly_changed"]
+    transitives = result["layers"]["abstract"]["transitively_affected"]
+    assert "src/b.py.spec.md" in transitives
+    assert "src/c.py.spec.md" in transitives
+    assert result["layers"]["code"]["total_files"] == 3
+
+
+def test_ripple_check_concrete_deps_ghost_stale(tmp_path):
+    """Concrete dependency changes should show ghost-stale files."""
+    (tmp_path / "src").mkdir()
+    # Two specs, each with its own impl.md
+    (tmp_path / "src" / "pool.py.spec.md").write_text("# Pool Spec\n")
+    (tmp_path / "src" / "pool.py.impl.md").write_text(
+        "---\nsource-spec: src/pool.py.spec.md\ntarget-language: python\nephemeral: false\n---\n\n"
+        "## Strategy\n\nPool strategy.\n"
+    )
+    (tmp_path / "src" / "handler.py.spec.md").write_text("# Handler Spec\n")
+    (tmp_path / "src" / "handler.py.impl.md").write_text(
+        "---\nsource-spec: src/handler.py.spec.md\ntarget-language: python\n"
+        "ephemeral: false\nconcrete-dependencies:\n  - src/pool.py.impl.md\n---\n\n"
+        "## Strategy\n\nHandler strategy.\n"
+    )
+
+    # Change pool spec — handler's concrete spec depends on pool's concrete spec
+    result = ripple_check(["src/pool.py.spec.md"], str(tmp_path))
+
+    # pool is directly changed, handler is ghost-stale via concrete deps
+    assert "src/pool.py.spec.md" in result["layers"]["abstract"]["directly_changed"]
+    assert result["layers"]["concrete"]["total"] >= 1
+    assert "src/pool.py.impl.md" in result["layers"]["concrete"]["affected_impls"]
+
+
+def test_ripple_check_build_order(tmp_path):
+    """Build order should respect dependency ordering."""
+    (tmp_path / "src").mkdir()
+    (tmp_path / "src" / "base.py.spec.md").write_text("# Base\n")
+    (tmp_path / "src" / "mid.py.spec.md").write_text(
+        "---\ndepends-on:\n  - src/base.py.spec.md\n---\n# Mid\n"
+    )
+    (tmp_path / "src" / "top.py.spec.md").write_text(
+        "---\ndepends-on:\n  - src/mid.py.spec.md\n---\n# Top\n"
+    )
+
+    result = ripple_check(["src/base.py.spec.md"], str(tmp_path))
+    order = result["build_order"]
+    base_idx = order.index("src/base.py.spec.md")
+    mid_idx = order.index("src/mid.py.spec.md")
+    top_idx = order.index("src/top.py.spec.md")
+    assert base_idx < mid_idx < top_idx
+
+
+def test_ripple_check_multiple_input_specs(tmp_path):
+    """Multiple input specs should union their ripple effects."""
+    (tmp_path / "src").mkdir()
+    (tmp_path / "src" / "a.py.spec.md").write_text("# A\n")
+    (tmp_path / "src" / "b.py.spec.md").write_text("# B\n")
+    (tmp_path / "src" / "c.py.spec.md").write_text(
+        "---\ndepends-on:\n  - src/a.py.spec.md\n---\n# C\n"
+    )
+
+    result = ripple_check(["src/a.py.spec.md", "src/b.py.spec.md"], str(tmp_path))
+    assert result["layers"]["abstract"]["total"] == 3  # a, b, c
+    assert len(result["layers"]["abstract"]["directly_changed"]) == 2
+    assert "src/c.py.spec.md" in result["layers"]["abstract"]["transitively_affected"]
