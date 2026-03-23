@@ -19,6 +19,7 @@ Contents:
 archive/
 last-failure/
 feedback.md
+errors.log
 ```
 
 **3. Detect the test command**

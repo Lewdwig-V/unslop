@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import json
 import re
+import sys
 from pathlib import Path
 
 from ..core.frontmatter import parse_concrete_frontmatter, parse_frontmatter
@@ -40,7 +42,8 @@ def render_dependency_graph(
         rel = str(s.relative_to(root))
         try:
             content = s.read_text(encoding="utf-8")
-        except (OSError, UnicodeDecodeError):
+        except (OSError, UnicodeDecodeError) as e:
+            print(json.dumps({"warning": f"Skipping unreadable spec: {rel} ({e})"}), file=sys.stderr)
             continue
         all_specs[rel] = parse_frontmatter(content)
 
@@ -50,7 +53,8 @@ def render_dependency_graph(
         rel = str(impl_path.relative_to(root))
         try:
             content = impl_path.read_text(encoding="utf-8")
-        except (OSError, UnicodeDecodeError):
+        except (OSError, UnicodeDecodeError) as e:
+            print(json.dumps({"warning": f"Skipping unreadable impl: {rel} ({e})"}), file=sys.stderr)
             continue
         meta = parse_concrete_frontmatter(content)
         # Normalise source_spec to canonical root-relative path (impl may
@@ -148,7 +152,11 @@ def render_dependency_graph(
     try:
         freshness = check_freshness(str(root))
         state_map = {f["managed"]: f["state"] for f in freshness.get("files", [])}
-    except (ValueError, OSError):
+    except (ValueError, OSError) as e:
+        print(
+            json.dumps({"warning": f"Freshness check failed, staleness coloring unavailable: {e}"}),
+            file=sys.stderr,
+        )
         state_map = {}
 
     # stale-only filter: causality-aware pruning.
@@ -356,7 +364,8 @@ def render_dependency_graph(
             if spec.endswith(".unit.spec.md"):
                 try:
                     spec_content = (root / spec).read_text(encoding="utf-8")
-                except (OSError, UnicodeDecodeError):
+                except (OSError, UnicodeDecodeError) as e:
+                    print(json.dumps({"warning": f"Skipping unreadable unit spec: {spec} ({e})"}), file=sys.stderr)
                     continue
                 spec_dir = str(Path(spec).parent)
                 for uf in parse_unit_spec_files(spec_content):

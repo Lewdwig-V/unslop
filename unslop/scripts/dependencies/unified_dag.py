@@ -32,7 +32,9 @@ def _build_unified_dag(
     for impl_path in root.rglob("*.impl.md"):
         try:
             content = impl_path.read_text(encoding="utf-8")
-        except (OSError, UnicodeDecodeError):
+        except (OSError, UnicodeDecodeError) as e:
+            rel = str(impl_path.relative_to(root))
+            print(json.dumps({"warning": f"Skipping unreadable impl: {rel} ({e})"}), file=sys.stderr)
             continue
         meta = parse_concrete_frontmatter(content)
         rel = str(impl_path.relative_to(root))
@@ -47,7 +49,9 @@ def _build_unified_dag(
     for spec_path in root.rglob("*.spec.md"):
         try:
             content = spec_path.read_text(encoding="utf-8")
-        except (OSError, UnicodeDecodeError):
+        except (OSError, UnicodeDecodeError) as e:
+            rel = str(spec_path.relative_to(root))
+            print(json.dumps({"warning": f"Skipping unreadable spec: {rel} ({e})"}), file=sys.stderr)
             continue
         rel = str(spec_path.relative_to(root))
         all_specs.add(rel)

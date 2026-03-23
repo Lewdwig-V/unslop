@@ -45,7 +45,16 @@ def classify_file(managed_path: str, spec_path: str, project_root: str | None = 
             "hint": "Spec file not found -- the managed file references a spec that no longer exists.",
         }
 
-    spec_content = spec.read_text(encoding="utf-8")
+    try:
+        spec_content = spec.read_text(encoding="utf-8")
+    except (OSError, UnicodeDecodeError) as e:
+        return {
+            "managed": str(managed_path),
+            "spec": str(spec_path),
+            "state": "error",
+            "hint": f"Cannot read spec file: {e}",
+        }
+
     header = parse_header(managed_content)
 
     if header is None:
@@ -362,7 +371,9 @@ def check_freshness(directory: str, exclude_dirs: list[str] | None = None) -> di
     for _impl_path in (p for p in root.rglob("*.impl.md") if not _is_excluded(p)):
         try:
             _ic = _impl_path.read_text(encoding="utf-8")
-        except (OSError, UnicodeDecodeError):
+        except (OSError, UnicodeDecodeError) as e:
+            _rel = str(_impl_path.relative_to(root))
+            print(json.dumps({"warning": f"Skipping unreadable impl: {_rel} ({e})"}), file=sys.stderr)
             continue
         _ic_meta = parse_concrete_frontmatter(_ic)
         if _ic_meta.get("targets"):
@@ -462,7 +473,8 @@ def check_freshness(directory: str, exclude_dirs: list[str] | None = None) -> di
         rel_impl = str(impl_path.relative_to(root))
         try:
             impl_content = impl_path.read_text(encoding="utf-8")
-        except (OSError, UnicodeDecodeError):
+        except (OSError, UnicodeDecodeError) as e:
+            print(json.dumps({"warning": f"Skipping unreadable impl: {rel_impl} ({e})"}), file=sys.stderr)
             continue
 
         meta = parse_concrete_frontmatter(impl_content)
@@ -572,7 +584,8 @@ def check_freshness(directory: str, exclude_dirs: list[str] | None = None) -> di
         rel_impl = str(impl_path.relative_to(root))
         try:
             impl_content = impl_path.read_text(encoding="utf-8")
-        except (OSError, UnicodeDecodeError):
+        except (OSError, UnicodeDecodeError) as e:
+            print(json.dumps({"warning": f"Skipping unreadable impl: {rel_impl} ({e})"}), file=sys.stderr)
             continue
 
         meta = parse_concrete_frontmatter(impl_content)
@@ -618,7 +631,9 @@ def check_freshness(directory: str, exclude_dirs: list[str] | None = None) -> di
                         if spec_full.exists():
                             try:
                                 spec_content = spec_full.read_text(encoding="utf-8")
-                            except (OSError, UnicodeDecodeError):
+                            except (OSError, UnicodeDecodeError) as e:
+                                msg = f"Cannot read spec for unit file list: {source_spec} ({e})"
+                                print(json.dumps({"warning": msg}), file=sys.stderr)
                                 spec_content = ""
                             for uf in parse_unit_spec_files(spec_content):
                                 candidates.append(managed_full / uf)
@@ -632,7 +647,9 @@ def check_freshness(directory: str, exclude_dirs: list[str] | None = None) -> di
                         continue
                     try:
                         managed_content = candidate.read_text(encoding="utf-8")
-                    except (OSError, UnicodeDecodeError):
+                    except (OSError, UnicodeDecodeError) as e:
+                        msg = f"Cannot read managed file for ghost check: {candidate} ({e})"
+                        print(json.dumps({"warning": msg}), file=sys.stderr)
                         continue
                     header = parse_header(managed_content)
                     if header is None:

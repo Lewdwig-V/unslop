@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import json
+import sys
 from pathlib import Path
 
 from ..core.hashing import parse_header
@@ -49,8 +51,11 @@ def compute_deep_sync_plan(
                 header = parse_header(managed_content)
                 if header and header.get("spec_path"):
                     trigger_spec = header["spec_path"]
-            except (OSError, UnicodeDecodeError):
-                pass
+            except (OSError, UnicodeDecodeError) as e:
+                print(
+                    json.dumps({"warning": f"Cannot read header from {file_path} ({e}), falling back to basename heuristic"}),
+                    file=sys.stderr,
+                )
 
         # Fall back to basename convention if header lookup failed
         if not trigger_spec:

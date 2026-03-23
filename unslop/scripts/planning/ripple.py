@@ -31,7 +31,8 @@ def ripple_check(spec_paths: list[str], project_root: str) -> dict:
         rel = str(s.relative_to(root))
         try:
             content = s.read_text(encoding="utf-8")
-        except (OSError, UnicodeDecodeError):
+        except (OSError, UnicodeDecodeError) as e:
+            print(json.dumps({"warning": f"Skipping unreadable spec: {rel} ({e})"}), file=sys.stderr)
             continue
         all_specs[rel] = parse_frontmatter(content)
 
@@ -49,7 +50,8 @@ def ripple_check(spec_paths: list[str], project_root: str) -> dict:
         rel = str(impl_path.relative_to(root))
         try:
             content = impl_path.read_text(encoding="utf-8")
-        except (OSError, UnicodeDecodeError):
+        except (OSError, UnicodeDecodeError) as e:
+            print(json.dumps({"warning": f"Skipping unreadable impl: {rel} ({e})"}), file=sys.stderr)
             continue
         meta = parse_concrete_frontmatter(content)
         # Normalise source_spec to a canonical root-relative path so that
@@ -188,8 +190,21 @@ def ripple_check(spec_paths: list[str], project_root: str) -> dict:
                         else:
                             entry["current_state"] = "new"
                         affected_managed.append(entry)
-                except (OSError, UnicodeDecodeError):
-                    pass
+                except (OSError, UnicodeDecodeError) as e:
+                    print(
+                        json.dumps({"error": f"Cannot read unit spec {spec}: {e}. Files excluded from ripple plan."}),
+                        file=sys.stderr,
+                    )
+                    affected_managed.append(
+                        {
+                            "managed": str(spec_path_obj.parent.relative_to(root)),
+                            "spec": spec,
+                            "exists": True,
+                            "cause": "direct" if spec in directly_changed else "transitive",
+                            "current_state": "error",
+                            "error": f"Unit spec unreadable: {e}",
+                        }
+                    )
             else:
                 # Per-file spec
                 managed_name = re.sub(r"\.spec\.md$", "", spec_path_obj.name)
@@ -261,8 +276,23 @@ def ripple_check(spec_paths: list[str], project_root: str) -> dict:
                                 "current_state": "ghost-stale",
                             }
                         )
-                except (OSError, UnicodeDecodeError):
-                    pass
+                except (OSError, UnicodeDecodeError) as e:
+                    print(
+                        json.dumps({"error": f"Cannot read unit spec {src}: {e}. Ghost-stale files excluded."}),
+                        file=sys.stderr,
+                    )
+                    ghost_stale_managed.append(
+                        {
+                            "managed": str(spec_path_obj.parent.relative_to(root)),
+                            "spec": src,
+                            "concrete": impl,
+                            "exists": True,
+                            "cause": "ghost-stale",
+                            "ghost_source": impl,
+                            "current_state": "error",
+                            "error": f"Unit spec unreadable: {e}",
+                        }
+                    )
         else:
             # Per-file spec: derive managed path by stripping .spec.md
             managed_name = re.sub(r"\.spec\.md$", "", Path(src).name)
