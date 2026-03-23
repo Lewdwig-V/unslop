@@ -12,22 +12,23 @@ complexity: high
 ### Core Algorithm: Full Jitter Exponential Backoff
 
 ```pseudocode
-function retry(operation, config):
-    last_error = null
+FUNCTION retry(operation, config)
+    SET last_error ← null
 
-    for attempt in range(0, config.max_retries):
-        result = try operation()
-        if result.success:
-            return result.value
+    FOR attempt ← 0 TO config.max_retries - 1
+        TRY
+            SET result ← CALL operation()
+            RETURN result
+        CATCH error
+            SET last_error ← error
 
-        last_error = result.error
+            IF attempt < config.max_retries - 1
+                SET upper_bound ← MIN(config.base_delay × 2^attempt, config.max_delay)
+                SET delay ← random_uniform(0, upper_bound)    // Full Jitter
+                WAIT delay
 
-        if attempt < config.max_retries - 1:
-            upper_bound = min(config.base_delay * 2^attempt, config.max_delay)
-            delay = random_uniform(0, upper_bound)   // Full Jitter
-            sleep(delay)
-
-    raise MaxRetriesExceeded(config.max_retries, last_error)
+    RAISE MaxRetriesExceeded(config.max_retries, last_error)
+END FUNCTION
 ```
 
 **Key invariant:** `random_uniform(0, upper_bound)` produces a value in `[0, upper_bound)`. This is the Full Jitter formula from the AWS Architecture Blog — it eliminates thundering herd by decorrelating retry timing across clients.
@@ -36,14 +37,14 @@ function retry(operation, config):
 
 ```mermaid
 graph TD
-    A[Call operation] --> B{Success?}
-    B -->|Yes| C[Return result]
-    B -->|No| D[Store last_error]
+    A[CALL operation] --> B{Success?}
+    B -->|Yes| C[RETURN result]
+    B -->|No| D["SET last_error ← error"]
     D --> E{Final attempt?}
-    E -->|Yes| F[Raise MaxRetriesExceeded]
-    E -->|No| G[Compute upper_bound]
-    G --> H["delay = uniform(0, upper_bound)"]
-    H --> I[Sleep delay]
+    E -->|Yes| F[RAISE MaxRetriesExceeded]
+    E -->|No| G["SET upper_bound ← MIN(base × 2^attempt, cap)"]
+    G --> H["SET delay ← random_uniform(0, upper_bound)"]
+    H --> I[WAIT delay]
     I --> A
 ```
 

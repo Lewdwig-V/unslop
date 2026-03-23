@@ -172,6 +172,92 @@ Use per-file specs when:
 - The unit has more than ~10 files (context limits)
 - Different files have different dependency chains
 
+## Pseudocode Discipline
+
+Pseudocode appears in Concrete Specs (`*.impl.md`) inside ` ```pseudocode ` fenced blocks. It is the Middle-End IR — a human-readable blueprint for logic that bridges high-level intent and machine execution. These constraints ensure pseudocode remains a high-fidelity lowering target that the Builder can reliably "compile."
+
+### Definition
+
+- **What it IS**: A structured, language-agnostic representation of an algorithm's essential logic. It describes *how the math or logic works*, not how a language's library handles it.
+- **What it IS NOT**: Compilable code. It must avoid language-specific syntax (semicolons, curly braces, strict imports, type annotations with language-specific notation).
+
+### Structural Rules
+
+These rules ensure unambiguous parsing by both humans and the Builder:
+
+1. **One statement per line.** Each line represents a single logical action. Multi-statement lines obscure control flow.
+
+2. **Capitalized keywords for flow control.** Use a consistent set:
+   - Control flow: `IF`, `ELSE IF`, `ELSE`, `WHILE`, `FOR`, `REPEAT UNTIL`
+   - Operations: `SET`, `RETURN`, `RAISE`, `CALL`, `EMIT`
+   - Exception handling: `TRY`, `CATCH`
+   - Scope: `FUNCTION ... END FUNCTION`, `BEGIN ... END` for non-function blocks
+
+3. **Indentation-based hierarchy.** Mandatory indentation (2 or 4 spaces, consistent within a block) to show scope and nesting. No braces, no `end` keywords for control flow (scope is implicit from indentation, like Python but without the colon).
+
+4. **Assignment uses `←`** (or `:=` as fallback). Never `=` (ambiguous with equality) or `==` (language-specific). Equality comparison uses `=`.
+
+5. **Descriptive names, not abbreviations.** `delay`, `attempts`, `upper_bound` — not `d`, `a`, `ub`. Named constants for magic numbers: `MAX_RETRY_ATTEMPTS` not `5`.
+
+### Level of Abstraction (The Goldilocks Rule)
+
+Pseudocode must be detailed enough to be unambiguous but abstract enough to stay portable:
+
+**Elide:**
+- Boilerplate: memory allocation, imports, variable declarations (unless safety-critical)
+- Type annotations (these belong in `## Type Sketch`)
+- Library initialization and teardown
+
+**Include:**
+- Every conditional branch, especially error paths and edge cases
+- The exact mathematical formula for computed values (e.g., `delay ← random_uniform(0, upper_bound)`)
+- Loop bounds and termination conditions
+- Named constants with their semantic meaning
+- Complexity annotations where relevant: `// O(n log n)`, `// amortized O(1)`
+
+### Implementation Invariance
+
+The pseudocode must remain implementation-independent:
+
+- **No library calls.** Instead of `auth_lib.verify(token)`, write `VERIFY token_signature AGAINST public_key`. Instead of `random.uniform(0, n)`, write `random_uniform(0, n)` — a mathematical operation, not a library invocation.
+- **No language-specific syntax.** No `def`, `func`, `fn`, `let`, `var`, `const`, `:=` (Go-style), `->` (Rust/Haskell), `lambda`, `=>`. Use the capitalized keywords above.
+- **Mathematical notation over prose** where it is more precise: `delay ← MIN(base × 2^attempt, cap)` is clearer than "set the delay to the smaller of the exponential value and the cap."
+- **Generic data operations.** Use `APPEND item TO collection`, `REMOVE item FROM collection`, `LOOKUP key IN map` — not language-specific method syntax.
+
+### Concrete Spec Example (Compliant)
+
+````pseudocode
+FUNCTION retry(operation, config)
+    SET last_error ← null
+
+    FOR attempt ← 0 TO config.max_retries - 1
+        TRY
+            SET result ← CALL operation()
+            RETURN result
+        CATCH error
+            SET last_error ← error
+
+            IF attempt < config.max_retries - 1
+                SET upper_bound ← MIN(config.base_delay × 2^attempt, config.max_delay)
+                SET delay ← random_uniform(0, upper_bound)    // Full Jitter
+                WAIT delay
+
+    RAISE MaxRetriesExceeded(config.max_retries, last_error)
+END FUNCTION
+````
+
+### Common Violations
+
+| Violation | Example | Fix |
+|---|---|---|
+| Language-specific keyword | `def retry(...)` | `FUNCTION retry(...)` |
+| Library call | `time.sleep(delay)` | `WAIT delay` |
+| Bare assignment | `delay = x` | `SET delay ← x` |
+| Abbreviated names | `d`, `cfg`, `e` | `delay`, `config`, `error` |
+| Missing edge case | No error branch | Add `CATCH` / `IF error` |
+| Magic number | `if attempts > 5` | `IF attempts > MAX_RETRY_ATTEMPTS` |
+| Multi-statement line | `x = 1; y = 2` | Two separate lines |
+
 ## Skeleton Template
 
 Use this when creating a spec for a file that has no existing spec. Fill in what is known; leave sections as stubs rather than omitting them.

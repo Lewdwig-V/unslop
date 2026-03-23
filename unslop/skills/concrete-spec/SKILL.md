@@ -57,7 +57,7 @@ complexity: standard
 
 The core of the concrete spec. Describes the algorithm, data flow, and structural pattern in **language-agnostic pseudocode**. This is not the abstract spec's "what" — it is the "how" at the algorithmic level.
 
-Use fenced pseudocode blocks:
+Use fenced pseudocode blocks (` ```pseudocode `). **All pseudocode must comply with the Pseudocode Discipline defined in the `unslop/spec-language` skill.** Key requirements: capitalized keywords (`IF`, `SET`, `FUNCTION`), `←` for assignment, no language-specific syntax, no library calls.
 
 ````markdown
 ## Strategy
@@ -65,37 +65,42 @@ Use fenced pseudocode blocks:
 ### Core Algorithm
 
 ```pseudocode
-function retry(operation, config):
-    attempts = 0
-    while attempts < config.max_retries:
-        result = try operation()
-        if result.success:
-            return result
-        delay = min(config.base_delay * 2^attempts, config.max_delay)
-        delay += random_jitter(0, delay * config.jitter_factor)
-        wait(delay)
-        attempts += 1
-    raise MaxRetriesExceeded(attempts, last_error)
+FUNCTION retry(operation, config)
+    SET last_error ← null
+
+    FOR attempt ← 0 TO config.max_retries - 1
+        TRY
+            SET result ← CALL operation()
+            RETURN result
+        CATCH error
+            SET last_error ← error
+
+            IF attempt < config.max_retries - 1
+                SET upper_bound ← MIN(config.base_delay × 2^attempt, config.max_delay)
+                SET delay ← random_uniform(0, upper_bound)    // Full Jitter
+                WAIT delay
+
+    RAISE MaxRetriesExceeded(config.max_retries, last_error)
+END FUNCTION
 ```
 
 ### Data Flow
 
 ```mermaid
-graph LR
-    A[Input Request] --> B{Retry Loop}
-    B -->|Success| C[Return Result]
-    B -->|Failure| D{Max Retries?}
-    D -->|No| E[Backoff + Jitter]
-    E --> B
-    D -->|Yes| F[Raise Error]
+graph TD
+    A[CALL operation] --> B{Success?}
+    B -->|Yes| C[RETURN result]
+    B -->|No| D[Store last_error]
+    D --> E{Final attempt?}
+    E -->|Yes| F[RAISE MaxRetriesExceeded]
+    E -->|No| G[Compute upper_bound]
+    G --> H["SET delay ← random_uniform(0, upper_bound)"]
+    H --> I[WAIT delay]
+    I --> A
 ```
 ````
 
-**Pseudocode rules:**
-- Use generic constructs: `function`, `if`, `while`, `for`, `try`, `return`, `raise`
-- Name variables descriptively — `delay`, `attempts`, `config` not `d`, `a`, `c`
-- Include complexity annotations where relevant: `// O(n log n)`, `// amortized O(1)`
-- Do NOT use language-specific syntax (no `def`, `func`, `fn`, `:=`, `->`)
+**Pseudocode is validated during Phase 0a.1 of pre-generation validation.** See the `unslop/spec-language` skill for the full Pseudocode Discipline specification, including structural rules, the Goldilocks abstraction level, and the implementation invariance requirement.
 
 #### `## Pattern`
 
