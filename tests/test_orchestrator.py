@@ -5,7 +5,7 @@ import sys
 import os
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'unslop', 'scripts'))
 
-from orchestrator import compute_hash, parse_header, parse_frontmatter, topo_sort, discover_files, build_order_from_dir, resolve_deps, classify_file, check_freshness, parse_change_file, file_tree, parse_concrete_frontmatter, compute_concrete_deps_hash, build_concrete_order, resolve_extends_chain, resolve_inherited_sections
+from orchestrator import compute_hash, parse_header, parse_frontmatter, topo_sort, discover_files, build_order_from_dir, resolve_deps, classify_file, check_freshness, parse_change_file, file_tree, parse_concrete_frontmatter, compute_concrete_deps_hash, build_concrete_order, resolve_extends_chain, resolve_inherited_sections, get_all_strategy_providers
 
 
 def test_compute_hash_deterministic():
@@ -1552,3 +1552,151 @@ concrete-dependencies:
     result = parse_concrete_frontmatter(content)
     assert len(result["targets"]) == 2
     assert result["concrete_dependencies"] == ["src/core/tokens.impl.md"]
+
+
+# --- Inheritance-Aware Staleness Tests ---
+
+def test_get_all_strategy_providers_deps_only():
+    meta = {"concrete_dependencies": ["a.impl.md", "b.impl.md"]}
+    assert get_all_strategy_providers(meta) == ["a.impl.md", "b.impl.md"]
+
+
+def test_get_all_strategy_providers_extends_only():
+    meta = {"extends": "base.impl.md"}
+    assert get_all_strategy_providers(meta) == ["base.impl.md"]
+
+
+def test_get_all_strategy_providers_both():
+    meta = {
+        "concrete_dependencies": ["dep.impl.md"],
+        "extends": "base.impl.md",
+    }
+    result = get_all_strategy_providers(meta)
+    assert "base.impl.md" in result
+    assert "dep.impl.md" in result
+    assert len(result) == 2
+
+
+def test_get_all_strategy_providers_deduplicates():
+    """If extends is also listed in concrete_dependencies, no duplicate."""
+    meta = {
+        "concrete_dependencies": ["base.impl.md"],
+        "extends": "base.impl.md",
+    }
+    assert get_all_strategy_providers(meta) == ["base.impl.md"]
+
+
+def test_get_all_strategy_providers_empty():
+    assert get_all_strategy_providers({}) == []
+
+
+def test_compute_concrete_deps_hash_includes_extends(tmp_path):
+    """Hash should include the parent spec from extends."""
+    # Create parent
+    shared = tmp_path / "shared"
+    shared.mkdir()
+    (shared / "base.impl.md").write_text(
+        "---\nsource-spec: base.spec.md\ntarget-language: python\nephemeral: false\n---\n\n## Strategy\nBase v1.\n"
+    )
+
+    # Create child that extends parent (no concrete-dependencies)
+    (tmp_path / "child.impl.md").write_text(
+        "---\nsource-spec: child.spec.md\ntarget-language: python\nephemeral: false\n"
+        "extends: shared/base.impl.md\n---\n\n## Strategy\nChild.\n"
+    )
+
+    h1 = compute_concrete_deps_hash(str(tmp_path / "child.impl.md"), str(tmp_path))
+    assert h1 is not None, "extends-only spec should produce a hash"
+
+    # Change parent
+    (shared / "base.impl.md").write_text(
+        "---\nsource-spec: base.spec.md\ntarget-language: python\nephemeral: false\n---\n\n## Strategy\nBase v2 with security headers.\n"
+    )
+
+    h2 = compute_concrete_deps_hash(str(tmp_path / "child.impl.md"), str(tmp_path))
+    assert h2 != h1, "Hash should change when parent spec changes"
+
+
+def test_compute_concrete_deps_hash_extends_and_deps(tmp_path):
+    """Hash should incorporate both extends parent and concrete deps."""
+    shared = tmp_path / "shared"
+    shared.mkdir()
+    (shared / "base.impl.md").write_text(
+        "---\nsource-spec: base.spec.md\ntarget-language: python\n---\n\n## Strategy\nBase.\n"
+    )
+    (tmp_path / "pool.impl.md").write_text(
+        "---\nsource-spec: pool.spec.md\ntarget-language: python\n---\n\n## Strategy\nPool.\n"
+    )
+
+    # Child extends base and depends on pool
+    (tmp_path / "child.impl.md").write_text(
+        "---\nsource-spec: child.spec.md\ntarget-language: python\nephemeral: false\n"
+        "extends: shared/base.impl.md\n"
+        "concrete-dependencies:\n  - pool.impl.md\n---\n\n## Strategy\nChild.\n"
+    )
+
+    h1 = compute_concrete_deps_hash(str(tmp_path / "child.impl.md"), str(tmp_path))
+    assert h1 is not None
+
+    # Change the parent (not the dep) — hash should still change
+    (shared / "base.impl.md").write_text(
+        "---\nsource-spec: base.spec.md\ntarget-language: python\n---\n\n## Strategy\nBase v2.\n"
+    )
+
+    h2 = compute_concrete_deps_hash(str(tmp_path / "child.impl.md"), str(tmp_path))
+    assert h2 != h1, "Changing parent should change the hash even when deps are untouched"
+
+
+def test_check_freshness_ghost_stale_via_extends(tmp_path):
+    """Changing a parent spec should make child ghost-stale via extends."""
+    # Create parent concrete spec
+    shared = tmp_path / "shared"
+    shared.mkdir()
+    parent_v1 = (
+        "---\nsource-spec: shared/base.spec.md\ntarget-language: python\nephemeral: false\n---\n\n"
+        "## Strategy\nBase strategy v1.\n"
+    )
+    (shared / "base.impl.md").write_text(parent_v1)
+
+    # Create child spec.md and impl.md
+    child_spec = "# Child\n\n## Behavior\nChild behavior.\nDetails here.\n"
+    (tmp_path / "child.py.spec.md").write_text(child_spec)
+
+    child_impl = (
+        "---\nsource-spec: child.py.spec.md\ntarget-language: python\nephemeral: false\n"
+        "extends: shared/base.impl.md\n---\n\n## Strategy\nChild strategy.\n"
+    )
+    (tmp_path / "child.py.impl.md").write_text(child_impl)
+
+    # Compute hashes at "generation time"
+    child_body = "def child(): pass\n"
+    sh = compute_hash(child_spec)
+    oh = compute_hash(child_body)
+    cdh = compute_concrete_deps_hash(str(tmp_path / "child.py.impl.md"), str(tmp_path))
+
+    # Write managed file with correct header format
+    (tmp_path / "child.py").write_text(
+        f"# @unslop-managed — do not edit directly. Edit child.py.spec.md instead.\n"
+        f"# spec-hash:{sh} output-hash:{oh} concrete-deps-hash:{cdh}"
+        f" generated:2026-03-23T00:00:00Z\n" + child_body
+    )
+
+    # Verify it's fresh before parent changes
+    result = check_freshness(str(tmp_path))
+    child_entry = [f for f in result["files"] if f["managed"] == "child.py"]
+    assert len(child_entry) == 1
+    assert child_entry[0]["state"] == "fresh", f"Expected fresh, got: {child_entry[0]}"
+
+    # Now change the parent spec (strategy shift)
+    (shared / "base.impl.md").write_text(
+        "---\nsource-spec: shared/base.spec.md\ntarget-language: python\nephemeral: false\n---\n\n"
+        "## Strategy\nBase strategy v2 with security headers.\n"
+    )
+
+    # Child should now be ghost-stale because parent changed
+    result = check_freshness(str(tmp_path))
+    child_entry = [f for f in result["files"] if f["managed"] == "child.py"]
+    assert len(child_entry) == 1
+    assert child_entry[0]["state"] == "ghost-stale", (
+        f"Expected ghost-stale after parent change, got: {child_entry[0]}"
+    )

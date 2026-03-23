@@ -465,15 +465,15 @@ def check_concrete_staleness(
         return None
 
     meta = parse_concrete_frontmatter(content)
-    deps = meta.get("concrete_dependencies", [])
-    if not deps:
+    providers = get_all_strategy_providers(meta)
+    if not providers:
         return None
 
     root = Path(project_root).resolve()
     stale_deps = []
 
-    # Hash the concrete spec itself to check if deps have changed
-    for dep_path in deps:
+    # Hash all strategy providers (deps + parents) for changes
+    for dep_path in providers:
         dep_full = root / dep_path
         if not dep_full.exists():
             stale_deps.append({
@@ -512,10 +512,26 @@ def check_concrete_staleness(
     }
 
 
-def compute_concrete_deps_hash(impl_path: str, project_root: str) -> str | None:
-    """Compute a combined hash of all concrete-dependencies for a concrete spec.
+def get_all_strategy_providers(meta: dict) -> list[str]:
+    """Combine explicit concrete_dependencies and extends parents.
 
-    Returns a 12-char hex hash, or None if no concrete dependencies exist.
+    Both are "strategy providers" for hashing purposes — a change
+    to either should trigger ghost-staleness in the child spec.
+    """
+    deps = set(meta.get("concrete_dependencies", []))
+    extends = meta.get("extends")
+    if extends:
+        if isinstance(extends, list):
+            deps.update(extends)
+        else:
+            deps.add(extends)
+    return sorted(deps)
+
+
+def compute_concrete_deps_hash(impl_path: str, project_root: str) -> str | None:
+    """Compute a combined hash of all strategy providers (deps + parents).
+
+    Returns a 12-char hex hash, or None if no strategy providers exist.
     """
     impl = Path(impl_path)
     if not impl.exists():
@@ -527,13 +543,13 @@ def compute_concrete_deps_hash(impl_path: str, project_root: str) -> str | None:
         return None
 
     meta = parse_concrete_frontmatter(content)
-    deps = meta.get("concrete_dependencies", [])
-    if not deps:
+    providers = get_all_strategy_providers(meta)
+    if not providers:
         return None
 
     root = Path(project_root).resolve()
     combined = []
-    for dep_path in sorted(deps):
+    for dep_path in providers:
         dep_full = root / dep_path
         if dep_full.exists():
             try:
@@ -1037,13 +1053,13 @@ def check_freshness(directory: str) -> dict:
         if meta.get("ephemeral", True):
             continue  # Skip ephemeral concrete specs
 
-        concrete_deps = meta.get("concrete_dependencies", [])
-        if not concrete_deps:
+        all_providers = get_all_strategy_providers(meta)
+        if not all_providers:
             continue
 
-        # Check each upstream concrete dep for changes
+        # Check each upstream strategy provider (deps + parents) for changes
         stale_reasons = []
-        for dep_path in concrete_deps:
+        for dep_path in all_providers:
             dep_full = root / dep_path
             if not dep_full.exists():
                 stale_reasons.append(f"upstream `{dep_path}` not found")
@@ -1079,7 +1095,7 @@ def check_freshness(directory: str) -> dict:
                 if stored_cdeps is not None and stored_cdeps != current_cdeps_hash:
                     # Identify which specific deps changed
                     changed = _identify_changed_deps(
-                        concrete_deps, stored_cdeps, str(root),
+                        all_providers, stored_cdeps, str(root),
                     )
                     for reason in changed:
                         stale_reasons.append(reason)
