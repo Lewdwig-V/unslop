@@ -60,6 +60,13 @@ If the user is working with multiple related specs and asks about consistency, c
 **Pattern:** "Do these specs agree?", "Is this consistent with the auth spec?", "Check if my specs contradict each other"
 **Route:** `/unslop:coherence` (all specs) or `/unslop:coherence <spec-path>` (targeted, checks both upstream and downstream)
 
+## The Adversarial Quality Check
+
+If the user wants to validate test quality, run mutation tests, or generate black-box tests against a spec, route to adversarial.
+
+**Pattern:** "Run mutation tests", "Generate black-box tests", "Are my tests any good?", "Validate test coverage", "Adversarial check"
+**Route:** `/unslop:adversarial <spec-path>` to run the adversarial quality pipeline -- mutation testing, black-box test generation, and test quality validation against the spec's constraints.
+
 ## The Staleness Check
 
 If the user is unsure what's current, what's changed, or where things stand, route to status. If they want to see the dependency graph, or specifically the stale subgraph, route to graph.

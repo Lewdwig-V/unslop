@@ -6,5 +6,11 @@
   "promote-threshold": "high",
   "promote-threshold_note": "Complexity level at which concrete specs (.impl.md) are auto-promoted to permanent. Options: low, medium, high",
   "frameworks": [],
-  "frameworks_note": "No framework-specific domain skills for this stress test"
+  "frameworks_note": "No framework-specific domain skills for this stress test",
+  "adversarial": true,
+  "adversarial_note": "Enable the Adversarial Quality pipeline (Archaeologist → Mason → Saboteur)",
+  "adversarial_max_iterations": 3,
+  "adversarial_max_iterations_note": "Maximum convergence loop iterations before requiring manual review",
+  "mutation_tool": "builtin",
+  "mutation_tool_note": "Mutation engine: 'mutmut' for full mutation testing, 'builtin' for the lightweight AST mutator"
 }

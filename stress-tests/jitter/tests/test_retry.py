@@ -91,9 +91,7 @@ class TestBackoffBehavior:
 
         for call in mock_sleep.call_args_list:
             delay = call[0][0]
-            assert 0 <= delay <= config.max_delay, (
-                f"Delay {delay} exceeds max_delay {config.max_delay}"
-            )
+            assert 0 <= delay <= config.max_delay, f"Delay {delay} exceeds max_delay {config.max_delay}"
 
     @patch("src.retry.time.sleep")
     def test_delay_is_non_negative(self, mock_sleep):
@@ -152,8 +150,7 @@ class TestJitterBehavior:
 
         unique_sequences = set(delay_sequences)
         assert len(unique_sequences) > 1, (
-            "All 10 retry sequences produced identical delays — "
-            "jitter is not working. Delays should vary between runs."
+            "All 10 retry sequences produced identical delays — jitter is not working. Delays should vary between runs."
         )
 
     @patch("src.retry.time.sleep")

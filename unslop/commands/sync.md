@@ -1,9 +1,9 @@
 ---
 description: Regenerate managed files from their specs
-argument-hint: "[<file-path>] [--force] [--force-ambiguous] [--incremental] [--deep] [--dry-run] [--stale-only] [--resume] [--max-batch N]"
+argument-hint: "[<file-path>] [--force] [--force-ambiguous] [--force-pseudocode] [--force-strategy] [--incremental] [--deep] [--dry-run] [--stale-only] [--resume] [--max-batch N]"
 ---
 
-**Parse arguments:** `$ARGUMENTS` may contain the file path and optional flags. Extract the file path (the first argument that does not start with `--`) and check for flags (`--force`, `--force-ambiguous`, `--incremental`, `--deep`, `--dry-run`, `--stale-only`, `--resume`, `--max-batch`). Strip flags before using the path in subsequent steps. Note: `--stale-only` and `--resume` do not require a file path.
+**Parse arguments:** `$ARGUMENTS` may contain the file path and optional flags. Extract the file path (the first argument that does not start with `--`) and check for flags (`--force`, `--force-ambiguous`, `--force-pseudocode`, `--force-strategy`, `--incremental`, `--deep`, `--dry-run`, `--stale-only`, `--resume`, `--max-batch`). Strip flags before using the path in subsequent steps. Note: `--stale-only` and `--resume` do not require a file path.
 
 **Check for `--force` flag:** If `$ARGUMENTS` contains `--force`, note this — it allows regeneration to proceed on modified and conflict files without requiring user confirmation.
 
@@ -14,6 +14,10 @@ argument-hint: "[<file-path>] [--force] [--force-ambiguous] [--incremental] [--d
 **Check for `--stale-only` flag:** If `$ARGUMENTS` contains `--stale-only`, this sync will find and batch-regenerate ALL stale files in the project — no file path required. See **Step 2e** below for the bulk sync workflow.
 
 **Check for `--resume` flag:** If `$ARGUMENTS` contains `--resume`, this sync resumes a previously failed bulk or deep sync. It reads the failure report from `.unslop/last-sync-state.json`, computes only the downstream branch of the failure, and skips files that already succeeded. See **Step 2f** below for the resume workflow. No file path required.
+
+**Check for `--force-pseudocode` flag:** If `$ARGUMENTS` contains `--force-pseudocode`, note this for the generation skill. When present, pseudocode linting violations (Phase 0a.1) are reported as warnings instead of blocking generation.
+
+**Check for `--force-strategy` flag:** If `$ARGUMENTS` contains `--force-strategy`, note this for the generation skill. When present, concrete spec strategy incoherence (Phase 0e.1) is reported as warnings instead of blocking generation.
 
 **Check for `--max-batch` flag:** If `$ARGUMENTS` contains `--max-batch N`, use N as the maximum number of files per worktree batch (default: 8). Only meaningful with `--stale-only` or `--resume`.
 
@@ -48,6 +52,14 @@ If the spec has `depends-on` frontmatter, call `python ${CLAUDE_PLUGIN_ROOT}/scr
 Check if any dependencies are stale or conflict (using hash-based classification: compare stored spec-hash against current spec hash; if mismatch, the dependency is stale). If so, regenerate stale dependencies first, in dependency order, before regenerating the target file.
 
 If Python is not available and the spec has no `depends-on` frontmatter, proceed without dependency resolution (backwards compatible). If the spec has dependencies but Python is unavailable, report an error: "This spec has dependencies that require Python 3.8+ for resolution."
+
+**2c. Check diagnostic cache**
+
+Check for `.unslop/last-failure/<cache-key>.md` where `<cache-key>` is the spec path with `/` replaced by `--`. If a failure report exists, surface a one-liner before proceeding:
+
+> "Resuming from previous failure: [one-line summary of top suspected spec gap]. Ask to review full post-mortem."
+
+Inject the failure report contents into the Builder's prompt via the `{previous_failure}` parameter (see generation skill).
 
 **2d. Deep sync workflow (if `--deep`)**
 
@@ -88,6 +100,7 @@ Total: N files to regenerate, M skipped.
 4. **If skipped files exist** and `--force` was not passed: Ask the user whether to proceed without the skipped files, or abort so they can re-run with `--force`.
 
 5. **Process each file in the plan**, in the order returned by the orchestrator:
+   - For each file, check for its diagnostic cache entry at `.unslop/last-failure/<cache-key>.md`. If found, inject `{previous_failure}` into the Builder prompt.
    - For each file, run the normal sync Steps 3-6 (classify, dispatch Builder, verify, update alignment, commit).
    - **Critical**: After each successful regeneration, the downstream files in the plan may now have updated concrete-manifests. This is expected — they will be regenerated in their turn.
    - If a Builder fails for any file: **stop immediately**. Report which file in the chain failed and its position in the plan. Do not process remaining files.
@@ -142,6 +155,7 @@ Total: N files to regenerate across B batches, M skipped.
 
 5. **Process each batch sequentially**, in the order returned by the orchestrator:
    - Before starting a batch, report: `Starting batch K/N (M files)...`
+   - For each file in the batch, check for its diagnostic cache entry at `.unslop/last-failure/<cache-key>.md`. If found, inject `{previous_failure}` into the Builder prompt.
    - For each file in the batch, run the normal sync Steps 3-6 (classify, dispatch Builder, verify, update alignment, commit).
    - Files within the same batch are at the same topological depth (no dependency edges between them), so their order within the batch is flexible.
    - **Critical**: After completing a batch, downstream files in later batches may now have updated concrete-manifests. This is expected — they will be regenerated in their batch.
@@ -205,7 +219,7 @@ Total: N files to regenerate across B batches.
 
 4. **If `--dry-run`**: Stop here.
 
-5. **Process batches** using the same logic as Step 2e.5 (sequential batches, parallel-safe within each batch, save state on failure).
+5. **Process batches** using the same logic as Step 2e.5 (sequential batches, parallel-safe within each batch, save state on failure). For each file dispatched, check for its diagnostic cache entry at `.unslop/last-failure/<cache-key>.md` and inject `{previous_failure}` into the Builder prompt if found.
 
 6. After all batches succeed, delete `.unslop/last-sync-state.json` and report:
 
@@ -215,14 +229,6 @@ Previous failures resolved.
 ```
 
 After completing the resume, **return** — do not fall through to the single-file sync flow below.
-
-**2c. Check diagnostic cache**
-
-Check for `.unslop/last-failure/<cache-key>.md` where `<cache-key>` is the spec path with `/` replaced by `--`. If a failure report exists, surface a one-liner before proceeding:
-
-> "Resuming from previous failure: [one-line summary of top suspected spec gap]. Ask to review full post-mortem."
-
-Inject the failure report contents into the Builder's prompt via the `{previous_failure}` parameter (see generation skill).
 
 **3. Classify and dispatch**
 

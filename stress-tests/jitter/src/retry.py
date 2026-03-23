@@ -1,5 +1,5 @@
 # @unslop-managed — do not edit directly. Edit src/retry.py.spec.md instead.
-# spec-hash:7fd42ca49056 output-hash:b5a0566bacf0 generated:2026-03-23T00:00:00Z
+# spec-hash:7fd42ca49056 output-hash:8b524dc5848a generated:2026-03-23T00:00:00Z
 
 import random
 import time
@@ -15,9 +15,7 @@ class MaxRetriesExceeded(Exception):
     def __init__(self, attempts: int, last_error: Exception):
         self.attempts = attempts
         self.last_error = last_error
-        super().__init__(
-            f"Operation failed after {attempts} attempts: {last_error}"
-        )
+        super().__init__(f"Operation failed after {attempts} attempts: {last_error}")
 
 
 @dataclass(frozen=True)
@@ -54,7 +52,7 @@ def retry(
             last_error = e
             if attempt < config.max_retries - 1:
                 upper_bound = min(
-                    config.base_delay * (2 ** attempt),
+                    config.base_delay * (2**attempt),
                     config.max_delay,
                 )
                 delay = random.uniform(0, upper_bound)

@@ -829,3 +829,11 @@ Only flag clear contradictions or inconsistencies. Do NOT suggest additions or t
 > 2. Possible inconsistency: [quoted phrase A] vs [quoted phrase B]"
 
 **Never block on completeness review.** The generation succeeded, tests are green. These are improvement suggestions.
+
+---
+
+## 8. Adversarial Quality Integration Point
+
+When `adversarial: true` is set in `.unslop/config.json`, the adversarial quality pipeline (mutation testing, black-box test generation, test quality validation) can run after the Builder succeeds and before the commit.
+
+**Current status:** Integration point -- invoked by `/unslop:adversarial`, not auto-triggered during generation. The user must explicitly run `/unslop:adversarial <spec-path>` after a successful generation to validate test quality. Auto-trigger after Stage B is a planned future enhancement.

@@ -1,7 +1,7 @@
 ---
 name: concrete-spec
 description: Use when generating, reviewing, or promoting concrete specs — the implementation strategy layer between abstract specs (intent) and generated code. Activates during Stage B.1 of generation, during /unslop:harden --promote, and during takeover raising.
-version: 0.1.0
+version: 0.12.0
 ---
 
 # Concrete Spec Skill
@@ -616,15 +616,13 @@ This makes unslop a **cross-platform architectural tool**, not just a Python gen
 
 ### Language Switch Workflow
 
-```
-/unslop:lower <spec-path> --language go
-```
+> **Note:** `/unslop:lower` is a planned future command. The current manual workflow is:
 
-1. Read the existing concrete spec (if any) or generate one from the abstract spec
-2. Preserve `## Strategy`, `## Pattern`, `## Type Sketch`
-3. Regenerate `## Lowering Notes` for the target language
-4. Update `target-language` in frontmatter
-5. Dispatch Builder with the new concrete spec
+1. Update `target-language` in the concrete spec's frontmatter to the desired language (e.g., `go`)
+2. Update `## Lowering Notes` to reflect the new target language's idioms and conventions
+3. Run `/unslop:sync` to regenerate the managed file from the updated concrete spec
+
+The `## Strategy`, `## Pattern`, and `## Type Sketch` sections typically require no changes -- algorithms are portable across languages.
 
 ---
 

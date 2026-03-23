@@ -298,6 +298,7 @@ The current single-context approach works but has a theoretical weakness: the mo
 
 ### Prerequisites
 
+
 - Evidence from real-world usage that single-context generation is producing spec-bypassing code
 - Milestone F (eval framework) to measure whether subagents actually improve output quality
 - Milestone G (persuasion engineering) exhausted as a simpler solution first

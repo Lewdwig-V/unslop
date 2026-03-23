@@ -1,6 +1,6 @@
 ---
 description: Regenerate all stale managed files from their specs
-argument-hint: "[--force] [--force-ambiguous] [--incremental] [--dry-run]"
+argument-hint: "[--force] [--force-ambiguous] [--force-pseudocode] [--force-strategy] [--incremental] [--dry-run]"
 ---
 
 **1. Verify prerequisites**
@@ -20,6 +20,10 @@ Read `.unslop/config.json` to obtain the test command. If `config.json` does not
 **Check for `--force` flag:** If `$ARGUMENTS` contains `--force`, note this — it allows regeneration to proceed on modified and conflict files without requiring user confirmation.
 
 **Check for `--force-ambiguous` flag:** If `$ARGUMENTS` contains `--force-ambiguous`, note this for the generation skill. When this flag is present, the generation skill's ambiguity detection (Section 0, Phase 0b) reports ambiguities as warnings instead of blocking generation.
+
+**Check for `--force-pseudocode` flag:** If `$ARGUMENTS` contains `--force-pseudocode`, note this for the generation skill. When present, pseudocode linting violations (Phase 0a.1) are reported as warnings instead of blocking generation.
+
+**Check for `--force-strategy` flag:** If `$ARGUMENTS` contains `--force-strategy`, note this for the generation skill. When present, concrete spec strategy incoherence (Phase 0e.1) is reported as warnings instead of blocking generation.
 
 **Check for `--dry-run` flag:** If `$ARGUMENTS` contains `--dry-run`, perform a ripple-effect analysis instead of generating code. This shows the user exactly what would happen — which specs, concrete specs, and managed files would be affected — without spawning any worktrees or modifying any files. See Step 4b below.
 

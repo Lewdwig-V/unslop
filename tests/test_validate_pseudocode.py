@@ -1,8 +1,9 @@
 """Tests for validate_pseudocode.py — pseudocode linting for concrete specs."""
+
 import sys
 import os
 
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'unslop', 'scripts'))
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "unslop", "scripts"))
 from validate_pseudocode import validate_pseudocode, extract_pseudocode_blocks
 
 
@@ -72,6 +73,34 @@ class TestBareAssignment:
         result = validate_pseudocode(content, "test.impl.md")
         assert result["status"] == "pass"
 
+    def test_catches_bare_assignment_in_case_action(self):
+        """= in CASE action after colon is an assignment, not a comparison."""
+        content = "```pseudocode\nSWITCH mode\n    CASE mode = FAST: retry_count = 0\nEND SWITCH\n```\n"
+        result = validate_pseudocode(content, "test.impl.md")
+        assert result["status"] == "fail"
+        checks = [v["check"] for v in result["violations"]]
+        assert "bare_assignment" in checks
+
+    def test_catches_bare_assignment_in_when_action(self):
+        """= in WHEN action after colon is an assignment, not a comparison."""
+        content = "```pseudocode\nWHEN status = OK: count = count + 1\n```\n"
+        result = validate_pseudocode(content, "test.impl.md")
+        assert result["status"] == "fail"
+        checks = [v["check"] for v in result["violations"]]
+        assert "bare_assignment" in checks
+
+    def test_allows_comparison_in_case_condition(self):
+        """= in CASE condition (before colon) is still a valid comparison."""
+        content = "```pseudocode\nSWITCH mode\n    CASE mode = FAST: RETURN 1\nEND SWITCH\n```\n"
+        result = validate_pseudocode(content, "test.impl.md")
+        assert result["status"] == "pass"
+
+    def test_allows_case_without_colon(self):
+        """CASE line without colon — = is a pure condition, no action part."""
+        content = "```pseudocode\nSWITCH mode\n    CASE mode = FAST\n        RETURN 1\nEND SWITCH\n```\n"
+        result = validate_pseudocode(content, "test.impl.md")
+        assert result["status"] == "pass"
+
     def test_catches_bare_equals_without_context(self):
         """= without SET/IF/WHILE context is a bare assignment violation."""
         content = "```pseudocode\nretry_count = 0\n```\n"
@@ -102,15 +131,13 @@ class TestLanguageKeywords:
         content = "```pseudocode\nasync FUNCTION fetch()\n    RETURN data\nEND FUNCTION\n```\n"
         result = validate_pseudocode(content, "test.impl.md")
         assert result["status"] == "fail"
-        assert any(v["check"] == "language_keyword" and "async" in v["message"]
-                    for v in result["violations"])
+        assert any(v["check"] == "language_keyword" and "async" in v["message"] for v in result["violations"])
 
     def test_catches_await(self):
         content = "```pseudocode\nSET result ← await fetch_data()\n```\n"
         result = validate_pseudocode(content, "test.impl.md")
         assert result["status"] == "fail"
-        assert any(v["check"] == "language_keyword" and "await" in v["message"]
-                    for v in result["violations"])
+        assert any(v["check"] == "language_keyword" and "await" in v["message"] for v in result["violations"])
 
     def test_catches_struct(self):
         content = "```pseudocode\nstruct Config\n    max_retries: INTEGER\n```\n"
@@ -128,15 +155,13 @@ class TestLanguageKeywords:
         content = "```pseudocode\nSET f ← (x) => x + 1\n```\n"
         result = validate_pseudocode(content, "test.impl.md")
         assert result["status"] == "fail"
-        assert any(v["check"] == "language_keyword" and "=>" in v["message"]
-                    for v in result["violations"])
+        assert any(v["check"] == "language_keyword" and "=>" in v["message"] for v in result["violations"])
 
     def test_catches_thin_arrow_operator(self):
         content = "```pseudocode\nFUNCTION retry(op) -> Result\n    RETURN op()\nEND FUNCTION\n```\n"
         result = validate_pseudocode(content, "test.impl.md")
         assert result["status"] == "fail"
-        assert any(v["check"] == "language_keyword" and "->" in v["message"]
-                    for v in result["violations"])
+        assert any(v["check"] == "language_keyword" and "->" in v["message"] for v in result["violations"])
 
     def test_catches_match(self):
         content = "```pseudocode\nmatch status\n    200: RETURN ok\n```\n"
@@ -254,7 +279,9 @@ class TestLoopAwareOperators:
 
     def test_until_with_equals_is_valid(self):
         """UNTIL status = DONE is a comparison, not assignment."""
-        content = "```pseudocode\nFUNCTION poll()\n    REPEAT\n        CALL check()\n    UNTIL status = DONE\nEND FUNCTION\n```\n"
+        content = (
+            "```pseudocode\nFUNCTION poll()\n    REPEAT\n        CALL check()\n    UNTIL status = DONE\nEND FUNCTION\n```\n"
+        )
         result = validate_pseudocode(content, "test.impl.md")
         assert result["status"] == "pass"
 
@@ -303,37 +330,37 @@ class TestInlineCommentStripping:
 
     def test_banned_keyword_in_comment_ignored(self):
         """async in a comment should not trigger language_keyword."""
-        content = '```pseudocode\nSET x ← 1 // must be async\n```'
+        content = "```pseudocode\nSET x ← 1 // must be async\n```"
         result = validate_pseudocode(content, "test.impl.md")
         assert result["status"] == "pass", f"Expected pass, got: {result}"
 
     def test_banned_operator_in_comment_ignored(self):
         """-> in a comment should not trigger language_keyword."""
-        content = '```pseudocode\nSET result ← CALL handler // returns -> error\n```'
+        content = "```pseudocode\nSET result ← CALL handler // returns -> error\n```"
         result = validate_pseudocode(content, "test.impl.md")
         assert result["status"] == "pass", f"Expected pass, got: {result}"
 
     def test_library_call_in_comment_ignored(self):
         """time.sleep() in a comment should not trigger library_call."""
-        content = '```pseudocode\nSET timeout ← 30 // time.sleep(30) is the legacy equivalent\n```'
+        content = "```pseudocode\nSET timeout ← 30 // time.sleep(30) is the legacy equivalent\n```"
         result = validate_pseudocode(content, "test.impl.md")
         assert result["status"] == "pass", f"Expected pass, got: {result}"
 
     def test_multi_statement_semicolon_in_comment_ignored(self):
         """Semicolons in comments should not trigger multi_statement."""
-        content = '```pseudocode\nSET x ← 1 // note: a; b; c in legacy\n```'
+        content = "```pseudocode\nSET x ← 1 // note: a; b; c in legacy\n```"
         result = validate_pseudocode(content, "test.impl.md")
         assert result["status"] == "pass", f"Expected pass, got: {result}"
 
     def test_bare_assignment_in_comment_ignored(self):
         """Bare = in a comment should not trigger bare_assignment."""
-        content = '```pseudocode\nSET x ← 1 // where x = initial value\n```'
+        content = "```pseudocode\nSET x ← 1 // where x = initial value\n```"
         result = validate_pseudocode(content, "test.impl.md")
         assert result["status"] == "pass", f"Expected pass, got: {result}"
 
     def test_code_before_comment_still_checked(self):
         """The code part before // should still be linted."""
-        content = '```pseudocode\nasync CALL handler // does the thing\n```'
+        content = "```pseudocode\nasync CALL handler // does the thing\n```"
         result = validate_pseudocode(content, "test.impl.md")
         assert result["status"] == "fail"
         checks = {v["check"] for v in result["violations"]}
@@ -356,7 +383,7 @@ END FUNCTION
 
     def test_comment_only_after_strip_skipped(self):
         """A line that is all comment after the code part should work."""
-        content = '```pseudocode\nSET x ← 1 //\n```'
+        content = "```pseudocode\nSET x ← 1 //\n```"
         result = validate_pseudocode(content, "test.impl.md")
         assert result["status"] == "pass", f"Expected pass, got: {result}"
 
@@ -431,3 +458,56 @@ class TestStringLiteralMasking:
         content = '```pseudocode\nSET err ← "class not found: Widget"\n```'
         result = validate_pseudocode(content, "test.impl.md")
         assert result["status"] == "pass", f"Expected pass, got: {result}"
+
+    def test_url_in_string_not_truncated(self):
+        """A URL like 'https://...' inside a string must not be treated as // comment."""
+        content = '```pseudocode\nSET endpoint ← "https://api.example.com/v1"\n```'
+        result = validate_pseudocode(content, "test.impl.md")
+        assert result["status"] == "pass", f"Expected pass, got: {result}"
+
+    def test_double_slash_in_string_not_comment(self):
+        """'//' inside a string must not start a comment."""
+        content = '```pseudocode\nSET msg ← "async // not a comment"\n```'
+        result = validate_pseudocode(content, "test.impl.md")
+        assert result["status"] == "pass", f"Expected pass, got: {result}"
+
+    def test_real_comment_after_string_with_slashes(self):
+        """A real // comment after a string containing // should still be stripped."""
+        content = '```pseudocode\nSET url ← "https://example.com" // fetch endpoint\n```'
+        result = validate_pseudocode(content, "test.impl.md")
+        assert result["status"] == "pass", f"Expected pass, got: {result}"
+
+    def test_keyword_after_url_string_not_false_positive(self):
+        """Keyword scan must not see tokens from inside a truncated URL string."""
+        content = '```pseudocode\nSET log ← "async callback at https://svc.io/fn"\n```'
+        result = validate_pseudocode(content, "test.impl.md")
+        assert result["status"] == "pass", f"Expected pass, got: {result}"
+
+
+class TestSingleCharVariable:
+    """Tests for SINGLE_CHAR_VAR advisory (Check 5)."""
+
+    def test_non_exempt_single_char_advisory(self):
+        """Single-char variable 'a' should produce an advisory."""
+        content = "```pseudocode\nSET a ← 1\n```"
+        result = validate_pseudocode(content, "test.impl.md")
+        advisories = result.get("advisories", [])
+        assert any(a["check"] == "abbreviated_name" for a in advisories), (
+            f"Expected abbreviated_name advisory, got: {advisories}"
+        )
+
+    def test_exempt_loop_vars_no_advisory(self):
+        """Loop variables i, j, k, n, m, x, y are exempt from advisory."""
+        content = "```pseudocode\nSET i ← 0\nSET j ← 1\nSET x ← 2\n```"
+        result = validate_pseudocode(content, "test.impl.md")
+        advisories = result.get("advisories", [])
+        abbreviated = [a for a in advisories if a["check"] == "abbreviated_name"]
+        assert len(abbreviated) == 0, f"Exempt vars should not trigger advisory: {abbreviated}"
+
+    def test_descriptive_name_no_advisory(self):
+        """Multi-character variable names should not trigger advisory."""
+        content = "```pseudocode\nSET counter ← 0\n```"
+        result = validate_pseudocode(content, "test.impl.md")
+        advisories = result.get("advisories", [])
+        abbreviated = [a for a in advisories if a["check"] == "abbreviated_name"]
+        assert len(abbreviated) == 0

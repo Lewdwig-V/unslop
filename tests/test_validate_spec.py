@@ -5,7 +5,7 @@ import sys
 import os
 import json
 
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'unslop', 'scripts'))
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "unslop", "scripts"))
 
 from validate_spec import validate_spec
 
@@ -293,22 +293,21 @@ export DEBUG=true
 def test_cli_exit_code_pass(tmp_path):
     spec = tmp_path / "good.spec.md"
     spec.write_text("# spec\n\n## Purpose\nDoes stuff.\nMore detail.\n")
-    r = subprocess.run([sys.executable, "unslop/scripts/validate_spec.py", str(spec)],
-                       capture_output=True, text=True)
+    r = subprocess.run([sys.executable, "unslop/scripts/validate_spec.py", str(spec)], capture_output=True, text=True)
     assert r.returncode == 0
 
 
 def test_cli_exit_code_fail(tmp_path):
     spec = tmp_path / "bad.spec.md"
     spec.write_text("# short\n")
-    r = subprocess.run([sys.executable, "unslop/scripts/validate_spec.py", str(spec)],
-                       capture_output=True, text=True)
+    r = subprocess.run([sys.executable, "unslop/scripts/validate_spec.py", str(spec)], capture_output=True, text=True)
     assert r.returncode == 1
 
 
 def test_cli_file_not_found():
-    r = subprocess.run([sys.executable, "unslop/scripts/validate_spec.py", "/nonexistent/spec.md"],
-                       capture_output=True, text=True)
+    r = subprocess.run(
+        [sys.executable, "unslop/scripts/validate_spec.py", "/nonexistent/spec.md"], capture_output=True, text=True
+    )
     assert r.returncode == 1
     output = json.loads(r.stdout)
     assert output["status"] == "fail"
