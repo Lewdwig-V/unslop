@@ -35,8 +35,16 @@ BARE_ASSIGNMENT = re.compile(r'(?<![<>!=:])=(?!=)')
 # Lines where = is a pure boolean comparison, not assignment.
 # FOR is deliberately excluded — FOR headers initialize an iterator
 # and MUST use ← or :=, not bare =.
+# CASE/WHEN are handled separately (only the condition before ":" is
+# comparison context; the action after ":" must still use ← or :=).
 COMPARISON_CONTEXT = re.compile(
-    r'^\s*(?:IF|ELSE\s+IF|WHILE|UNTIL|CASE|WHEN|ASSERT)\b', re.IGNORECASE
+    r'^\s*(?:IF|ELSE\s+IF|WHILE|UNTIL|ASSERT)\b', re.IGNORECASE
+)
+
+# CASE/WHEN lines need special handling: the condition part (before ":")
+# is comparison context, but the action part (after ":") is not.
+CASE_WHEN_PREFIX = re.compile(
+    r'^\s*(?:CASE|WHEN)\b', re.IGNORECASE
 )
 
 # Lines where = MUST be an assignment operator (← or :=), never a comparison.
@@ -130,7 +138,8 @@ def lint_pseudocode(blocks: list[dict]) -> tuple[list[dict], list[dict]]:
 
             # Check 1: Bare assignment (= instead of ← or :=)
             # Context-sensitive: FOR/SET/INCREMENT/DECREMENT require ←/:=,
-            # IF/WHILE/UNTIL/WHEN/ASSERT allow = as comparison.
+            # IF/WHILE/UNTIL/ASSERT allow = as comparison,
+            # CASE/WHEN: only the condition (before ":") is comparison context.
             if "←" not in scan_line and ":=" not in scan_line:
                 if BARE_ASSIGNMENT.search(code_part):
                     if ASSIGNMENT_REQUIRED.match(scan_line):
@@ -146,6 +155,22 @@ def lint_pseudocode(blocks: list[dict]) -> tuple[list[dict], list[dict]]:
                         })
                     elif COMPARISON_CONTEXT.match(scan_line):
                         pass  # = is a comparison here (IF, WHILE, UNTIL, etc.)
+                    elif CASE_WHEN_PREFIX.match(scan_line):
+                        # Split at first ":" — condition is comparison, action is not
+                        colon_idx = code_part.find(":")
+                        if colon_idx >= 0:
+                            action_part = code_part[colon_idx + 1:]
+                            if BARE_ASSIGNMENT.search(action_part) and not re.search(r'[<>!]=', action_part):
+                                violations.append({
+                                    "line": line_num,
+                                    "check": "bare_assignment",
+                                    "text": stripped,
+                                    "message": (
+                                        "Bare assignment `=` in CASE/WHEN action — "
+                                        "use `SET ... ←` or `... := ...`"
+                                    ),
+                                })
+                        # else: no colon means pure condition line, = is comparison
                     elif not re.search(r'[<>!]=', code_part):
                         violations.append({
                             "line": line_num,

@@ -72,6 +72,34 @@ class TestBareAssignment:
         result = validate_pseudocode(content, "test.impl.md")
         assert result["status"] == "pass"
 
+    def test_catches_bare_assignment_in_case_action(self):
+        """= in CASE action after colon is an assignment, not a comparison."""
+        content = "```pseudocode\nSWITCH mode\n    CASE mode = FAST: retry_count = 0\nEND SWITCH\n```\n"
+        result = validate_pseudocode(content, "test.impl.md")
+        assert result["status"] == "fail"
+        checks = [v["check"] for v in result["violations"]]
+        assert "bare_assignment" in checks
+
+    def test_catches_bare_assignment_in_when_action(self):
+        """= in WHEN action after colon is an assignment, not a comparison."""
+        content = "```pseudocode\nWHEN status = OK: count = count + 1\n```\n"
+        result = validate_pseudocode(content, "test.impl.md")
+        assert result["status"] == "fail"
+        checks = [v["check"] for v in result["violations"]]
+        assert "bare_assignment" in checks
+
+    def test_allows_comparison_in_case_condition(self):
+        """= in CASE condition (before colon) is still a valid comparison."""
+        content = "```pseudocode\nSWITCH mode\n    CASE mode = FAST: RETURN 1\nEND SWITCH\n```\n"
+        result = validate_pseudocode(content, "test.impl.md")
+        assert result["status"] == "pass"
+
+    def test_allows_case_without_colon(self):
+        """CASE line without colon — = is a pure condition, no action part."""
+        content = "```pseudocode\nSWITCH mode\n    CASE mode = FAST\n        RETURN 1\nEND SWITCH\n```\n"
+        result = validate_pseudocode(content, "test.impl.md")
+        assert result["status"] == "pass"
+
     def test_catches_bare_equals_without_context(self):
         """= without SET/IF/WHILE context is a bare assignment violation."""
         content = "```pseudocode\nretry_count = 0\n```\n"
