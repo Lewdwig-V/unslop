@@ -1999,6 +1999,243 @@ def _compute_ripple_build_order(affected_specs: set[str], all_specs: dict[str, l
         return sorted(affected_specs)
 
 
+def render_dependency_graph(
+    directory: str,
+    scope: list[str] | None = None,
+    include_code: bool = True,
+) -> dict:
+    """Render a Mermaid dependency graph of the spec/concrete/code layers.
+
+    Args:
+        directory: Project root directory.
+        scope: Optional list of spec paths to focus on (with their transitive
+               dependents). If None, renders the full project graph.
+        include_code: Whether to include managed code file nodes.
+
+    Returns:
+        dict with:
+          - mermaid: The Mermaid graph source string
+          - stats: Summary counts
+          - nodes: List of node dicts for programmatic use
+    """
+    root = Path(directory).resolve()
+
+    # Gather all specs and their deps
+    all_specs: dict[str, list[str]] = {}
+    for s in sorted(root.rglob("*.spec.md")):
+        rel = str(s.relative_to(root))
+        try:
+            content = s.read_text(encoding="utf-8")
+        except (OSError, UnicodeDecodeError):
+            continue
+        all_specs[rel] = parse_frontmatter(content)
+
+    # Gather all impl files
+    all_impls: dict[str, dict] = {}
+    for impl_path in sorted(root.rglob("*.impl.md")):
+        rel = str(impl_path.relative_to(root))
+        try:
+            content = impl_path.read_text(encoding="utf-8")
+        except (OSError, UnicodeDecodeError):
+            continue
+        all_impls[rel] = parse_concrete_frontmatter(content)
+
+    # If scope is set, compute the affected subgraph
+    if scope:
+        # Build reverse dep map
+        reverse_deps: dict[str, list[str]] = {s: [] for s in all_specs}
+        for spec, deps in all_specs.items():
+            for dep in deps:
+                reverse_deps.setdefault(dep, []).append(spec)
+
+        # BFS from scope to find all transitively affected specs
+        in_scope: set[str] = set()
+        queue = list(scope)
+        while queue:
+            current = queue.pop(0)
+            if current in in_scope:
+                continue
+            in_scope.add(current)
+            # Include upstream deps
+            for dep in all_specs.get(current, []):
+                queue.append(dep)
+            # Include downstream dependents
+            for dependent in reverse_deps.get(current, []):
+                queue.append(dependent)
+
+        # Filter specs to scope
+        all_specs = {k: v for k, v in all_specs.items() if k in in_scope}
+        # Filter impls to those whose source-spec is in scope
+        all_impls = {
+            k: v for k, v in all_impls.items()
+            if v.get("source_spec") in in_scope
+            or any(d in in_scope for d in v.get("concrete_dependencies", []))
+        }
+
+    # Get freshness data for staleness coloring
+    try:
+        freshness = check_freshness(str(root))
+        state_map = {f["managed"]: f["state"] for f in freshness.get("files", [])}
+    except (ValueError, OSError):
+        state_map = {}
+
+    # Build Mermaid graph
+    lines = ["graph TD"]
+    node_ids: dict[str, str] = {}  # path -> sanitized node ID
+    node_counter = [0]
+    nodes_info = []
+
+    def _node_id(path: str) -> str:
+        if path not in node_ids:
+            node_ids[path] = f"n{node_counter[0]}"
+            node_counter[0] += 1
+        return node_ids[path]
+
+    def _short(path: str) -> str:
+        """Shorten path for display."""
+        parts = path.rsplit("/", 1)
+        return parts[-1] if len(parts) > 1 else path
+
+    # Style definitions
+    lines.append("")
+    lines.append("    %% Staleness colors")
+    lines.append("    classDef fresh fill:#2d5a2d,stroke:#4a4,color:#fff")
+    lines.append("    classDef stale fill:#8b4513,stroke:#d90,color:#fff")
+    lines.append("    classDef ghostStale fill:#4a3060,stroke:#a6f,color:#fff")
+    lines.append("    classDef modified fill:#8b6914,stroke:#da0,color:#fff")
+    lines.append("    classDef conflict fill:#8b1a1a,stroke:#f44,color:#fff")
+    lines.append("    classDef new fill:#1a4a6b,stroke:#4af,color:#fff")
+    lines.append("    classDef spec fill:#1a3a5a,stroke:#58f,color:#fff")
+    lines.append("    classDef impl fill:#3a2a5a,stroke:#a8f,color:#fff")
+    lines.append("    classDef base fill:#2a3a3a,stroke:#8aa,color:#fff")
+
+    # Abstract spec nodes
+    if all_specs:
+        lines.append("")
+        lines.append("    %% Abstract Specs")
+        for spec in sorted(all_specs):
+            nid = _node_id(spec)
+            label = _short(spec).replace(".spec.md", "")
+            lines.append(f'    {nid}["{label}\\n<small>.spec.md</small>"]')
+            lines.append(f"    class {nid} spec")
+            nodes_info.append({"id": nid, "path": spec, "layer": "abstract", "type": "spec"})
+
+    # Abstract spec dependency edges
+    for spec, deps in sorted(all_specs.items()):
+        for dep in deps:
+            if dep in node_ids:
+                lines.append(f"    {_node_id(dep)} --> {_node_id(spec)}")
+
+    # Concrete spec nodes
+    if all_impls:
+        lines.append("")
+        lines.append("    %% Concrete Specs")
+        for impl, meta in sorted(all_impls.items()):
+            nid = _node_id(impl)
+            label = _short(impl).replace(".impl.md", "")
+            is_base = not meta.get("source_spec")
+            if is_base:
+                lines.append(f'    {nid}{{"{label}\\n<small>base .impl.md</small>"}}')
+                lines.append(f"    class {nid} base")
+                nodes_info.append({"id": nid, "path": impl, "layer": "concrete", "type": "base"})
+            else:
+                lines.append(f'    {nid}[/"{label}\\n<small>.impl.md</small>"/]')
+                lines.append(f"    class {nid} impl")
+                nodes_info.append({"id": nid, "path": impl, "layer": "concrete", "type": "impl"})
+
+    # Concrete spec edges: source-spec link, extends, concrete-dependencies
+    for impl, meta in sorted(all_impls.items()):
+        source = meta.get("source_spec")
+        if source and source in node_ids:
+            lines.append(f"    {_node_id(source)} -.->|lowers to| {_node_id(impl)}")
+
+        extends = meta.get("extends")
+        if extends and extends in node_ids:
+            lines.append(f"    {_node_id(extends)} ==>|extends| {_node_id(impl)}")
+        elif extends:
+            # Parent might be out of scope — add it as a reference node
+            pnid = _node_id(extends)
+            plabel = _short(extends).replace(".impl.md", "")
+            lines.append(f'    {pnid}{{"{plabel}\\n<small>base</small>"}}')
+            lines.append(f"    class {pnid} base")
+            lines.append(f"    {pnid} ==>|extends| {_node_id(impl)}")
+
+        for dep in meta.get("concrete_dependencies", []):
+            if dep in node_ids:
+                lines.append(f"    {_node_id(dep)} -->|concrete dep| {_node_id(impl)}")
+
+    # Managed code file nodes
+    if include_code:
+        code_nodes = set()
+        lines.append("")
+        lines.append("    %% Managed Code Files")
+
+        for spec in sorted(all_specs):
+            # Multi-target check
+            impl_companion = re.sub(r"\.spec\.md$", ".impl.md", spec)
+            if impl_companion in all_impls:
+                targets = all_impls[impl_companion].get("targets", [])
+                if targets:
+                    for target in targets:
+                        managed = target.get("path", "")
+                        if managed and managed not in code_nodes:
+                            code_nodes.add(managed)
+                            nid = _node_id(managed)
+                            label = _short(managed)
+                            state = state_map.get(managed, "new")
+                            lines.append(f'    {nid}(["{label}"])')
+                            css = _state_to_class(state)
+                            lines.append(f"    class {nid} {css}")
+                            lines.append(f"    {_node_id(spec)} -->|generates| {nid}")
+                            nodes_info.append({"id": nid, "path": managed, "layer": "code", "state": state})
+                    continue
+
+            # Single target
+            if spec.endswith(".unit.spec.md"):
+                continue  # Unit specs handled separately
+
+            managed = re.sub(r"\.spec\.md$", "", spec)
+            if managed not in code_nodes:
+                code_nodes.add(managed)
+                nid = _node_id(managed)
+                label = _short(managed)
+                state = state_map.get(managed, "new")
+                lines.append(f'    {nid}(["{label}"])')
+                css = _state_to_class(state)
+                lines.append(f"    class {nid} {css}")
+                lines.append(f"    {_node_id(spec)} -->|generates| {nid}")
+                nodes_info.append({"id": nid, "path": managed, "layer": "code", "state": state})
+
+    mermaid = "\n".join(lines)
+    spec_count = len(all_specs)
+    impl_count = len(all_impls)
+    code_count = sum(1 for n in nodes_info if n["layer"] == "code")
+
+    return {
+        "mermaid": mermaid,
+        "stats": {
+            "abstract_specs": spec_count,
+            "concrete_specs": impl_count,
+            "managed_files": code_count,
+            "total_nodes": len(nodes_info),
+        },
+        "nodes": nodes_info,
+    }
+
+
+def _state_to_class(state: str) -> str:
+    """Map a staleness state to a Mermaid CSS class name."""
+    return {
+        "fresh": "fresh",
+        "stale": "stale",
+        "ghost-stale": "ghostStale",
+        "modified": "modified",
+        "conflict": "conflict",
+        "new": "new",
+        "old_format": "stale",
+    }.get(state, "new")
+
+
 def file_tree(directory: str) -> list[str]:
     """List git-tracked files in directory.
 
@@ -2033,7 +2270,7 @@ def file_tree(directory: str) -> list[str]:
 def main():
     """CLI entry point."""
     if len(sys.argv) < 2:
-        cmds = "discover|build-order|deps|check-freshness|concrete-order|concrete-deps|ripple-check|file-tree"
+        cmds = "discover|build-order|deps|check-freshness|concrete-order|concrete-deps|ripple-check|graph|file-tree"
         print(f"Usage: orchestrator.py <{cmds}> [args]", file=sys.stderr)
         sys.exit(1)
 
@@ -2201,6 +2438,46 @@ def main():
                 i += 1
         try:
             result = ripple_check(spec_paths, project_root)
+            print(json.dumps(result, indent=2))
+        except (ValueError, OSError, UnicodeDecodeError) as e:
+            print(json.dumps({"error": str(e)}), file=sys.stderr)
+            sys.exit(1)
+
+    elif command == "graph":
+        directory = "."
+        scope = []
+        no_code = False
+        i = 2
+        while i < len(sys.argv):
+            if sys.argv[i] == "--root":
+                if i + 1 < len(sys.argv):
+                    directory = sys.argv[i + 1]
+                    i += 2
+                else:
+                    print("--root requires a value", file=sys.stderr)
+                    sys.exit(1)
+            elif sys.argv[i] == "--no-code":
+                no_code = True
+                i += 1
+            elif sys.argv[i] == "--scope":
+                # Collect all following non-flag args as scope specs
+                i += 1
+                while i < len(sys.argv) and not sys.argv[i].startswith("--"):
+                    scope.append(sys.argv[i])
+                    i += 1
+            else:
+                # Positional: treat as directory or scope spec
+                if not scope:
+                    directory = sys.argv[i]
+                else:
+                    scope.append(sys.argv[i])
+                i += 1
+        try:
+            result = render_dependency_graph(
+                directory,
+                scope=scope if scope else None,
+                include_code=not no_code,
+            )
             print(json.dumps(result, indent=2))
         except (ValueError, OSError, UnicodeDecodeError) as e:
             print(json.dumps({"error": str(e)}), file=sys.stderr)

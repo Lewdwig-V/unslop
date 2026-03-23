@@ -31,6 +31,7 @@ from orchestrator import (
     get_registry_key_for_spec,
     flatten_inheritance_chain,
     ripple_check,
+    render_dependency_graph,
     STRICT_CHILD_ONLY,
 )
 
@@ -2730,3 +2731,108 @@ def test_check_freshness_legacy_concrete_deps_hash_still_works(tmp_path):
     handler_entry = [f for f in result["files"] if f["managed"] == "handler.py"]
     assert len(handler_entry) == 1
     assert handler_entry[0]["state"] == "ghost-stale"
+
+
+# --- render_dependency_graph tests ---
+
+
+def test_graph_basic_structure(tmp_path):
+    """Graph should contain Mermaid header and spec nodes."""
+    (tmp_path / ".unslop").mkdir()
+    (tmp_path / "src").mkdir()
+    (tmp_path / "src" / "retry.py.spec.md").write_text("# Retry Spec\n")
+
+    result = render_dependency_graph(str(tmp_path))
+    assert "graph TD" in result["mermaid"]
+    assert result["stats"]["abstract_specs"] == 1
+    assert "retry" in result["mermaid"].lower()
+
+
+def test_graph_includes_deps_edges(tmp_path):
+    """Abstract depends-on should produce edges."""
+    (tmp_path / ".unslop").mkdir()
+    (tmp_path / "src").mkdir()
+    (tmp_path / "src" / "a.py.spec.md").write_text("# A\n")
+    (tmp_path / "src" / "b.py.spec.md").write_text(
+        "---\ndepends-on:\n  - src/a.py.spec.md\n---\n# B\n"
+    )
+
+    result = render_dependency_graph(str(tmp_path))
+    mermaid = result["mermaid"]
+    # Should have an edge from a to b
+    assert "-->" in mermaid
+    assert result["stats"]["abstract_specs"] == 2
+
+
+def test_graph_includes_concrete_specs(tmp_path):
+    """Concrete specs should appear as nodes with extends edges."""
+    (tmp_path / ".unslop").mkdir()
+    (tmp_path / "shared").mkdir()
+    (tmp_path / "shared" / "base.impl.md").write_text(
+        "---\ntarget-language: python\nephemeral: false\n---\n\n## Pattern\n\n- **DI**: Depends()\n"
+    )
+    (tmp_path / "handler.py.spec.md").write_text("# Handler\n")
+    (tmp_path / "handler.py.impl.md").write_text(
+        "---\nsource-spec: handler.py.spec.md\ntarget-language: python\n"
+        "ephemeral: false\nextends: shared/base.impl.md\n---\n\n"
+        "## Strategy\n\nHandler strategy.\n"
+    )
+
+    result = render_dependency_graph(str(tmp_path))
+    mermaid = result["mermaid"]
+    assert "extends" in mermaid
+    assert result["stats"]["concrete_specs"] == 2
+
+
+def test_graph_no_code_flag(tmp_path):
+    """--no-code should omit managed code file nodes."""
+    (tmp_path / ".unslop").mkdir()
+    (tmp_path / "retry.py.spec.md").write_text("# Retry\n")
+
+    with_code = render_dependency_graph(str(tmp_path), include_code=True)
+    without_code = render_dependency_graph(str(tmp_path), include_code=False)
+
+    assert with_code["stats"]["managed_files"] >= 1
+    assert without_code["stats"]["managed_files"] == 0
+    assert "generates" not in without_code["mermaid"]
+
+
+def test_graph_scope_filter(tmp_path):
+    """Scoped graph should only include related specs."""
+    (tmp_path / ".unslop").mkdir()
+    (tmp_path / "a.py.spec.md").write_text("# A\n")
+    (tmp_path / "b.py.spec.md").write_text(
+        "---\ndepends-on:\n  - a.py.spec.md\n---\n# B\n"
+    )
+    (tmp_path / "c.py.spec.md").write_text("# C — unrelated\n")
+
+    result = render_dependency_graph(str(tmp_path), scope=["a.py.spec.md"])
+    # Should include a and b (b depends on a), but not c
+    assert result["stats"]["abstract_specs"] == 2
+    node_paths = [n["path"] for n in result["nodes"] if n["layer"] == "abstract"]
+    assert "a.py.spec.md" in node_paths
+    assert "b.py.spec.md" in node_paths
+    assert "c.py.spec.md" not in node_paths
+
+
+def test_graph_staleness_coloring(tmp_path):
+    """Managed files should get CSS classes based on staleness state."""
+    (tmp_path / ".unslop").mkdir()
+    spec_content = "# Retry\n"
+    (tmp_path / "retry.py.spec.md").write_text(spec_content)
+    sh = compute_hash(spec_content)
+    body = "def retry(): pass"
+    oh = compute_hash(body)
+    (tmp_path / "retry.py").write_text(
+        f"# @unslop-managed — do not edit directly. Edit retry.py.spec.md instead.\n"
+        f"# spec-hash:{sh} output-hash:{oh} generated:2026-03-23T00:00:00Z\n\n"
+        f"{body}"
+    )
+
+    result = render_dependency_graph(str(tmp_path))
+    # Should have a code node with fresh state
+    code_nodes = [n for n in result["nodes"] if n["layer"] == "code"]
+    assert len(code_nodes) == 1
+    assert code_nodes[0]["state"] == "fresh"
+    assert "class" in result["mermaid"]
+    assert "fresh" in result["mermaid"]
