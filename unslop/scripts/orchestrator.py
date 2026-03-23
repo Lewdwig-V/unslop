@@ -2548,7 +2548,15 @@ def render_dependency_graph(
     except (ValueError, OSError):
         state_map = {}
 
-    # stale-only filter: prune to only specs/impls on paths to stale files
+    # stale-only filter: causality-aware pruning.
+    # Two-pass algorithm:
+    #   Pass 1: Identify "seed" nodes — managed files that are stale/ghost-stale,
+    #           plus their directly associated specs and impls.
+    #   Pass 2: For every seed impl, recursively trace upstream concrete providers
+    #           (extends + concrete-dependencies) and mark them as "context providers"
+    #           so the user can see the full infection path.
+    context_provider_impls: set[str] = set()  # impls kept only for causal context
+
     if stale_only:
         stale_managed = {
             path for path, state in state_map.items()
@@ -2562,7 +2570,7 @@ def render_dependency_graph(
                 "nodes": [],
             }
 
-        # Walk backward from stale managed files to find relevant specs/impls
+        # Pass 1: Walk backward from stale managed files to find seed specs/impls
         stale_specs: set[str] = set()
         stale_impls: set[str] = set()
         for managed in stale_managed:
@@ -2576,7 +2584,7 @@ def render_dependency_graph(
                     if f["spec"] in all_specs:
                         stale_specs.add(f["spec"])
 
-        # Include upstream deps of stale specs
+        # Include upstream abstract deps of stale specs
         stale_spec_closure: set[str] = set()
         sq = list(stale_specs)
         while sq:
@@ -2588,15 +2596,40 @@ def render_dependency_graph(
                 sq.append(dep)
         stale_specs = stale_spec_closure
 
-        # Find impls related to stale specs
+        # Find impls whose source-spec is stale
         for impl_path, meta in all_impls.items():
             src = meta.get("source_spec")
             if src in stale_specs:
                 stale_impls.add(impl_path)
-            # Also include if any concrete dep is in stale_impls
+
+        # Pass 2: For every seed impl, recursively trace upstream concrete
+        # providers (extends + concrete-dependencies).  These are the
+        # "staleness providers" — the causal source of ghost-staleness.
+        impl_queue = list(stale_impls)
+        visited_impls: set[str] = set(stale_impls)
+        while impl_queue:
+            current = impl_queue.pop(0)
+            meta = all_impls.get(current, {})
+            upstream = list(meta.get("concrete_dependencies", []))
             extends = meta.get("extends")
-            if extends and extends in stale_impls:
-                stale_impls.add(impl_path)
+            if extends:
+                upstream.append(extends)
+            for dep_impl in upstream:
+                if dep_impl not in visited_impls and dep_impl in all_impls:
+                    visited_impls.add(dep_impl)
+                    impl_queue.append(dep_impl)
+                    if dep_impl not in stale_impls:
+                        context_provider_impls.add(dep_impl)
+
+        stale_impls = visited_impls
+
+        # Also pull in specs for context-provider impls so their abstract
+        # nodes show up in the graph
+        for impl_path in context_provider_impls:
+            meta = all_impls.get(impl_path, {})
+            src = meta.get("source_spec")
+            if src and src in all_specs:
+                stale_specs.add(src)
 
         all_specs = {k: v for k, v in all_specs.items() if k in stale_specs}
         all_impls = {k: v for k, v in all_impls.items() if k in stale_impls}
@@ -2630,6 +2663,7 @@ def render_dependency_graph(
     lines.append("    classDef spec fill:#1a3a5a,stroke:#58f,color:#fff")
     lines.append("    classDef impl fill:#3a2a5a,stroke:#a8f,color:#fff")
     lines.append("    classDef base fill:#2a3a3a,stroke:#8aa,color:#fff")
+    lines.append("    classDef contextProvider fill:#3a3a3a,stroke:#888,color:#aaa,stroke-dasharray:5 5")
 
     # Abstract spec nodes
     if all_specs:
@@ -2655,15 +2689,20 @@ def render_dependency_graph(
         for impl, meta in sorted(all_impls.items()):
             nid = _node_id(impl)
             label = _short(impl).replace(".impl.md", "")
+            is_context = impl in context_provider_impls
             is_base = not meta.get("source_spec")
             if is_base:
                 lines.append(f'    {nid}{{"{label}\\n<small>base .impl.md</small>"}}')
-                lines.append(f"    class {nid} base")
-                nodes_info.append({"id": nid, "path": impl, "layer": "concrete", "type": "base"})
+                css_class = "contextProvider" if is_context else "base"
+                lines.append(f"    class {nid} {css_class}")
+                node_type = "context_provider" if is_context else "base"
+                nodes_info.append({"id": nid, "path": impl, "layer": "concrete", "type": node_type})
             else:
                 lines.append(f'    {nid}[/"{label}\\n<small>.impl.md</small>"/]')
-                lines.append(f"    class {nid} impl")
-                nodes_info.append({"id": nid, "path": impl, "layer": "concrete", "type": "impl"})
+                css_class = "contextProvider" if is_context else "impl"
+                lines.append(f"    class {nid} {css_class}")
+                node_type = "context_provider" if is_context else "impl"
+                nodes_info.append({"id": nid, "path": impl, "layer": "concrete", "type": node_type})
 
     # Concrete spec edges: source-spec link, extends, concrete-dependencies
     for impl, meta in sorted(all_impls.items()):

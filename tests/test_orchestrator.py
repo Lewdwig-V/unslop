@@ -3487,6 +3487,278 @@ def test_graph_stale_only_includes_upstream_deps(tmp_path):
     )
 
 
+# ── Causal Stale-Only Pruning (v0.11.9) ──────────────────────────────────────
+
+def test_graph_stale_only_includes_upstream_concrete_provider(tmp_path):
+    """--stale-only should include upstream concrete provider even if it has no managed output."""
+    (tmp_path / ".unslop").mkdir()
+
+    # core.impl.md — base strategy, no source-spec, no managed .py
+    (tmp_path / "core.impl.md").write_text(
+        "---\nephemeral: false\n---\n\n## Strategy\nCore patterns v1.\n"
+    )
+
+    # api.impl.md extends core, has source-spec and managed output
+    (tmp_path / "api.impl.md").write_text(
+        "---\nsource-spec: api.py.spec.md\nephemeral: false\n"
+        "extends: core.impl.md\n---\n\n## Strategy\nAPI.\n"
+    )
+    (tmp_path / "api.py.spec.md").write_text("# API\n")
+
+    # Create managed api.py with manifest that tracks core
+    manifest = compute_concrete_manifest(str(tmp_path / "api.impl.md"), str(tmp_path))
+    body = "def api(): pass\n"
+    sh = compute_hash("# API\n")
+    oh = compute_hash(body)
+    mh = format_manifest_header(manifest)
+    (tmp_path / "api.py").write_text(
+        f"# @unslop-managed — do not edit directly. Edit api.py.spec.md instead.\n"
+        f"# spec-hash:{sh} output-hash:{oh} concrete-manifest:{mh} generated:2026-03-23T00:00:00Z\n"
+        + body
+    )
+
+    # Now change core.impl.md — this makes api.py ghost-stale
+    (tmp_path / "core.impl.md").write_text(
+        "---\nephemeral: false\n---\n\n## Strategy\nCore patterns v2.\n"
+    )
+
+    result = render_dependency_graph(str(tmp_path), stale_only=True)
+    node_paths = [n["path"] for n in result["nodes"]]
+
+    assert "api.impl.md" in node_paths, "Stale impl should be in graph"
+    assert "core.impl.md" in node_paths, (
+        "core.impl.md should be included as upstream causal provider of api's ghost-staleness"
+    )
+
+
+def test_graph_stale_only_context_provider_type(tmp_path):
+    """Context providers should have type 'context_provider' in node info."""
+    (tmp_path / ".unslop").mkdir()
+
+    (tmp_path / "core.impl.md").write_text(
+        "---\nephemeral: false\n---\n\n## Strategy\nCore v1.\n"
+    )
+    (tmp_path / "api.impl.md").write_text(
+        "---\nsource-spec: api.py.spec.md\nephemeral: false\n"
+        "extends: core.impl.md\n---\n\n## Strategy\nAPI.\n"
+    )
+    (tmp_path / "api.py.spec.md").write_text("# API\n")
+
+    manifest = compute_concrete_manifest(str(tmp_path / "api.impl.md"), str(tmp_path))
+    body = "def api(): pass\n"
+    sh = compute_hash("# API\n")
+    oh = compute_hash(body)
+    mh = format_manifest_header(manifest)
+    (tmp_path / "api.py").write_text(
+        f"# @unslop-managed — do not edit directly. Edit api.py.spec.md instead.\n"
+        f"# spec-hash:{sh} output-hash:{oh} concrete-manifest:{mh} generated:2026-03-23T00:00:00Z\n"
+        + body
+    )
+
+    (tmp_path / "core.impl.md").write_text(
+        "---\nephemeral: false\n---\n\n## Strategy\nCore v2.\n"
+    )
+
+    result = render_dependency_graph(str(tmp_path), stale_only=True)
+    core_nodes = [n for n in result["nodes"] if n["path"] == "core.impl.md"]
+    assert len(core_nodes) == 1
+    assert core_nodes[0]["type"] == "context_provider"
+
+
+def test_graph_stale_only_context_provider_styling(tmp_path):
+    """Context providers should use dashed grey styling in Mermaid output."""
+    (tmp_path / ".unslop").mkdir()
+
+    (tmp_path / "core.impl.md").write_text(
+        "---\nephemeral: false\n---\n\n## Strategy\nCore v1.\n"
+    )
+    (tmp_path / "api.impl.md").write_text(
+        "---\nsource-spec: api.py.spec.md\nephemeral: false\n"
+        "extends: core.impl.md\n---\n\n## Strategy\nAPI.\n"
+    )
+    (tmp_path / "api.py.spec.md").write_text("# API\n")
+
+    manifest = compute_concrete_manifest(str(tmp_path / "api.impl.md"), str(tmp_path))
+    body = "def api(): pass\n"
+    sh = compute_hash("# API\n")
+    oh = compute_hash(body)
+    mh = format_manifest_header(manifest)
+    (tmp_path / "api.py").write_text(
+        f"# @unslop-managed — do not edit directly. Edit api.py.spec.md instead.\n"
+        f"# spec-hash:{sh} output-hash:{oh} concrete-manifest:{mh} generated:2026-03-23T00:00:00Z\n"
+        + body
+    )
+
+    (tmp_path / "core.impl.md").write_text(
+        "---\nephemeral: false\n---\n\n## Strategy\nCore v2.\n"
+    )
+
+    result = render_dependency_graph(str(tmp_path), stale_only=True)
+    assert "contextProvider" in result["mermaid"]
+    assert "stroke-dasharray" in result["mermaid"]
+
+
+def test_graph_stale_only_transitive_concrete_chain(tmp_path):
+    """Upstream chain: patterns -> core -> api, all should appear when api is stale."""
+    (tmp_path / ".unslop").mkdir()
+
+    (tmp_path / "patterns.impl.md").write_text(
+        "---\nephemeral: false\n---\n\n## Strategy\nPatterns v1.\n"
+    )
+    (tmp_path / "core.impl.md").write_text(
+        "---\nephemeral: false\nextends: patterns.impl.md\n---\n\n## Strategy\nCore.\n"
+    )
+    (tmp_path / "api.impl.md").write_text(
+        "---\nsource-spec: api.py.spec.md\nephemeral: false\n"
+        "extends: core.impl.md\n---\n\n## Strategy\nAPI.\n"
+    )
+    (tmp_path / "api.py.spec.md").write_text("# API\n")
+
+    manifest = compute_concrete_manifest(str(tmp_path / "api.impl.md"), str(tmp_path))
+    body = "def api(): pass\n"
+    sh = compute_hash("# API\n")
+    oh = compute_hash(body)
+    mh = format_manifest_header(manifest)
+    (tmp_path / "api.py").write_text(
+        f"# @unslop-managed — do not edit directly. Edit api.py.spec.md instead.\n"
+        f"# spec-hash:{sh} output-hash:{oh} concrete-manifest:{mh} generated:2026-03-23T00:00:00Z\n"
+        + body
+    )
+
+    # Change patterns (root cause) — triggers ghost-staleness through the chain
+    (tmp_path / "patterns.impl.md").write_text(
+        "---\nephemeral: false\n---\n\n## Strategy\nPatterns v2.\n"
+    )
+
+    result = render_dependency_graph(str(tmp_path), stale_only=True)
+    node_paths = [n["path"] for n in result["nodes"]]
+
+    assert "api.impl.md" in node_paths
+    assert "core.impl.md" in node_paths, "Intermediate impl should be in causal chain"
+    assert "patterns.impl.md" in node_paths, "Root cause impl should be in causal chain"
+
+
+def test_graph_stale_only_concrete_deps_not_just_extends(tmp_path):
+    """concrete-dependencies (not just extends) should also be traced."""
+    (tmp_path / ".unslop").mkdir()
+
+    (tmp_path / "utils.impl.md").write_text(
+        "---\nephemeral: false\n---\n\n## Strategy\nUtils v1.\n"
+    )
+    (tmp_path / "service.impl.md").write_text(
+        "---\nsource-spec: service.py.spec.md\nephemeral: false\n"
+        "concrete-dependencies:\n  - utils.impl.md\n---\n\n## Strategy\nService.\n"
+    )
+    (tmp_path / "service.py.spec.md").write_text("# Service\n")
+
+    manifest = compute_concrete_manifest(str(tmp_path / "service.impl.md"), str(tmp_path))
+    body = "def service(): pass\n"
+    sh = compute_hash("# Service\n")
+    oh = compute_hash(body)
+    mh = format_manifest_header(manifest)
+    (tmp_path / "service.py").write_text(
+        f"# @unslop-managed — do not edit directly. Edit service.py.spec.md instead.\n"
+        f"# spec-hash:{sh} output-hash:{oh} concrete-manifest:{mh} generated:2026-03-23T00:00:00Z\n"
+        + body
+    )
+
+    (tmp_path / "utils.impl.md").write_text(
+        "---\nephemeral: false\n---\n\n## Strategy\nUtils v2.\n"
+    )
+
+    result = render_dependency_graph(str(tmp_path), stale_only=True)
+    node_paths = [n["path"] for n in result["nodes"]]
+
+    assert "service.impl.md" in node_paths
+    assert "utils.impl.md" in node_paths, (
+        "utils.impl.md should be included as concrete-dependency provider"
+    )
+
+
+def test_graph_stale_only_fresh_unrelated_impl_excluded(tmp_path):
+    """Fresh impls unrelated to stale files should still be excluded."""
+    (tmp_path / ".unslop").mkdir()
+
+    # Unrelated fresh impl
+    (tmp_path / "unrelated.impl.md").write_text(
+        "---\nsource-spec: unrelated.py.spec.md\nephemeral: false\n---\n\n## Strategy\nUnrelated.\n"
+    )
+    (tmp_path / "unrelated.py.spec.md").write_text("# Unrelated\n")
+    body_u = "def unrelated(): pass\n"
+    sh_u = compute_hash("# Unrelated\n")
+    oh_u = compute_hash(body_u)
+    (tmp_path / "unrelated.py").write_text(
+        f"# @unslop-managed — do not edit directly. Edit unrelated.py.spec.md instead.\n"
+        f"# spec-hash:{sh_u} output-hash:{oh_u} generated:2026-03-23T00:00:00Z\n"
+        + body_u
+    )
+
+    # Stale impl chain
+    (tmp_path / "core.impl.md").write_text(
+        "---\nephemeral: false\n---\n\n## Strategy\nCore v1.\n"
+    )
+    (tmp_path / "api.impl.md").write_text(
+        "---\nsource-spec: api.py.spec.md\nephemeral: false\n"
+        "extends: core.impl.md\n---\n\n## Strategy\nAPI.\n"
+    )
+    (tmp_path / "api.py.spec.md").write_text("# API\n")
+    manifest = compute_concrete_manifest(str(tmp_path / "api.impl.md"), str(tmp_path))
+    body = "def api(): pass\n"
+    sh = compute_hash("# API\n")
+    oh = compute_hash(body)
+    mh = format_manifest_header(manifest)
+    (tmp_path / "api.py").write_text(
+        f"# @unslop-managed — do not edit directly. Edit api.py.spec.md instead.\n"
+        f"# spec-hash:{sh} output-hash:{oh} concrete-manifest:{mh} generated:2026-03-23T00:00:00Z\n"
+        + body
+    )
+
+    (tmp_path / "core.impl.md").write_text(
+        "---\nephemeral: false\n---\n\n## Strategy\nCore v2.\n"
+    )
+
+    result = render_dependency_graph(str(tmp_path), stale_only=True)
+    node_paths = [n["path"] for n in result["nodes"]]
+
+    assert "api.impl.md" in node_paths
+    assert "core.impl.md" in node_paths
+    assert "unrelated.impl.md" not in node_paths
+    assert "unrelated.py.spec.md" not in node_paths
+
+
+def test_graph_stale_only_edges_connect_causal_chain(tmp_path):
+    """The Mermaid output should contain an edge from core.impl.md to api.impl.md."""
+    (tmp_path / ".unslop").mkdir()
+
+    (tmp_path / "core.impl.md").write_text(
+        "---\nephemeral: false\n---\n\n## Strategy\nCore v1.\n"
+    )
+    (tmp_path / "api.impl.md").write_text(
+        "---\nsource-spec: api.py.spec.md\nephemeral: false\n"
+        "extends: core.impl.md\n---\n\n## Strategy\nAPI.\n"
+    )
+    (tmp_path / "api.py.spec.md").write_text("# API\n")
+
+    manifest = compute_concrete_manifest(str(tmp_path / "api.impl.md"), str(tmp_path))
+    body = "def api(): pass\n"
+    sh = compute_hash("# API\n")
+    oh = compute_hash(body)
+    mh = format_manifest_header(manifest)
+    (tmp_path / "api.py").write_text(
+        f"# @unslop-managed — do not edit directly. Edit api.py.spec.md instead.\n"
+        f"# spec-hash:{sh} output-hash:{oh} concrete-manifest:{mh} generated:2026-03-23T00:00:00Z\n"
+        + body
+    )
+
+    (tmp_path / "core.impl.md").write_text(
+        "---\nephemeral: false\n---\n\n## Strategy\nCore v2.\n"
+    )
+
+    result = render_dependency_graph(str(tmp_path), stale_only=True)
+    # The extends edge should be present in the Mermaid output
+    assert "extends" in result["mermaid"]
+
+
 # ── Bulk-Sync Worktree Optimization (L.2) ────────────────────────────────────
 
 def test_bulk_sync_plan_empty_when_all_fresh(tmp_path):
