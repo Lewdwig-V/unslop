@@ -38,6 +38,8 @@ from orchestrator import (
     _compute_parallel_batches,
     compute_resume_plan,
     STRICT_CHILD_ONLY,
+    MISSING_SENTINEL,
+    UNREADABLE_SENTINEL,
 )
 
 
@@ -2642,6 +2644,84 @@ def test_format_manifest_roundtrip():
     )
     parsed = parse_header(full_header)
     assert parsed["concrete_manifest"] == manifest
+
+
+def test_format_manifest_roundtrip_with_sentinels():
+    """Sentinel hashes (missing/unreadable) must survive format → parse round-trip."""
+    manifest = {
+        "src/pool.impl.md": "a3f8c2e9b7d1",
+        "missing/dep.impl.md": MISSING_SENTINEL,
+        "bad/dep.impl.md": UNREADABLE_SENTINEL,
+    }
+    header_str = format_manifest_header(manifest)
+    full_header = (
+        "# @unslop-managed — do not edit directly. Edit src/handler.py.spec.md instead.\n"
+        "# spec-hash:000000000000 output-hash:111111111111 generated:2026-03-23T00:00:00Z\n"
+        f"# concrete-manifest:{header_str}\n"
+    )
+    parsed = parse_header(full_header)
+    assert parsed["concrete_manifest"] == manifest
+
+
+def test_parse_header_preserves_missing_sentinel():
+    """Missing sentinel in concrete-manifest must not be dropped by parser."""
+    lines = [
+        "# @unslop-managed — do not edit directly. Edit child.py.spec.md instead.",
+        "# spec-hash:a3f8c2e9b7d1 output-hash:4e2f1a8c9b03 generated:2026-03-23T00:00:00Z",
+        f"# concrete-manifest:parent.impl.md:a3f8c2e9b7d1,missing.impl.md:{MISSING_SENTINEL}",
+    ]
+    result = parse_header("\n".join(lines))
+    assert result["concrete_manifest"] is not None
+    assert "missing.impl.md" in result["concrete_manifest"]
+    assert result["concrete_manifest"]["missing.impl.md"] == MISSING_SENTINEL
+
+
+def test_compute_concrete_manifest_missing_transitive_dep(tmp_path):
+    """Transitive dep that is missing should get MISSING_SENTINEL in manifest."""
+    # child -> parent -> missing
+    (tmp_path / "parent.impl.md").write_text(
+        "---\nsource-spec: parent.spec.md\ntarget-language: python\n"
+        "ephemeral: false\nconcrete-dependencies:\n  - missing.impl.md\n---\n\n"
+        "## Strategy\n\nParent strategy.\n"
+    )
+    (tmp_path / "child.impl.md").write_text(
+        "---\nsource-spec: child.spec.md\ntarget-language: python\n"
+        "ephemeral: false\nconcrete-dependencies:\n  - parent.impl.md\n---\n\n"
+        "## Strategy\n\nChild strategy.\n"
+    )
+
+    manifest = compute_concrete_manifest(str(tmp_path / "child.impl.md"), str(tmp_path))
+    assert manifest is not None
+    assert "missing.impl.md" in manifest
+    assert manifest["missing.impl.md"] == MISSING_SENTINEL
+
+    # Round-trip: format → header → parse should preserve the sentinel
+    header_str = format_manifest_header(manifest)
+    full_header = (
+        "# @unslop-managed — do not edit directly. Edit child.py.spec.md instead.\n"
+        "# spec-hash:000000000000 output-hash:111111111111 generated:2026-03-23T00:00:00Z\n"
+        f"# concrete-manifest:{header_str}\n"
+    )
+    parsed = parse_header(full_header)
+    assert parsed["concrete_manifest"]["missing.impl.md"] == MISSING_SENTINEL
+
+
+def test_diagnose_ghost_staleness_with_missing_sentinel(tmp_path):
+    """Stored MISSING_SENTINEL for a still-missing dep should report stale."""
+    manifest = {"gone.impl.md": MISSING_SENTINEL}
+    diagnostics = diagnose_ghost_staleness(manifest, str(tmp_path))
+    assert len(diagnostics) == 1
+    assert diagnostics[0]["reason"] == "not found"
+    assert diagnostics[0]["stored_hash"] == MISSING_SENTINEL
+
+
+def test_diagnose_ghost_staleness_sentinel_dep_now_exists(tmp_path):
+    """If a previously-missing dep now exists, it should report changed."""
+    (tmp_path / "revived.impl.md").write_text("## Strategy\n\nNow I exist.\n")
+    manifest = {"revived.impl.md": MISSING_SENTINEL}
+    diagnostics = diagnose_ghost_staleness(manifest, str(tmp_path))
+    assert len(diagnostics) == 1
+    assert diagnostics[0]["reason"] == "changed"
 
 
 def test_diagnose_ghost_staleness_detects_change(tmp_path):

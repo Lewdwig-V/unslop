@@ -10,6 +10,13 @@ import sys
 from pathlib import Path
 
 
+# Sentinels stored in concrete-manifest when a transitive dep is missing/unreadable.
+MISSING_SENTINEL = "missing00000"   # 12 chars, not valid hex
+UNREADABLE_SENTINEL = "unreadabl000"  # 12 chars, not valid hex
+
+_SENTINEL_HASHES = {MISSING_SENTINEL, UNREADABLE_SENTINEL}
+
+
 def compute_hash(content: str) -> str:
     """SHA-256 hash of content, truncated to 12 hex chars.
 
@@ -85,7 +92,7 @@ def parse_header(content: str) -> dict | None:
                 if last_colon > 0:
                     dep_path = entry[:last_colon]
                     dep_hash = entry[last_colon + 1:]
-                    if re.match(r"^[0-9a-f]{12}$", dep_hash):
+                    if re.match(r"^[0-9a-f]{12}$", dep_hash) or dep_hash in _SENTINEL_HASHES:
                         manifest[dep_path] = dep_hash
             if manifest:
                 concrete_manifest = manifest
@@ -792,9 +799,9 @@ def compute_concrete_manifest(impl_path: str, project_root: str) -> dict[str, st
                     if upstream not in visited:
                         queue.append(upstream)
             except (OSError, UnicodeDecodeError):
-                manifest[dep_path] = "unreadable000"
+                manifest[dep_path] = UNREADABLE_SENTINEL
         else:
-            manifest[dep_path] = "missing000000"[:12]
+            manifest[dep_path] = MISSING_SENTINEL
 
     return manifest if manifest else None
 
