@@ -768,4 +768,12 @@ def check_freshness(directory: str, exclude_dirs: list[str] | None = None) -> di
     counts = Counter(f["state"] for f in files)
     summary = ", ".join(f"{v} {k}" for k, v in sorted(counts.items()))
 
-    return {"status": "pass" if all_fresh else "fail", "files": files, "summary": summary}
+    # Collect files with pending changes for CI messaging
+    pending_intent_files = [
+        {"managed": f["managed"], "count": f["pending_changes"]["count"]} for f in files if "pending_changes" in f
+    ]
+
+    result = {"status": "pass" if all_fresh else "fail", "files": files, "summary": summary}
+    if pending_intent_files:
+        result["pending_intent_files"] = pending_intent_files
+    return result

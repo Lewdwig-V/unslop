@@ -917,6 +917,49 @@ def test_parse_header_with_concrete_deps_hash():
     assert result["concrete_deps_hash"] == "9c04b8e7f2a1"
 
 
+def test_check_freshness_pending_intent_summary(tmp_path):
+    """check-freshness result includes pending_intent_files for CI messaging."""
+    from unslop.scripts.orchestrator import check_freshness, compute_hash
+
+    spec = "# spec\n\n## Behavior\nDoes stuff.\nMore detail.\n"
+    body = "def thing(): pass\n"
+    sh = compute_hash(spec)
+    oh = compute_hash(body)
+    (tmp_path / "thing.py.spec.md").write_text(spec)
+    (tmp_path / "thing.py").write_text(
+        f"# @unslop-managed — do not edit directly. Edit thing.py.spec.md instead.\n"
+        f"# spec-hash:{sh} output-hash:{oh} generated:2026-03-22T14:32:00Z\n" + body
+    )
+    (tmp_path / "thing.py.change.md").write_text(
+        "<!-- unslop-changes v1 -->\n### [pending] Add feature -- 2026-03-22T15:00:00Z\n\nAdd a feature.\n\n---\n"
+    )
+    result = check_freshness(str(tmp_path))
+    assert result["status"] == "fail"
+    assert "pending_intent_files" in result
+    assert len(result["pending_intent_files"]) == 1
+    pif = result["pending_intent_files"][0]
+    assert pif["managed"] == "thing.py"
+    assert pif["count"] == 1
+
+
+def test_check_freshness_no_pending_intent_files_when_clean(tmp_path):
+    """pending_intent_files should not appear when there are no pending changes."""
+    from unslop.scripts.orchestrator import check_freshness, compute_hash
+
+    spec = "# spec\n\n## Behavior\nDoes stuff.\nMore detail.\n"
+    body = "def thing(): pass\n"
+    sh = compute_hash(spec)
+    oh = compute_hash(body)
+    (tmp_path / "thing.py.spec.md").write_text(spec)
+    (tmp_path / "thing.py").write_text(
+        f"# @unslop-managed — do not edit directly. Edit thing.py.spec.md instead.\n"
+        f"# spec-hash:{sh} output-hash:{oh} generated:2026-03-22T14:32:00Z\n" + body
+    )
+    result = check_freshness(str(tmp_path))
+    assert result["status"] == "pass"
+    assert "pending_intent_files" not in result
+
+
 def test_parse_header_without_concrete_deps_hash():
     lines = [
         "# @unslop-managed -- do not edit directly. Edit src/handler.py.spec.md instead.",
