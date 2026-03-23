@@ -29,6 +29,7 @@ from orchestrator import (
     resolve_inherited_sections,
     get_all_strategy_providers,
     get_registry_key_for_spec,
+    parse_unit_spec_files,
     flatten_inheritance_chain,
     ripple_check,
     render_dependency_graph,
@@ -2726,6 +2727,117 @@ def test_ripple_check_relative_source_spec(tmp_path):
     managed_paths = {m["managed"] for m in regen}
     assert "src/gen/client.py" in managed_paths
     assert "src/api" not in managed_paths
+
+
+def test_parse_unit_spec_files():
+    content = "# Mod\n\n## Files\n- `calc.py`\n- `utils.py`\n\n## Behavior\nStuff.\n"
+    assert parse_unit_spec_files(content) == ["calc.py", "utils.py"]
+
+
+def test_parse_unit_spec_files_empty():
+    content = "# Mod\n\n## Behavior\nNo files section.\n"
+    assert parse_unit_spec_files(content) == []
+
+
+def test_ripple_check_ghost_stale_unit_spec(tmp_path):
+    """Ghost-stale ripple for unit specs should emit actual managed files, not the bogus basename."""
+    pkg = tmp_path / "pkg"
+    pkg.mkdir()
+
+    # Upstream concrete spec
+    (tmp_path / "base.impl.md").write_text(
+        "---\nsource-spec: base.spec.md\ntarget-language: python\nephemeral: false\n---\n\n## Strategy\nV1.\n"
+    )
+    (tmp_path / "base.spec.md").write_text("# Base\n\n## Behavior\nBase utils.\nMore detail.\n")
+
+    # Unit spec with two managed files
+    unit_spec_content = "# Pkg\n\n## Behavior\nPkg logic.\nMore detail.\n\n## Files\n- `calc.py`\n- `utils.py`\n"
+    (pkg / "mod.unit.spec.md").write_text(unit_spec_content)
+
+    # Unit impl depending on upstream
+    (pkg / "mod.unit.impl.md").write_text(
+        "---\nsource-spec: pkg/mod.unit.spec.md\ntarget-language: python\nephemeral: false\n"
+        "concrete-dependencies:\n  - base.impl.md\n---\n\n## Strategy\nUses base.\n"
+    )
+
+    # Managed files
+    (pkg / "calc.py").write_text("def calc(): pass\n")
+    (pkg / "utils.py").write_text("def utils(): pass\n")
+
+    # Trigger: change the upstream spec (base.spec.md), which affects base.impl.md,
+    # which ghost-stales mod.unit.impl.md.
+    result = ripple_check(["base.spec.md"], str(tmp_path))
+
+    ghost_managed = result["layers"]["code"]["ghost_stale"]
+    ghost_paths = [e["managed"] for e in ghost_managed]
+
+    # Should emit the ACTUAL managed files, not "pkg/mod.unit"
+    assert "pkg/calc.py" in ghost_paths, f"Expected pkg/calc.py in ghost_stale, got: {ghost_paths}"
+    assert "pkg/utils.py" in ghost_paths, f"Expected pkg/utils.py in ghost_stale, got: {ghost_paths}"
+    # The bogus basename must NOT appear
+    assert "pkg/mod.unit" not in ghost_paths, f"Bogus 'pkg/mod.unit' should not appear in ghost_stale"
+
+
+def test_deep_sync_plan_ghost_stale_unit_spec(tmp_path):
+    """deep_sync_plan should schedule actual unit-spec managed files, not bogus basenames."""
+    pkg = tmp_path / "pkg"
+    pkg.mkdir()
+
+    # Upstream
+    (tmp_path / "base.impl.md").write_text(
+        "---\nsource-spec: base.spec.md\ntarget-language: python\nephemeral: false\n---\n\n## Strategy\nV1.\n"
+    )
+    base_spec = "# Base\n\n## Behavior\nBase utils.\nMore detail.\n"
+    (tmp_path / "base.spec.md").write_text(base_spec)
+    base_body = "def base(): pass\n"
+    bsh = compute_hash(base_spec)
+    boh = compute_hash(base_body)
+    (tmp_path / "base.py").write_text(
+        f"# @unslop-managed — do not edit directly. Edit base.spec.md instead.\n"
+        f"# spec-hash:{bsh} output-hash:{boh} generated:2026-03-23T00:00:00Z\n" + base_body
+    )
+
+    # Unit spec
+    unit_spec_content = "# Pkg\n\n## Behavior\nPkg logic.\nMore detail.\n\n## Files\n- `calc.py`\n- `utils.py`\n"
+    (pkg / "mod.unit.spec.md").write_text(unit_spec_content)
+    (pkg / "mod.unit.impl.md").write_text(
+        "---\nsource-spec: pkg/mod.unit.spec.md\ntarget-language: python\nephemeral: false\n"
+        "concrete-dependencies:\n  - base.impl.md\n---\n\n## Strategy\nUses base.\n"
+    )
+
+    sh = compute_hash(unit_spec_content)
+    calc_body = "def calc(): pass\n"
+    utils_body = "def utils(): pass\n"
+    cdh = compute_concrete_deps_hash(str(pkg / "mod.unit.impl.md"), str(tmp_path))
+    (pkg / "calc.py").write_text(
+        f"# @unslop-managed — do not edit directly. Edit pkg/mod.unit.spec.md instead.\n"
+        f"# spec-hash:{sh} output-hash:{compute_hash(calc_body)} concrete-deps-hash:{cdh}"
+        f" generated:2026-03-23T00:00:00Z\n" + calc_body
+    )
+    (pkg / "utils.py").write_text(
+        f"# @unslop-managed — do not edit directly. Edit pkg/mod.unit.spec.md instead.\n"
+        f"# spec-hash:{sh} output-hash:{compute_hash(utils_body)} concrete-deps-hash:{cdh}"
+        f" generated:2026-03-23T00:00:00Z\n" + utils_body
+    )
+
+    # Verify fresh first
+    fr = check_freshness(str(tmp_path))
+    pkg_entry = [f for f in fr["files"] if f["managed"] == "pkg"]
+    assert pkg_entry[0]["state"] == "fresh"
+
+    # Now change upstream concrete spec
+    (tmp_path / "base.impl.md").write_text(
+        "---\nsource-spec: base.spec.md\ntarget-language: python\nephemeral: false\n---\n\n## Strategy\nV2 changed.\n"
+    )
+
+    plan = compute_deep_sync_plan("base.spec.md", str(tmp_path))
+    plan_managed = [e["managed"] for e in plan["plan"]]
+
+    # Should contain real managed files
+    assert "pkg/calc.py" in plan_managed or "pkg/utils.py" in plan_managed or "pkg" in plan_managed, \
+        f"Expected unit spec managed files in plan, got: {plan_managed}"
+    # Bogus basename must not appear
+    assert "pkg/mod.unit" not in plan_managed, f"Bogus 'pkg/mod.unit' should not appear in plan"
 
 
 # --- concrete-manifest tests ---

@@ -672,6 +672,27 @@ def get_all_strategy_providers(meta: dict) -> list[str]:
     return sorted(deps)
 
 
+def parse_unit_spec_files(content: str) -> list[str]:
+    """Extract the file list from a unit spec's ``## Files`` section.
+
+    Returns a list of relative filenames (e.g. ``["calc.py", "utils.py"]``).
+    These are relative to the spec file's parent directory.
+    """
+    result: list[str] = []
+    in_files = False
+    for line in content.split("\n"):
+        if re.match(r"^## Files", line):
+            in_files = True
+            continue
+        if in_files:
+            if re.match(r"^## ", line):
+                break
+            m = re.match(r"^\s*-\s+`([^`]+)`", line)
+            if m:
+                result.append(m.group(1))
+    return result
+
+
 def get_registry_key_for_spec(source_spec: str) -> str:
     """Map an impl.md's source-spec to the managed-file registry key.
 
@@ -1303,18 +1324,7 @@ def check_freshness(directory: str) -> dict:
         # Handle unit specs
         if spec_path.name.endswith(".unit.spec.md"):
             content = spec_path.read_text(encoding="utf-8")
-            unit_files = []
-            in_files = False
-            for line in content.split("\n"):
-                if re.match(r"^## Files", line):
-                    in_files = True
-                    continue
-                if in_files:
-                    if re.match(r"^## ", line):
-                        break
-                    m = re.match(r"^\s*-\s+`([^`]+)`", line)
-                    if m:
-                        unit_files.append(m.group(1))
+            unit_files = parse_unit_spec_files(content)
 
             if not unit_files:
                 files.append(
@@ -1553,17 +1563,8 @@ def check_freshness(directory: str) -> dict:
                                 spec_content = spec_full.read_text(encoding="utf-8")
                             except (OSError, UnicodeDecodeError):
                                 spec_content = ""
-                            in_files = False
-                            for sline in spec_content.split("\n"):
-                                if re.match(r"^## Files", sline):
-                                    in_files = True
-                                    continue
-                                if in_files:
-                                    if re.match(r"^## ", sline):
-                                        break
-                                    fm = re.match(r"^\s*-\s+`([^`]+)`", sline)
-                                    if fm:
-                                        candidates.append(managed_full / fm.group(1))
+                            for uf in parse_unit_spec_files(spec_content):
+                                candidates.append(managed_full / uf)
                 elif managed_full.is_file():
                     candidates = [managed_full]
                 else:
@@ -1915,30 +1916,21 @@ def ripple_check(spec_paths: list[str], project_root: str) -> dict:
             if spec.endswith(".unit.spec.md"):
                 try:
                     content = spec_path.read_text(encoding="utf-8")
-                    in_files = False
-                    for line in content.split("\n"):
-                        if re.match(r"^## Files", line):
-                            in_files = True
-                            continue
-                        if in_files:
-                            if re.match(r"^## ", line):
-                                break
-                            m = re.match(r"^\s*-\s+`([^`]+)`", line)
-                            if m:
-                                managed_rel = str((spec_path.parent / m.group(1)).relative_to(root))
-                                managed_full = root / managed_rel
-                                entry = {
-                                    "managed": managed_rel,
-                                    "spec": spec,
-                                    "exists": managed_full.exists(),
-                                    "cause": "direct" if spec in directly_changed else "transitive",
-                                }
-                                if managed_full.exists():
-                                    result = classify_file(str(managed_full), str(spec_path), project_root=str(root))
-                                    entry["current_state"] = result["state"]
-                                else:
-                                    entry["current_state"] = "new"
-                                affected_managed.append(entry)
+                    for uf in parse_unit_spec_files(content):
+                        managed_rel = str((spec_path.parent / uf).relative_to(root))
+                        managed_full = root / managed_rel
+                        entry = {
+                            "managed": managed_rel,
+                            "spec": spec,
+                            "exists": managed_full.exists(),
+                            "cause": "direct" if spec in directly_changed else "transitive",
+                        }
+                        if managed_full.exists():
+                            result = classify_file(str(managed_full), str(spec_path), project_root=str(root))
+                            entry["current_state"] = result["state"]
+                        else:
+                            entry["current_state"] = "new"
+                        affected_managed.append(entry)
                 except (OSError, UnicodeDecodeError):
                     pass
             else:
@@ -1989,7 +1981,29 @@ def ripple_check(spec_paths: list[str], project_root: str) -> dict:
                     "ghost_source": impl,
                     "current_state": "ghost-stale",
                 })
+        elif src.endswith(".unit.spec.md"):
+            # Unit spec: emit an entry for each file listed in ## Files
+            spec_path = root / src
+            if spec_path.exists():
+                try:
+                    spec_content = spec_path.read_text(encoding="utf-8")
+                    unit_files = parse_unit_spec_files(spec_content)
+                    for uf in unit_files:
+                        managed_rel = str((spec_path.parent / uf).relative_to(root))
+                        managed_full = root / managed_rel
+                        ghost_stale_managed.append({
+                            "managed": managed_rel,
+                            "spec": src,
+                            "concrete": impl,
+                            "exists": managed_full.exists(),
+                            "cause": "ghost-stale",
+                            "ghost_source": impl,
+                            "current_state": "ghost-stale",
+                        })
+                except (OSError, UnicodeDecodeError):
+                    pass
         else:
+            # Per-file spec: derive managed path by stripping .spec.md
             managed_name = re.sub(r"\.spec\.md$", "", Path(src).name)
             managed_full = root / Path(src).parent / managed_name
             managed_rel = str(managed_full.relative_to(root)) if managed_full.exists() else str(
@@ -3127,27 +3141,18 @@ def render_dependency_graph(
                 except (OSError, UnicodeDecodeError):
                     continue
                 spec_dir = str(Path(spec).parent)
-                in_files = False
-                for sline in spec_content.split("\n"):
-                    if re.match(r"^## Files", sline):
-                        in_files = True
-                        continue
-                    if in_files:
-                        if re.match(r"^## ", sline):
-                            break
-                        fm = re.match(r"^\s*-\s+`([^`]+)`", sline)
-                        if fm:
-                            managed = str(Path(spec_dir) / fm.group(1))
-                            if managed not in code_nodes:
-                                code_nodes.add(managed)
-                                nid = _node_id(managed)
-                                label = _short(managed)
-                                state = state_map.get(managed, "new")
-                                lines.append(f'    {nid}(["{label}"])')
-                                css = _state_to_class(state)
-                                lines.append(f"    class {nid} {css}")
-                                lines.append(f"    {_node_id(spec)} -->|generates| {nid}")
-                                nodes_info.append({"id": nid, "path": managed, "layer": "code", "state": state})
+                for uf in parse_unit_spec_files(spec_content):
+                    managed = str(Path(spec_dir) / uf)
+                    if managed not in code_nodes:
+                        code_nodes.add(managed)
+                        nid = _node_id(managed)
+                        label = _short(managed)
+                        state = state_map.get(managed, "new")
+                        lines.append(f'    {nid}(["{label}"])')
+                        css = _state_to_class(state)
+                        lines.append(f"    class {nid} {css}")
+                        lines.append(f"    {_node_id(spec)} -->|generates| {nid}")
+                        nodes_info.append({"id": nid, "path": managed, "layer": "code", "state": state})
                 continue
 
             # Single target
