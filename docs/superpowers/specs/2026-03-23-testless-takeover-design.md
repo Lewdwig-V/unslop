@@ -196,10 +196,12 @@ Iteration:
 
 Each iteration tracks the **mutant kill rate** (mutants killed / total mutants). If an iteration fails to improve the kill rate by more than 5%, the loop has stalled -- the Mason and Architect are making micro-adjustments that don't meaningfully improve coverage.
 
+**Success exemption:** If the kill rate is already 100%, skip the entropy check -- there's nothing left to improve. The threshold only applies when surviving mutants exist.
+
 On stall detection:
 
 ```
-Stall detected (iteration N killed M% vs iteration N-1 killed M-1%, delta < 5%).
+Stall detected (iteration N killed M% vs iteration N-1 killed M-1%, delta < 5%, kill rate < 100%).
 
 Action: Radical Spec Hardening
   1. Prosecutor summarizes ALL surviving mutants as a batch
