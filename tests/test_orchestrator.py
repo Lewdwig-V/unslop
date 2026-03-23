@@ -2531,6 +2531,64 @@ def test_ripple_check_build_order(tmp_path):
     assert base_idx < mid_idx < top_idx
 
 
+def test_ripple_check_concrete_only_in_build_order(tmp_path):
+    """Specs reachable only via concrete-deps should appear in build_order."""
+    (tmp_path / "src").mkdir()
+    # a.py.spec.md — the changed spec
+    (tmp_path / "src" / "a.py.spec.md").write_text("# A\n")
+    (tmp_path / "src" / "a.py.impl.md").write_text(
+        "---\nsource-spec: src/a.py.spec.md\ntarget-language: python\nephemeral: false\n---\n\n"
+        "## Strategy\n\nA strategy.\n"
+    )
+    # b.py.spec.md — NOT in abstract depends-on, but its impl has concrete-dep on a's impl
+    (tmp_path / "src" / "b.py.spec.md").write_text("# B\n")
+    (tmp_path / "src" / "b.py.impl.md").write_text(
+        "---\nsource-spec: src/b.py.spec.md\ntarget-language: python\n"
+        "ephemeral: false\nconcrete-dependencies:\n  - src/a.py.impl.md\n---\n\n"
+        "## Strategy\n\nB strategy.\n"
+    )
+
+    result = ripple_check(["src/a.py.spec.md"], str(tmp_path))
+
+    # b.py.spec.md must appear in build_order even though it's concrete-only
+    assert "src/b.py.spec.md" in result["build_order"]
+    # a must come before b (a is the dependency)
+    order = result["build_order"]
+    assert order.index("src/a.py.spec.md") < order.index("src/b.py.spec.md")
+
+
+def test_ripple_check_concrete_chain_build_order(tmp_path):
+    """A three-level concrete chain should be fully sequenced in build_order."""
+    (tmp_path / "src").mkdir()
+    (tmp_path / "src" / "a.py.spec.md").write_text("# A\n")
+    (tmp_path / "src" / "a.py.impl.md").write_text(
+        "---\nsource-spec: src/a.py.spec.md\ntarget-language: python\nephemeral: false\n---\n\n"
+        "## Strategy\n\nA strategy.\n"
+    )
+    (tmp_path / "src" / "b.py.spec.md").write_text("# B\n")
+    (tmp_path / "src" / "b.py.impl.md").write_text(
+        "---\nsource-spec: src/b.py.spec.md\ntarget-language: python\n"
+        "ephemeral: false\nconcrete-dependencies:\n  - src/a.py.impl.md\n---\n\n"
+        "## Strategy\n\nB strategy.\n"
+    )
+    (tmp_path / "src" / "c.py.spec.md").write_text("# C\n")
+    (tmp_path / "src" / "c.py.impl.md").write_text(
+        "---\nsource-spec: src/c.py.spec.md\ntarget-language: python\n"
+        "ephemeral: false\nconcrete-dependencies:\n  - src/b.py.impl.md\n---\n\n"
+        "## Strategy\n\nC strategy.\n"
+    )
+
+    result = ripple_check(["src/a.py.spec.md"], str(tmp_path))
+    order = result["build_order"]
+
+    # All three specs must be present and correctly ordered
+    assert "src/a.py.spec.md" in order
+    assert "src/b.py.spec.md" in order
+    assert "src/c.py.spec.md" in order
+    assert order.index("src/a.py.spec.md") < order.index("src/b.py.spec.md")
+    assert order.index("src/b.py.spec.md") < order.index("src/c.py.spec.md")
+
+
 def test_ripple_check_multiple_input_specs(tmp_path):
     """Multiple input specs should union their ripple effects."""
     (tmp_path / "src").mkdir()

@@ -1981,6 +1981,33 @@ def ripple_check(spec_paths: list[str], project_root: str) -> dict:
                 "current_state": "ghost-stale",
             })
 
+    # Collect specs reachable only through concrete-dependency chains so they
+    # appear in build_order alongside the abstract-layer specs.
+    ghost_stale_specs: set[str] = set()
+    for impl in concrete_only_impls:
+        src = all_impls.get(impl, {}).get("source_spec")
+        if src:
+            ghost_stale_specs.add(src)
+
+    # Translate concrete impl→impl edges into spec→spec ordering edges.
+    # For every concrete dep edge (depender_impl → dependency_impl) where both
+    # impls have a source-spec, the dependency's spec must precede the
+    # depender's spec in build order.
+    concrete_spec_edges: dict[str, set[str]] = {}
+    for impl, meta in all_impls.items():
+        impl_spec = meta.get("source_spec")
+        if not impl_spec:
+            continue
+        for dep_impl in meta.get("concrete_dependencies", []):
+            dep_spec = all_impls.get(dep_impl, {}).get("source_spec")
+            if dep_spec and dep_spec != impl_spec:
+                concrete_spec_edges.setdefault(impl_spec, set()).add(dep_spec)
+        ext = meta.get("extends")
+        if ext:
+            ext_spec = all_impls.get(ext, {}).get("source_spec")
+            if ext_spec and ext_spec != impl_spec:
+                concrete_spec_edges.setdefault(impl_spec, set()).add(ext_spec)
+
     # Build the summary
     return {
         "input_specs": normalized_inputs,
@@ -2001,16 +2028,32 @@ def ripple_check(spec_paths: list[str], project_root: str) -> dict:
                 "total_files": len(affected_managed) + len(ghost_stale_managed),
             },
         },
-        "build_order": _compute_ripple_build_order(affected_specs, all_specs),
+        "build_order": _compute_ripple_build_order(
+            affected_specs | ghost_stale_specs, all_specs, concrete_spec_edges,
+        ),
     }
 
 
-def _compute_ripple_build_order(affected_specs: set[str], all_specs: dict[str, list[str]]) -> list[str]:
-    """Compute build order for just the affected specs."""
+def _compute_ripple_build_order(
+    affected_specs: set[str],
+    all_specs: dict[str, list[str]],
+    concrete_spec_edges: dict[str, set[str]] | None = None,
+) -> list[str]:
+    """Compute build order for just the affected specs.
+
+    *concrete_spec_edges* carries spec→set[spec] ordering edges derived from
+    concrete-dependency / extends relationships so that specs reachable only
+    through the concrete layer are sequenced correctly.
+    """
     # Build subgraph of only affected specs
     subgraph: dict[str, list[str]] = {}
     for spec in affected_specs:
         deps = [d for d in all_specs.get(spec, []) if d in affected_specs]
+        # Merge concrete-layer edges (dep spec must precede this spec)
+        if concrete_spec_edges:
+            for cdep in concrete_spec_edges.get(spec, set()):
+                if cdep in affected_specs and cdep not in deps:
+                    deps.append(cdep)
         subgraph[spec] = deps
 
     # Add missing nodes
