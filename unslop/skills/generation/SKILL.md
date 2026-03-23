@@ -200,9 +200,17 @@ Agent(
 - If no failure report exists: empty string (omitted from prompt).
 
 **`{test_policy}` values by originating command:**
-- **takeover:** `"Write or extend tests as needed for newly explicit constraints"`
+- **takeover (tests exist):** `"Write or extend tests as needed for newly explicit constraints"`
+- **testless takeover:** `"Do NOT create, modify, or run test files. Report DONE based on successful code generation only. The adversarial pipeline will generate and validate tests separately."`
 - **generate / sync:** `"Do NOT create or modify test files. Use existing tests for validation only"`
 - **change (tactical):** `"Extend tests if the spec update introduced new constraints that lack coverage. Do not modify existing assertions"`
+
+**Note on `test_policy: "skip"` (testless takeover):** The Builder reports DONE after generating code that satisfies the spec. No tests are run. The calling pipeline (takeover) is responsible for running the Symbol Audit and adversarial pipeline as the quality gate. The Builder must NOT attempt to write tests -- the Mason writes them from the behaviour.yaml behind a Chinese Wall.
+
+**Adversarial intensity tagging (testless takeover):** When testless takeover dispatches the Builder, the Architect tags the adversarial intensity based on file complexity:
+- `adversarial: "full"` (default): Mason + Saboteur. For multi-function files, complex state, or tangled dependencies.
+- `adversarial: "mason-only"`: Mason generates tests, Saboteur skipped. For single-function files with tight specs.
+The user can override with `--full-adversarial`.
 
 ### Verification (Controlling Session)
 
