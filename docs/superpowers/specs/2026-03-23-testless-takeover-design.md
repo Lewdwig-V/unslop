@@ -88,49 +88,48 @@ During Lift 2, the Architect must apply the **observable test** to every algorit
 
 The behaviour YAML must also reflect the original observable behaviour. If the Architect wants to change it, the constraint must use the new value AND the spec must document the upgrade with rationale.
 
-### Phase 2: Generate with Snapshot Lockdown (existing takeover Steps 3-4, modified)
+### Phase 2: Generate with Symbol Audit (existing takeover Steps 3-4, modified)
 
 ```
 Inputs:  *.spec.md, *.impl.md, principles
-Outputs: managed source file, API snapshot (NEW)
+Outputs: managed source file
 ```
 
 Archive the original (unchanged). Dispatch Builder in worktree (unchanged).
 
-**Key change: `test_policy: "snapshot"`**
+**Key change: `test_policy: "skip"`**
 
-Instead of "skip" (no validation) or "run" (requires tests), the Builder operates under **Snapshot Lockdown**:
+The Builder generates code from the spec but does NOT run tests (there are none yet). It reports DONE based solely on successful generation.
 
-1. Before generation, the Orchestrator captures a **JSON Snapshot** of the original module's public API outputs:
+After the Builder reports DONE, the Orchestrator runs a lightweight **Symbol Audit** -- an AST-level check that the generated code provides the same public symbols (classes, functions) as the original, minus any explicitly removed in the spec's Legacy Smells section.
 
-```python
-# orchestrator: capture_api_snapshot(module_path) -> dict
-{
-  "module": "src.retry",
-  "public_functions": {
-    "retry": {
-      "signature": "(fn, *, max_retries=3, base_delay=1.0, max_delay=60.0, rng=None, sleep=None)",
-      "return_annotation": "Any",
-      "raises": ["Exception"],
-    }
-  },
-  "public_classes": {},
-  "module_level_names": ["retry"],
-}
+```
+Symbol Audit:
+  original_symbols = AST public names from archived original
+  generated_symbols = AST public names from Builder output
+  removed_symbols = symbols listed as removed in spec Legacy Smells
+  expected = original_symbols - removed_symbols
+
+  missing = expected - generated_symbols
+  unexpected = generated_symbols - expected - new_symbols_from_spec
+
+  If missing: FAIL ("Builder dropped public symbol: X")
+  If unexpected and not in spec: WARN ("Builder added undeclared symbol: X")
+  Else: PASS
 ```
 
-2. After the Builder generates code, the Orchestrator captures the same snapshot of the new module and **diffs them**.
+This is NOT a behavioural check -- it's a structural sanity check that catches accidental deletions or renames. The Mason's tests are the real behavioural gate. The symbol audit just prevents obviously broken code from entering the adversarial pipeline.
 
-3. **DONE is redefined:** The new code must match the snapshot's public API shape exactly -- same function signatures, same public names, same exception types. Internal implementation can differ freely. This catches:
-   - Missing functions (Builder forgot to implement something)
-   - Changed signatures (Builder altered the contract)
-   - Missing exports (Builder made something private that was public)
+**Why not a full API snapshot?** Red-teaming (Phase 2 probe) showed that every Legacy Smell fix changes the function signature (adding `max_delay`, `rng`, `sleep`). A signature-level snapshot would flag every intentional improvement as a violation, turning the gate into a brake on progress. The symbol audit checks only that public names survive -- parameter changes are the Mason's domain.
 
-This is NOT a full I/O equivalence test -- that would require running the code with inputs, which is the Mason's job. It's a structural contract check that replaces the "does it import" smoke test with something meaningful.
+**Adversarial intensity: Architect-selected**
 
-**Risk: Snapshot is too shallow -- catches structural drift but not behavioural drift.**
+The Architect tags the adversarial dispatch based on file complexity:
 
-Mitigation: The snapshot is a minimum bar, not the acceptance gate. The adversarial pipeline (Phase 3) is the real validation. The snapshot prevents the Builder from shipping obviously wrong code into the adversarial pipeline.
+- **`adversarial: "full"`** (default): Mason generates tests, Saboteur validates via mutation testing. For files with multiple functions, dependencies, or complex state.
+- **`adversarial: "mason-only"`**: Mason generates tests, Saboteur skipped. For single-function files with tight specs where mutation testing adds cost but not signal.
+
+The user can override with `--full-adversarial` to force mutation testing regardless of the Architect's assessment.
 
 ### Phase 3: Adversarial Validation (NEW step, replaces test-run verification)
 
@@ -242,13 +241,13 @@ These assumptions must hold for the design to work. Each should be tested during
 
 **Fallback:** If legacy smell detection is unreliable, require the Archaeologist as a second pass with explicit "smell audit" instructions. Redundant but safer.
 
-### A2: Snapshot Lockdown catches structural drift without tests
+### A2: Symbol Audit catches accidental deletions without false positives
 
-**Test:** Run the Builder on `retry.py.spec.md` with test_policy snapshot. Intentionally break the function signature in the spec. Does the snapshot diff catch it?
+**Test:** Run the Builder on `retry_v1.py.spec.md` with test_policy skip. Verify the symbol audit passes when all public symbols survive. Then remove `retry_with_timeout` from the spec (without listing it as removed). Does the audit catch the missing symbol?
 
-**Failure mode:** Snapshot is too shallow -- misses renamed parameters, changed defaults, or altered return types that the structural check doesn't cover.
+**Failure mode:** The audit is too coarse -- it only checks symbol names, not whether the symbol is functionally equivalent. A Builder could define `def retry(): pass` and the audit would pass.
 
-**Fallback:** Extend the snapshot to include default values and type annotations, not just function names and positional signatures. Or: generate a synthetic "canary test" that calls each public function with its default args and asserts no exception.
+**Mitigation:** The audit is a structural sanity check, not a behavioural gate. The Mason's tests catch functional regressions. The audit's job is narrower: prevent accidental omissions.
 
 ### A3: Mason generates useful tests from machine-drafted behaviour.yaml
 
@@ -293,8 +292,9 @@ These assumptions must hold for the design to work. Each should be tested during
 
 ### Generation Skill (`unslop/skills/generation/SKILL.md`)
 
-- Add `test_policy: "snapshot"` to the policy table.
-- Document what DONE means in snapshot mode (API shape matches, no test validation).
+- Add `test_policy: "skip"` to the policy table.
+- Document what DONE means in skip mode (code generated, symbol audit passes, no test validation).
+- Document adversarial intensity tagging (`full` vs `mason-only`).
 
 ### Adversarial Skill (`unslop/skills/adversarial/SKILL.md`)
 
@@ -304,8 +304,7 @@ These assumptions must hold for the design to work. Each should be tested during
 
 ### Orchestrator (`unslop/scripts/orchestrator.py`)
 
-- New subcommand: `capture-api-snapshot <module-path>` -- captures public API shape as JSON.
-- New subcommand: `diff-api-snapshot <old.json> <new.json>` -- diffs two snapshots.
+- New subcommand: `symbol-audit <original-path> <generated-path> [--removed symbol1,symbol2]` -- AST-level check that public symbols survive. Returns JSON pass/fail with missing/unexpected lists.
 
 ### Config (`init.md`)
 
