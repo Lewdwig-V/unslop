@@ -20,6 +20,10 @@ from orchestrator import (
     file_tree,
     parse_concrete_frontmatter,
     compute_concrete_deps_hash,
+    compute_concrete_manifest,
+    format_manifest_header,
+    diagnose_ghost_staleness,
+    format_ghost_diagnostic,
     build_concrete_order,
     resolve_extends_chain,
     resolve_inherited_sections,
@@ -2460,3 +2464,269 @@ def test_ripple_check_multiple_input_specs(tmp_path):
     assert result["layers"]["abstract"]["total"] == 3  # a, b, c
     assert len(result["layers"]["abstract"]["directly_changed"]) == 2
     assert "src/c.py.spec.md" in result["layers"]["abstract"]["transitively_affected"]
+
+
+# --- concrete-manifest tests ---
+
+
+def test_parse_header_with_concrete_manifest():
+    lines = [
+        "# @unslop-managed — do not edit directly. Edit src/handler.py.spec.md instead.",
+        "# spec-hash:a3f8c2e9b7d1 output-hash:4e2f1a8c9b03 generated:2026-03-23T00:00:00Z",
+        "# concrete-manifest:src/core/pool.py.impl.md:7f2e1b8a9c04,shared/base.impl.md:b3d5a1f8e290",
+    ]
+    result = parse_header("\n".join(lines))
+    assert result is not None
+    assert result["concrete_manifest"] == {
+        "src/core/pool.py.impl.md": "7f2e1b8a9c04",
+        "shared/base.impl.md": "b3d5a1f8e290",
+    }
+    # Legacy field should be None since we used manifest
+    assert result["concrete_deps_hash"] is None
+
+
+def test_parse_header_with_both_manifest_and_legacy():
+    """If both manifest and legacy hash are present, both should be parsed."""
+    lines = [
+        "# @unslop-managed — do not edit directly. Edit src/handler.py.spec.md instead.",
+        "# spec-hash:a3f8c2e9b7d1 output-hash:4e2f1a8c9b03 concrete-deps-hash:9c04b8e7f2a1 generated:2026-03-23T00:00:00Z",
+        "# concrete-manifest:pool.impl.md:7f2e1b8a9c04",
+    ]
+    result = parse_header("\n".join(lines))
+    assert result["concrete_manifest"] == {"pool.impl.md": "7f2e1b8a9c04"}
+    assert result["concrete_deps_hash"] == "9c04b8e7f2a1"
+
+
+def test_parse_header_without_manifest():
+    """Files without manifest should have concrete_manifest=None."""
+    lines = [
+        "# @unslop-managed — do not edit directly. Edit src/retry.py.spec.md instead.",
+        "# spec-hash:a3f8c2e9b7d1 output-hash:4e2f1a8c9b03 generated:2026-03-23T00:00:00Z",
+    ]
+    result = parse_header("\n".join(lines))
+    assert result["concrete_manifest"] is None
+
+
+def test_compute_concrete_manifest_basic(tmp_path):
+    """Manifest should contain direct deps with their hashes."""
+    (tmp_path / "src").mkdir()
+    (tmp_path / "src" / "pool.py.impl.md").write_text(
+        "---\nsource-spec: src/pool.py.spec.md\ntarget-language: python\nephemeral: false\n---\n\n"
+        "## Strategy\n\nPool strategy.\n"
+    )
+    (tmp_path / "src" / "handler.py.impl.md").write_text(
+        "---\nsource-spec: src/handler.py.spec.md\ntarget-language: python\n"
+        "ephemeral: false\nconcrete-dependencies:\n  - src/pool.py.impl.md\n---\n\n"
+        "## Strategy\n\nHandler strategy.\n"
+    )
+
+    manifest = compute_concrete_manifest(str(tmp_path / "src" / "handler.py.impl.md"), str(tmp_path))
+    assert manifest is not None
+    assert "src/pool.py.impl.md" in manifest
+    # Hash should be the hash of pool.impl.md content
+    pool_content = (tmp_path / "src" / "pool.py.impl.md").read_text()
+    assert manifest["src/pool.py.impl.md"] == compute_hash(pool_content)
+
+
+def test_compute_concrete_manifest_no_deps(tmp_path):
+    """Impl with no deps should return None."""
+    (tmp_path / "simple.impl.md").write_text(
+        "---\nsource-spec: simple.spec.md\ntarget-language: python\n---\n"
+    )
+    manifest = compute_concrete_manifest(str(tmp_path / "simple.impl.md"), str(tmp_path))
+    assert manifest is None
+
+
+def test_format_manifest_header():
+    """Manifest should format as comma-separated path:hash pairs."""
+    manifest = {
+        "src/pool.impl.md": "a3f8c2e9b7d1",
+        "shared/base.impl.md": "7f2e1b8a9c04",
+    }
+    result = format_manifest_header(manifest)
+    assert "shared/base.impl.md:7f2e1b8a9c04" in result
+    assert "src/pool.impl.md:a3f8c2e9b7d1" in result
+    assert "," in result
+
+
+def test_format_manifest_roundtrip():
+    """format → parse → should yield the same manifest."""
+    manifest = {
+        "src/pool.impl.md": "a3f8c2e9b7d1",
+        "shared/base.impl.md": "7f2e1b8a9c04",
+    }
+    header_str = format_manifest_header(manifest)
+    # Simulate writing to header
+    full_header = (
+        "# @unslop-managed — do not edit directly. Edit src/handler.py.spec.md instead.\n"
+        "# spec-hash:000000000000 output-hash:111111111111 generated:2026-03-23T00:00:00Z\n"
+        f"# concrete-manifest:{header_str}\n"
+    )
+    parsed = parse_header(full_header)
+    assert parsed["concrete_manifest"] == manifest
+
+
+def test_diagnose_ghost_staleness_detects_change(tmp_path):
+    """Changed dep should be detected by comparing manifest hash vs current."""
+    (tmp_path / "pool.impl.md").write_text("## Strategy\n\nPool v2 — changed.\n")
+    manifest = {"pool.impl.md": "000000000000"}  # Stale hash (doesn't match v2)
+    diagnostics = diagnose_ghost_staleness(manifest, str(tmp_path))
+    assert len(diagnostics) == 1
+    assert diagnostics[0]["dep"] == "pool.impl.md"
+    assert diagnostics[0]["reason"] == "changed"
+
+
+def test_diagnose_ghost_staleness_fresh(tmp_path):
+    """Fresh dep should produce no diagnostics."""
+    content = "## Strategy\n\nPool strategy.\n"
+    (tmp_path / "pool.impl.md").write_text(content)
+    manifest = {"pool.impl.md": compute_hash(content)}
+    diagnostics = diagnose_ghost_staleness(manifest, str(tmp_path))
+    assert len(diagnostics) == 0
+
+
+def test_diagnose_ghost_staleness_missing_dep(tmp_path):
+    """Missing dep should be reported."""
+    manifest = {"nonexistent.impl.md": "a3f8c2e9b7d1"}
+    diagnostics = diagnose_ghost_staleness(manifest, str(tmp_path))
+    assert len(diagnostics) == 1
+    assert diagnostics[0]["reason"] == "not found"
+
+
+def test_format_ghost_diagnostic_deep_chain(tmp_path):
+    """Deep chain should be reported as 'upstream X changed (via Y)'."""
+    # Build: handler -> service -> utils
+    (tmp_path / "utils.impl.md").write_text(
+        "---\nsource-spec: utils.spec.md\ntarget-language: python\nephemeral: false\n---\n\n"
+        "## Strategy\n\nUtils strategy v2 — CHANGED.\n"
+    )
+    (tmp_path / "service.impl.md").write_text(
+        "---\nsource-spec: service.spec.md\ntarget-language: python\n"
+        "ephemeral: false\nconcrete-dependencies:\n  - utils.impl.md\n---\n\n"
+        "## Strategy\n\nService strategy.\n"
+    )
+    # handler's manifest stored old hash for service.impl.md
+    manifest = {"service.impl.md": "000000000000"}
+    diagnostics = diagnose_ghost_staleness(manifest, str(tmp_path))
+    assert len(diagnostics) == 1
+    reasons = format_ghost_diagnostic(diagnostics)
+    assert len(reasons) == 1
+    # Should report the chain: service changed, with upstream utils
+    assert "service.impl.md" in reasons[0]
+    assert "via" in reasons[0]
+    assert "utils.impl.md" in reasons[0]
+
+
+def test_check_freshness_with_manifest_surgical(tmp_path):
+    """check_freshness should use manifest for surgical ghost detection."""
+    # Setup: handler depends on pool (concrete dep)
+    spec_content = "# Handler Spec\n"
+    pool_content_v1 = (
+        "---\nsource-spec: pool.py.spec.md\ntarget-language: python\nephemeral: false\n---\n\n"
+        "## Strategy\n\nPool strategy v1.\n"
+    )
+    handler_impl_content = (
+        "---\nsource-spec: handler.py.spec.md\ntarget-language: python\n"
+        "ephemeral: false\nconcrete-dependencies:\n  - pool.py.impl.md\n---\n\n"
+        "## Strategy\n\nHandler strategy.\n"
+    )
+
+    (tmp_path / "handler.py.spec.md").write_text(spec_content)
+    (tmp_path / "pool.py.spec.md").write_text("# Pool Spec\n")
+    (tmp_path / "pool.py.impl.md").write_text(pool_content_v1)
+    (tmp_path / "handler.py.impl.md").write_text(handler_impl_content)
+
+    # Compute hashes at "generation time"
+    sh = compute_hash(spec_content)
+    body = "def handler(): pass"
+    oh = compute_hash(body)
+    pool_hash = compute_hash(pool_content_v1)
+    manifest_str = f"pool.py.impl.md:{pool_hash}"
+
+    # Write managed file with concrete-manifest
+    (tmp_path / "handler.py").write_text(
+        f"# @unslop-managed — do not edit directly. Edit handler.py.spec.md instead.\n"
+        f"# spec-hash:{sh} output-hash:{oh} generated:2026-03-23T00:00:00Z\n"
+        f"# concrete-manifest:{manifest_str}\n\n"
+        f"{body}"
+    )
+    # Write pool managed file (not ghost-checked, just needs to exist for freshness)
+    pool_sh = compute_hash("# Pool Spec\n")
+    pool_body = "def pool(): pass"
+    pool_oh = compute_hash(pool_body)
+    (tmp_path / "pool.py").write_text(
+        f"# @unslop-managed — do not edit directly. Edit pool.py.spec.md instead.\n"
+        f"# spec-hash:{pool_sh} output-hash:{pool_oh} generated:2026-03-23T00:00:00Z\n\n"
+        f"{pool_body}"
+    )
+
+    # Before change: should be fresh
+    result = check_freshness(str(tmp_path))
+    handler_entry = [f for f in result["files"] if f["managed"] == "handler.py"]
+    assert len(handler_entry) == 1
+    assert handler_entry[0]["state"] == "fresh"
+
+    # Change pool.py.impl.md
+    (tmp_path / "pool.py.impl.md").write_text(
+        "---\nsource-spec: pool.py.spec.md\ntarget-language: python\nephemeral: false\n---\n\n"
+        "## Strategy\n\nPool strategy v2 — CHANGED to async.\n"
+    )
+
+    # After change: handler should be ghost-stale with surgical diagnostic
+    result = check_freshness(str(tmp_path))
+    handler_entry = [f for f in result["files"] if f["managed"] == "handler.py"]
+    assert len(handler_entry) == 1
+    assert handler_entry[0]["state"] == "ghost-stale"
+    hint = handler_entry[0].get("hint", "")
+    assert "pool.py.impl.md" in hint
+    # Should NOT mention any other deps (surgical, not blanket)
+
+
+def test_check_freshness_legacy_concrete_deps_hash_still_works(tmp_path):
+    """Files with old concrete-deps-hash should still detect ghost staleness."""
+    spec_content = "# Handler Spec\n"
+    pool_content_v1 = (
+        "---\nsource-spec: pool.py.spec.md\ntarget-language: python\nephemeral: false\n---\n\n"
+        "## Strategy\n\nPool strategy v1.\n"
+    )
+    handler_impl_content = (
+        "---\nsource-spec: handler.py.spec.md\ntarget-language: python\n"
+        "ephemeral: false\nconcrete-dependencies:\n  - pool.py.impl.md\n---\n\n"
+        "## Strategy\n\nHandler strategy.\n"
+    )
+
+    (tmp_path / "handler.py.spec.md").write_text(spec_content)
+    (tmp_path / "pool.py.spec.md").write_text("# Pool Spec\n")
+    (tmp_path / "pool.py.impl.md").write_text(pool_content_v1)
+    (tmp_path / "handler.py.impl.md").write_text(handler_impl_content)
+
+    sh = compute_hash(spec_content)
+    body = "def handler(): pass"
+    oh = compute_hash(body)
+    cdh = compute_concrete_deps_hash(str(tmp_path / "handler.py.impl.md"), str(tmp_path))
+
+    # Write managed file with LEGACY concrete-deps-hash (no manifest)
+    (tmp_path / "handler.py").write_text(
+        f"# @unslop-managed — do not edit directly. Edit handler.py.spec.md instead.\n"
+        f"# spec-hash:{sh} output-hash:{oh} concrete-deps-hash:{cdh} generated:2026-03-23T00:00:00Z\n\n"
+        f"{body}"
+    )
+    pool_sh = compute_hash("# Pool Spec\n")
+    pool_body = "def pool(): pass"
+    pool_oh = compute_hash(pool_body)
+    (tmp_path / "pool.py").write_text(
+        f"# @unslop-managed — do not edit directly. Edit pool.py.spec.md instead.\n"
+        f"# spec-hash:{pool_sh} output-hash:{pool_oh} generated:2026-03-23T00:00:00Z\n\n"
+        f"{pool_body}"
+    )
+
+    # Change pool
+    (tmp_path / "pool.py.impl.md").write_text(
+        "---\nsource-spec: pool.py.spec.md\ntarget-language: python\nephemeral: false\n---\n\n"
+        "## Strategy\n\nPool strategy v2.\n"
+    )
+
+    result = check_freshness(str(tmp_path))
+    handler_entry = [f for f in result["files"] if f["managed"] == "handler.py"]
+    assert len(handler_entry) == 1
+    assert handler_entry[0]["state"] == "ghost-stale"

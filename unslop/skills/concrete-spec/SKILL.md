@@ -115,13 +115,27 @@ A managed file is **ghost-stale** when:
 
 Ghost staleness is invisible to the standard staleness check (which only tracks abstract spec hashes). It requires the orchestrator to hash and track concrete spec dependencies.
 
-**Detection:** The orchestrator compares the hash of each `concrete-dependencies` entry against a stored `concrete-deps-hash` in the managed file's header (or in a sidecar tracking file).
+**Detection:** The managed file's `@unslop-managed` header stores a `concrete-manifest` — a per-dependency hash map written at generation time:
+
+```
+# concrete-manifest:src/core/pool.py.impl.md:a3f8c2e9b7d1,shared/base.impl.md:7f2e1b8a9c04
+```
+
+During `check_freshness()`, the orchestrator compares each entry's stored hash against the current hash of that dependency file. This enables **surgical** diagnosis — if `pool.py.impl.md` changed but `base.impl.md` didn't, only `pool.py.impl.md` is reported.
+
+**Deep-chain tracing:** When a direct dependency has changed, the orchestrator walks upstream to find the root cause. If `service.impl.md` changed because its own upstream `utils.impl.md` changed, the diagnostic reports:
+
+> `upstream service.impl.md changed (via utils.impl.md)`
+
+This prevents the "honest diagnostic" problem where the user is directed to check a file that appears untouched — the chain trace points them to the actual root cause.
+
+**Backward compatibility:** Files with the legacy `concrete-deps-hash` (a single coarse hash of all transitive deps) are still supported. The orchestrator falls back to the old `_identify_changed_deps()` logic for these files, which reports all deps as suspects. New generations write `concrete-manifest` instead.
 
 **Resolution:** Re-run generation. Stage A.2 will re-derive the concrete spec from the updated upstream strategies, and Stage B will generate fresh code.
 
-**In `/unslop:status`:** Ghost-stale files appear as a distinct state:
+**In `/unslop:status`:** Ghost-stale files appear as a distinct state with the root cause chain:
 
-> `src/api/handler.py` — **ghost-stale** (upstream concrete spec changed: `src/core/connection_pool.py.impl.md`)
+> `src/api/handler.py` — **ghost-stale** (upstream `src/core/pool.py.impl.md` changed (via `src/db/connection.py.impl.md`))
 
 ### Multi-Target Lowering (1-to-Many)
 

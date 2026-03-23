@@ -23,8 +23,11 @@ def parse_header(content: str) -> dict | None:
     """Parse @unslop-managed header from a managed file.
 
     Reads the first 5 lines looking for the header markers.
-    Returns dict with spec_path, spec_hash, output_hash, generated, old_format
-    or None if no header found.
+    Returns dict with spec_path, spec_hash, output_hash, generated, old_format,
+    concrete_deps_hash (legacy), and concrete_manifest (new per-dep format).
+
+    concrete_manifest is a dict of {dep_path: hash} parsed from:
+      concrete-manifest:dep1.impl.md:a3f8c2e9b7d1,dep2.impl.md:7f2e1b8a9c04
     """
     lines = content.split("\n")[:5]
 
@@ -33,6 +36,7 @@ def parse_header(content: str) -> dict | None:
     output_hash = None
     principles_hash = None
     concrete_deps_hash = None
+    concrete_manifest = None
     generated = None
     old_format = False
 
@@ -67,6 +71,25 @@ def parse_header(content: str) -> dict | None:
             if gen_match:
                 generated = gen_match.group(1)
 
+        # Parse concrete-manifest (new per-dep format)
+        manifest_match = re.search(r"concrete-manifest:(.+?)(?:\s|$)", stripped)
+        if manifest_match:
+            raw = manifest_match.group(1)
+            manifest = {}
+            for entry in raw.split(","):
+                entry = entry.strip()
+                if not entry:
+                    continue
+                # Format: path/to/dep.impl.md:a3f8c2e9b7d1
+                last_colon = entry.rfind(":")
+                if last_colon > 0:
+                    dep_path = entry[:last_colon]
+                    dep_hash = entry[last_colon + 1:]
+                    if re.match(r"^[0-9a-f]{12}$", dep_hash):
+                        manifest[dep_path] = dep_hash
+            if manifest:
+                concrete_manifest = manifest
+
         if "Generated from spec at" in stripped and spec_hash is None:
             old_format = True
             gen_match = re.search(r"Generated from spec at (\S+)", stripped)
@@ -82,6 +105,7 @@ def parse_header(content: str) -> dict | None:
         "output_hash": output_hash,
         "principles_hash": principles_hash,
         "concrete_deps_hash": concrete_deps_hash,
+        "concrete_manifest": concrete_manifest,
         "generated": generated,
         "old_format": old_format,
     }
@@ -719,6 +743,172 @@ def compute_concrete_deps_hash(impl_path: str, project_root: str) -> str | None:
     return compute_hash("\n".join(combined))
 
 
+def compute_concrete_manifest(impl_path: str, project_root: str) -> dict[str, str] | None:
+    """Compute a per-dependency manifest for surgical ghost-staleness detection.
+
+    Returns a dict of {dep_path: 12-char-hex-hash} for all direct strategy
+    providers (concrete-dependencies + extends parent). Returns None if no
+    strategy providers exist.
+
+    Unlike compute_concrete_deps_hash (which produces a single opaque hash
+    of all transitive deps), the manifest stores each direct dependency
+    individually so check_freshness() can pinpoint exactly which dep changed.
+    """
+    impl = Path(impl_path)
+    if not impl.exists():
+        return None
+
+    try:
+        content = impl.read_text(encoding="utf-8")
+    except (OSError, UnicodeDecodeError):
+        return None
+
+    meta = parse_concrete_frontmatter(content)
+    providers = get_all_strategy_providers(meta)
+    if not providers:
+        return None
+
+    root = Path(project_root).resolve()
+    manifest = {}
+    for dep_path in sorted(providers):
+        dep_full = root / dep_path
+        if dep_full.exists():
+            try:
+                dep_content = dep_full.read_text(encoding="utf-8")
+                manifest[dep_path] = compute_hash(dep_content)
+            except (OSError, UnicodeDecodeError):
+                manifest[dep_path] = "unreadable000"
+        else:
+            manifest[dep_path] = "missing000000"[:12]
+
+    return manifest if manifest else None
+
+
+def format_manifest_header(manifest: dict[str, str]) -> str:
+    """Format a concrete manifest dict as a header-safe string.
+
+    Output: dep1.impl.md:a3f8c2e9b7d1,dep2.impl.md:7f2e1b8a9c04
+    """
+    return ",".join(f"{path}:{h}" for path, h in sorted(manifest.items()))
+
+
+def diagnose_ghost_staleness(
+    manifest: dict[str, str],
+    project_root: str,
+) -> list[dict]:
+    """Compare stored manifest against current state, returning surgical diagnostics.
+
+    For each changed dependency, walks its own upstream chain to find the
+    root cause. Returns a list of diagnostic dicts:
+      {dep: "path", stored_hash: "...", current_hash: "...", chain: ["path -> changed_upstream"]}
+    """
+    root = Path(project_root).resolve()
+    diagnostics = []
+
+    for dep_path, stored_hash in sorted(manifest.items()):
+        dep_full = root / dep_path
+        if not dep_full.exists():
+            diagnostics.append({
+                "dep": dep_path,
+                "stored_hash": stored_hash,
+                "current_hash": None,
+                "reason": "not found",
+                "chain": [dep_path],
+            })
+            continue
+
+        try:
+            dep_content = dep_full.read_text(encoding="utf-8")
+        except (OSError, UnicodeDecodeError):
+            diagnostics.append({
+                "dep": dep_path,
+                "stored_hash": stored_hash,
+                "current_hash": None,
+                "reason": "unreadable",
+                "chain": [dep_path],
+            })
+            continue
+
+        current_hash = compute_hash(dep_content)
+        if current_hash == stored_hash:
+            continue  # This dep is fresh
+
+        # This dep changed — walk its upstream to find root cause
+        chain = _trace_change_chain(dep_path, root)
+        diagnostics.append({
+            "dep": dep_path,
+            "stored_hash": stored_hash,
+            "current_hash": current_hash,
+            "reason": "changed",
+            "chain": chain,
+        })
+
+    return diagnostics
+
+
+def _trace_change_chain(dep_path: str, root: Path) -> list[str]:
+    """Walk upstream from a changed dep to find the deepest changed node.
+
+    Returns a chain like ["service.impl.md", "utils.impl.md"] meaning
+    "service.impl.md changed because utils.impl.md changed."
+    """
+    chain = [dep_path]
+    visited = {dep_path}
+    current = dep_path
+
+    while True:
+        full = root / current
+        if not full.exists():
+            break
+
+        try:
+            content = full.read_text(encoding="utf-8")
+        except (OSError, UnicodeDecodeError):
+            break
+
+        meta = parse_concrete_frontmatter(content)
+        upstream = get_all_strategy_providers(meta)
+
+        # Find which upstream deps exist and could be the root cause
+        # We report the chain, not just the leaf — the user needs the path
+        found_deeper = False
+        for up in sorted(upstream):
+            if up in visited:
+                continue
+            visited.add(up)
+            chain.append(up)
+            current = up
+            found_deeper = True
+            break  # Follow one chain (depth-first)
+
+        if not found_deeper:
+            break
+
+    return chain
+
+
+def format_ghost_diagnostic(diagnostics: list[dict]) -> list[str]:
+    """Format diagnostics into human-readable strings for status output.
+
+    Returns list of strings like:
+      "upstream `service.impl.md` changed (via utils.impl.md)"
+    """
+    reasons = []
+    for d in diagnostics:
+        chain = d["chain"]
+        if d["reason"] == "not found":
+            reasons.append(f"upstream `{d['dep']}` not found")
+        elif d["reason"] == "unreadable":
+            reasons.append(f"upstream `{d['dep']}` unreadable")
+        elif len(chain) == 1:
+            reasons.append(f"upstream `{chain[0]}` changed")
+        else:
+            # chain[0] is the direct dep, chain[1:] is the upstream path
+            via = " → ".join(chain[1:])
+            reasons.append(f"upstream `{chain[0]}` changed (via {via})")
+    return reasons
+
+
 def _identify_changed_deps(
     dep_paths: list[str],
     stored_combined_hash: str,
@@ -727,6 +917,7 @@ def _identify_changed_deps(
     """Identify which concrete deps changed by hashing each individually.
 
     Returns a list of human-readable reasons for ghost-staleness.
+    Legacy fallback for files with concrete-deps-hash instead of concrete-manifest.
     """
     root = Path(project_root).resolve()
     changed = []
@@ -931,7 +1122,7 @@ def get_body_below_header(content: str) -> str:
     Returns everything after the last header line.
     """
     lines = content.split("\n")
-    header_markers = ("@unslop-managed", "spec-hash:", "output-hash:", "Generated from spec at")
+    header_markers = ("@unslop-managed", "spec-hash:", "output-hash:", "Generated from spec at", "concrete-manifest:")
     body_start = 0
     for i in range(min(5, len(lines))):
         stripped = lines[i].strip()
@@ -1290,25 +1481,22 @@ def check_freshness(directory: str) -> dict:
                 stale_reasons.append(f"upstream `{dep_path}` not found")
                 continue
 
-        # Compute current combined hash of all concrete deps
-        current_cdeps_hash = compute_concrete_deps_hash(str(impl_path), str(root))
+        # Determine which managed files this impl affects
+        target_paths_for_hash = []
+        targets_list = meta.get("targets", [])
+        if targets_list:
+            target_paths_for_hash = [t["path"] for t in targets_list if "path" in t]
+        else:
+            source_spec = meta.get("source_spec", "")
+            if source_spec:
+                target_paths_for_hash = [get_registry_key_for_spec(source_spec)]
 
-        # Compare against stored hash in managed file headers
-        if not stale_reasons and current_cdeps_hash is not None:
-            # Determine which managed files this impl affects
-            target_paths_for_hash = []
-            targets_list = meta.get("targets", [])
-            if targets_list:
-                target_paths_for_hash = [t["path"] for t in targets_list if "path" in t]
-            else:
-                source_spec = meta.get("source_spec", "")
-                if source_spec:
-                    target_paths_for_hash = [get_registry_key_for_spec(source_spec)]
-
+        # Compare against stored manifest or hash in managed file headers
+        if not stale_reasons:
             for managed_rel in target_paths_for_hash:
                 managed_full = root / managed_rel
 
-                # Collect candidate files to check for concrete-deps-hash.
+                # Collect candidate files to check for concrete-manifest/concrete-deps-hash.
                 # For unit specs the registry key is a directory; we need to
                 # check the headers of the individual managed files inside it.
                 candidates = []
@@ -1348,17 +1536,27 @@ def check_freshness(directory: str) -> dict:
                     header = parse_header(managed_content)
                     if header is None:
                         continue
-                    stored_cdeps = header.get("concrete_deps_hash")
-                    if stored_cdeps is not None and stored_cdeps != current_cdeps_hash:
-                        # Identify which specific deps changed
-                        changed = _identify_changed_deps(
-                            all_providers,
-                            stored_cdeps,
-                            str(root),
-                        )
-                        for reason in changed:
-                            stale_reasons.append(reason)
-                        break  # One mismatch is enough to trigger staleness
+
+                    # Prefer concrete-manifest (surgical per-dep check)
+                    stored_manifest = header.get("concrete_manifest")
+                    if stored_manifest is not None:
+                        diagnostics = diagnose_ghost_staleness(stored_manifest, str(root))
+                        if diagnostics:
+                            stale_reasons.extend(format_ghost_diagnostic(diagnostics))
+                            break
+                    else:
+                        # Fall back to legacy concrete-deps-hash (coarse check)
+                        stored_cdeps = header.get("concrete_deps_hash")
+                        current_cdeps_hash = compute_concrete_deps_hash(str(impl_path), str(root))
+                        if stored_cdeps is not None and current_cdeps_hash is not None and stored_cdeps != current_cdeps_hash:
+                            changed = _identify_changed_deps(
+                                all_providers,
+                                stored_cdeps,
+                                str(root),
+                            )
+                            for reason in changed:
+                                stale_reasons.append(reason)
+                            break
 
         if stale_reasons:
             # Determine which managed files this impl.md affects
@@ -1963,10 +2161,13 @@ def main():
             meta = parse_concrete_frontmatter(content)
             deps = meta.get("concrete_dependencies", [])
             deps_hash = compute_concrete_deps_hash(str(impl), project_root)
+            manifest = compute_concrete_manifest(str(impl), project_root)
             result = {
                 "impl_path": impl_path,
                 "concrete_dependencies": deps,
                 "deps_hash": deps_hash,
+                "manifest": manifest,
+                "manifest_header": format_manifest_header(manifest) if manifest else None,
                 "source_spec": meta.get("source_spec"),
                 "complexity": meta.get("complexity"),
                 "ephemeral": meta.get("ephemeral", True),

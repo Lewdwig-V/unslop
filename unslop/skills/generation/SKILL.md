@@ -668,8 +668,11 @@ Every generated file MUST begin with a two-line header using the correct comment
 
 **Line 1:** `@unslop-managed — do not edit directly. Edit <spec-path> instead.`
 **Line 2:** `spec-hash:<12hex> output-hash:<12hex> generated:<ISO8601>`
+**Line 3 (optional):** `concrete-manifest:<dep1.impl.md>:<12hex>,<dep2.impl.md>:<12hex>`
 
 Use UTC for the timestamp. Format: `2026-03-20T14:32:00Z`
+
+The `concrete-manifest` line is written when the file has permanent concrete spec dependencies. It stores the hash of each direct strategy provider at generation time, enabling **surgical** ghost-staleness detection — `check_freshness()` can pinpoint exactly which upstream dependency changed rather than reporting all deps as suspects.
 
 ### Comment Syntax by Extension
 
@@ -689,6 +692,7 @@ Python (`.py`):
 ```python
 # @unslop-managed — do not edit directly. Edit src/retry.py.spec.md instead.
 # spec-hash:a3f8c2e9b7d1 output-hash:4e2f1a8c9b03 principles-hash:7c4d9e1f2a05 generated:2026-03-20T14:32:00Z
+# concrete-manifest:shared/fastapi-async.impl.md:7f2e1b8a9c04,src/core/pool.py.impl.md:b3d5a1f8e290
 ```
 
 TypeScript (`.ts`):
@@ -716,11 +720,13 @@ When generating a file, follow this exact sequence:
 2. Apply Python `str.strip()` to the body, then compute its SHA-256 hash truncated to 12 hex chars → `output-hash`
 3. Read the spec file content and compute its SHA-256 hash truncated to 12 hex chars → `spec-hash`
 3b. If `.unslop/principles.md` exists, hash its content → `principles-hash`
+3c. If a permanent concrete spec (`*.impl.md`) exists with `concrete-dependencies` or `extends`, compute the manifest: call `python ${CLAUDE_PLUGIN_ROOT}/scripts/orchestrator.py concrete-deps <impl-path> --root .` and use the `manifest_header` field from the JSON output
 4. Write header line 1 (spec path — unchanged)
 5. Write header line 2: `spec-hash:<hash> output-hash:<hash> [principles-hash:<hash>] generated:<ISO8601 UTC timestamp>`
+5b. If manifest was computed in step 3c, write header line 3: `concrete-manifest:<manifest_header>`
 6. Write the body
 
-This ordering ensures the output-hash is computed before the header is written — the header is NOT included in the hash.
+This ordering ensures the output-hash is computed before the header is written — the header is NOT included in the hash. The concrete-manifest enables surgical ghost-staleness detection: when an upstream dependency changes, `check_freshness()` can identify the exact culprit instead of flagging all deps as suspects.
 
 ---
 
