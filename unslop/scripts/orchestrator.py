@@ -81,6 +81,9 @@ from .freshness.manifest import (
     format_manifest_header,
 )
 
+# validation
+from .validation.symbol_audit import audit_symbols
+
 # planning
 from .planning.bulk_sync import compute_bulk_sync_plan
 from .planning.deep_sync import compute_deep_sync_plan
@@ -137,6 +140,8 @@ __all__ = [
     "compute_resume_plan",
     "render_dependency_graph",
     "ripple_check",
+    # validation
+    "audit_symbols",
 ]
 
 
@@ -146,7 +151,7 @@ def main():
         cmds = (
             "discover|build-order|deps|check-freshness|concrete-order"
             "|concrete-deps|ripple-check|deep-sync-plan|bulk-sync-plan"
-            "|resume-sync-plan|graph|file-tree"
+            "|resume-sync-plan|graph|file-tree|symbol-audit"
         )
         print(f"Usage: orchestrator.py <{cmds}> [args]", file=sys.stderr)
         sys.exit(1)
@@ -478,6 +483,24 @@ def main():
         except (ValueError, OSError) as e:
             print(json.dumps({"error": str(e)}), file=sys.stderr)
             sys.exit(1)
+
+    elif command == "symbol-audit":
+        if len(sys.argv) < 4:
+            print(
+                "Usage: orchestrator.py symbol-audit <original> <generated> [--removed s1,s2]",
+                file=sys.stderr,
+            )
+            sys.exit(1)
+        original = sys.argv[2]
+        generated = sys.argv[3]
+        removed: list[str] = []
+        if "--removed" in sys.argv:
+            ridx = sys.argv.index("--removed")
+            if ridx + 1 < len(sys.argv):
+                removed = [s for s in sys.argv[ridx + 1].split(",") if s]
+        result = audit_symbols(original, generated, removed=removed)
+        print(json.dumps(result, indent=2))
+        sys.exit(0 if result["status"] == "pass" else 1)
 
     else:
         print(f"Unknown command: {command}", file=sys.stderr)

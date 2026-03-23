@@ -1,1 +1,1 @@
-"""Validation modules. Symbol audit will be added in Milestone N."""
+"""Validation modules -- symbol audit and future structural checks."""
