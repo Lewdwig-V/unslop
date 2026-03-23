@@ -3216,6 +3216,68 @@ def test_deep_sync_plan_missing_spec(tmp_path):
     assert "error" in result
 
 
+def test_deep_sync_plan_resolves_spec_from_header(tmp_path):
+    """Should resolve spec path from @unslop-managed header, not basename."""
+    (tmp_path / ".unslop").mkdir()
+    # Spec is in a different directory than the managed file
+    (tmp_path / "specs").mkdir()
+    (tmp_path / "specs" / "widget.spec.md").write_text("# Widget\n")
+
+    # Managed file references non-co-located spec via header
+    body = "class Widget: pass\n"
+    sh = compute_hash("# Widget\n")
+    oh = compute_hash(body)
+    (tmp_path / "widget.py").write_text(
+        "# @unslop-managed — do not edit directly. Edit specs/widget.spec.md instead.\n"
+        f"# spec-hash:{sh} output-hash:{oh} generated:2026-03-23T00:00:00Z\n"
+        + body
+    )
+
+    result = compute_deep_sync_plan("widget.py", str(tmp_path))
+    assert "error" not in result, f"Expected success, got: {result}"
+    assert result["trigger"] == "specs/widget.spec.md"
+
+
+def test_deep_sync_plan_header_resolution_fallback(tmp_path):
+    """Should fall back to basename convention when file has no header."""
+    (tmp_path / ".unslop").mkdir()
+    (tmp_path / "plain.py.spec.md").write_text("# Plain\n")
+
+    # Managed file without @unslop-managed header (unmanaged)
+    (tmp_path / "plain.py").write_text("x = 1\n")
+
+    result = compute_deep_sync_plan("plain.py", str(tmp_path))
+    assert "error" not in result
+    assert result["trigger"] == "plain.py.spec.md"
+
+
+def test_deep_sync_plan_header_resolution_nonexistent_managed(tmp_path):
+    """Should fall back to basename when managed file doesn't exist."""
+    (tmp_path / ".unslop").mkdir()
+    (tmp_path / "ghost.py.spec.md").write_text("# Ghost\n")
+
+    result = compute_deep_sync_plan("ghost.py", str(tmp_path))
+    assert "error" not in result
+    assert result["trigger"] == "ghost.py.spec.md"
+
+
+def test_deep_sync_plan_header_spec_missing_returns_error(tmp_path):
+    """Should return error when header points to a spec that doesn't exist."""
+    (tmp_path / ".unslop").mkdir()
+    body = "class X: pass\n"
+    sh = compute_hash("# X\n")
+    oh = compute_hash(body)
+    (tmp_path / "x.py").write_text(
+        "# @unslop-managed — do not edit directly. Edit missing/x.spec.md instead.\n"
+        f"# spec-hash:{sh} output-hash:{oh} generated:2026-03-23T00:00:00Z\n"
+        + body
+    )
+
+    result = compute_deep_sync_plan("x.py", str(tmp_path))
+    assert "error" in result
+    assert "missing/x.spec.md" in result["error"]
+
+
 # --- dual-layer scoped graph tests ---
 
 

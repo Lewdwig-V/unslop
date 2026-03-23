@@ -2049,8 +2049,21 @@ def compute_deep_sync_plan(
     if fp.suffix == ".md" and ".spec." in fp.name:
         trigger_spec = file_path
     else:
-        # Managed file -> spec
-        trigger_spec = file_path + ".spec.md"
+        # Managed file -> try reading spec path from @unslop-managed header
+        trigger_spec = None
+        managed_full = root / file_path
+        if managed_full.exists():
+            try:
+                managed_content = managed_full.read_text(encoding="utf-8")
+                header = parse_header(managed_content)
+                if header and header.get("spec_path"):
+                    trigger_spec = header["spec_path"]
+            except (OSError, UnicodeDecodeError):
+                pass
+
+        # Fall back to basename convention if header lookup failed
+        if not trigger_spec:
+            trigger_spec = file_path + ".spec.md"
 
     trigger_spec_full = root / trigger_spec
     if not trigger_spec_full.exists():
