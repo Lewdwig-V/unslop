@@ -8,6 +8,7 @@ Exit codes:
   0  — behaviour file is valid
   1  — validation errors found
 """
+
 from __future__ import annotations
 
 import json
@@ -29,14 +30,13 @@ ALL_TOP_LEVEL = REQUIRED_TOP_LEVEL | OPTIONAL_TOP_LEVEL
 
 CONSTRAINT_TYPES = {"given", "when", "then", "invariant", "error", "property"}
 
-INTERFACE_PATTERN = re.compile(
-    r"^[a-zA-Z_][a-zA-Z0-9_]*(\.[a-zA-Z_][a-zA-Z0-9_]*)*(:[a-zA-Z_][a-zA-Z0-9_]*)?$"
-)
+INTERFACE_PATTERN = re.compile(r"^[a-zA-Z_][a-zA-Z0-9_]*(\.[a-zA-Z_][a-zA-Z0-9_]*)*(:[a-zA-Z_][a-zA-Z0-9_]*)?$")
 
 
 # ---------------------------------------------------------------------------
 # Minimal YAML-subset parser (no PyYAML dependency)
 # ---------------------------------------------------------------------------
+
 
 def _parse_behaviour_yaml(content: str) -> tuple[dict | None, str | None]:
     """Parse a behaviour YAML file into a dict.
@@ -74,15 +74,14 @@ def _parse_behaviour_yaml(content: str) -> tuple[dict | None, str | None]:
             # Top-level key
             colon_idx = stripped.index(":")
             key = stripped[:colon_idx].strip()
-            value = stripped[colon_idx + 1:].strip()
+            value = stripped[colon_idx + 1 :].strip()
 
             # Normalize key (YAML uses hyphens, Python uses underscores)
             key = key.replace("-", "_")
 
             if value:
                 # Strip quotes
-                if (value.startswith('"') and value.endswith('"')) or \
-                   (value.startswith("'") and value.endswith("'")):
+                if (value.startswith('"') and value.endswith('"')) or (value.startswith("'") and value.endswith("'")):
                     value = value[1:-1]
                 result[key] = value
                 current_key = None
@@ -98,14 +97,16 @@ def _parse_behaviour_yaml(content: str) -> tuple[dict | None, str | None]:
                 if ":" in item_content:
                     c_idx = item_content.index(":")
                     c_type = item_content[:c_idx].strip()
-                    c_value = item_content[c_idx + 1:].strip()
-                    if (c_value.startswith('"') and c_value.endswith('"')) or \
-                       (c_value.startswith("'") and c_value.endswith("'")):
+                    c_value = item_content[c_idx + 1 :].strip()
+                    if (c_value.startswith('"') and c_value.endswith('"')) or (
+                        c_value.startswith("'") and c_value.endswith("'")
+                    ):
                         c_value = c_value[1:-1]
                     current_list.append({c_type: c_value})
                 else:
-                    if (item_content.startswith('"') and item_content.endswith('"')) or \
-                       (item_content.startswith("'") and item_content.endswith("'")):
+                    if (item_content.startswith('"') and item_content.endswith('"')) or (
+                        item_content.startswith("'") and item_content.endswith("'")
+                    ):
                         item_content = item_content[1:-1]
                     current_list.append(item_content)
         elif indent > 0 and current_list is not None and ":" in stripped:
@@ -113,9 +114,8 @@ def _parse_behaviour_yaml(content: str) -> tuple[dict | None, str | None]:
             if current_list and isinstance(current_list[-1], dict):
                 c_idx = stripped.index(":")
                 c_type = stripped[:c_idx].strip()
-                c_value = stripped[c_idx + 1:].strip()
-                if (c_value.startswith('"') and c_value.endswith('"')) or \
-                   (c_value.startswith("'") and c_value.endswith("'")):
+                c_value = stripped[c_idx + 1 :].strip()
+                if (c_value.startswith('"') and c_value.endswith('"')) or (c_value.startswith("'") and c_value.endswith("'")):
                     c_value = c_value[1:-1]
                 current_list[-1][c_type] = c_value
         i += 1
@@ -133,6 +133,7 @@ def _parse_behaviour_yaml(content: str) -> tuple[dict | None, str | None]:
 # ---------------------------------------------------------------------------
 # Validation
 # ---------------------------------------------------------------------------
+
 
 def validate_behaviour(content: str, file_path: str) -> dict:
     """Validate a behaviour YAML file against the DSL schema.
@@ -160,112 +161,129 @@ def validate_behaviour(content: str, file_path: str) -> dict:
     # Check required fields
     for field in REQUIRED_TOP_LEVEL:
         if field not in parsed:
-            issues.append({
-                "check": "missing_required_field",
-                "field": field,
-                "message": f"Required field '{field}' is missing",
-            })
+            issues.append(
+                {
+                    "check": "missing_required_field",
+                    "field": field,
+                    "message": f"Required field '{field}' is missing",
+                }
+            )
 
     # Check unknown fields
     for field in parsed:
         if field not in ALL_TOP_LEVEL:
-            warnings.append({
-                "check": "unknown_field",
-                "field": field,
-                "message": f"Unknown top-level field '{field}' — will be ignored",
-            })
+            warnings.append(
+                {
+                    "check": "unknown_field",
+                    "field": field,
+                    "message": f"Unknown top-level field '{field}' — will be ignored",
+                }
+            )
 
     # Validate interface format
     if "interface" in parsed:
         iface = parsed["interface"]
         if isinstance(iface, str) and not INTERFACE_PATTERN.match(iface):
-            issues.append({
-                "check": "invalid_interface",
-                "value": iface,
-                "message": (
-                    f"Interface '{iface}' does not match expected pattern "
-                    f"'module.path:function_name' or 'module.path'"
-                ),
-            })
+            issues.append(
+                {
+                    "check": "invalid_interface",
+                    "value": iface,
+                    "message": (
+                        f"Interface '{iface}' does not match expected pattern 'module.path:function_name' or 'module.path'"
+                    ),
+                }
+            )
 
     # Validate constraints
     if "constraints" in parsed:
         constraints = parsed["constraints"]
         if not isinstance(constraints, list):
-            issues.append({
-                "check": "constraints_not_list",
-                "message": "constraints must be a list of typed entries",
-            })
+            issues.append(
+                {
+                    "check": "constraints_not_list",
+                    "message": "constraints must be a list of typed entries",
+                }
+            )
         else:
             for idx, constraint in enumerate(constraints):
                 if isinstance(constraint, dict):
                     for c_type in constraint:
                         if c_type not in CONSTRAINT_TYPES:
-                            warnings.append({
-                                "check": "unknown_constraint_type",
-                                "index": idx,
-                                "type": c_type,
-                                "message": (
-                                    f"Constraint #{idx + 1} has unknown type '{c_type}'. "
-                                    f"Expected one of: {', '.join(sorted(CONSTRAINT_TYPES))}"
-                                ),
-                            })
+                            warnings.append(
+                                {
+                                    "check": "unknown_constraint_type",
+                                    "index": idx,
+                                    "type": c_type,
+                                    "message": (
+                                        f"Constraint #{idx + 1} has unknown type '{c_type}'. "
+                                        f"Expected one of: {', '.join(sorted(CONSTRAINT_TYPES))}"
+                                    ),
+                                }
+                            )
                         c_val = constraint[c_type]
                         if not c_val or not isinstance(c_val, str):
-                            issues.append({
-                                "check": "empty_constraint",
-                                "index": idx,
-                                "type": c_type,
-                                "message": f"Constraint #{idx + 1} ({c_type}) has empty value",
-                            })
+                            issues.append(
+                                {
+                                    "check": "empty_constraint",
+                                    "index": idx,
+                                    "type": c_type,
+                                    "message": f"Constraint #{idx + 1} ({c_type}) has empty value",
+                                }
+                            )
                 elif isinstance(constraint, str):
                     # Plain string constraint — warn about missing type
-                    warnings.append({
-                        "check": "untyped_constraint",
-                        "index": idx,
-                        "message": (
-                            f"Constraint #{idx + 1} is untyped. "
-                            f"Use typed form: '- given: \"condition\"' for machine-enforceability."
-                        ),
-                    })
+                    warnings.append(
+                        {
+                            "check": "untyped_constraint",
+                            "index": idx,
+                            "message": (
+                                f"Constraint #{idx + 1} is untyped. "
+                                f"Use typed form: '- given: \"condition\"' for machine-enforceability."
+                            ),
+                        }
+                    )
                 else:
-                    issues.append({
-                        "check": "invalid_constraint",
-                        "index": idx,
-                        "message": f"Constraint #{idx + 1} has unexpected type {type(constraint).__name__}",
-                    })
+                    issues.append(
+                        {
+                            "check": "invalid_constraint",
+                            "index": idx,
+                            "message": f"Constraint #{idx + 1} has unexpected type {type(constraint).__name__}",
+                        }
+                    )
 
     # Validate errors list
     if "errors" in parsed:
         errors = parsed["errors"]
         if not isinstance(errors, list):
-            issues.append({
-                "check": "errors_not_list",
-                "message": "errors must be a list",
-            })
+            issues.append(
+                {
+                    "check": "errors_not_list",
+                    "message": "errors must be a list",
+                }
+            )
 
     # Validate invariants list
     if "invariants" in parsed:
         invariants = parsed["invariants"]
         if not isinstance(invariants, list):
-            issues.append({
-                "check": "invariants_not_list",
-                "message": "invariants must be a list",
-            })
+            issues.append(
+                {
+                    "check": "invariants_not_list",
+                    "message": "invariants must be a list",
+                }
+            )
 
     # Must have at least one constraint, invariant, error, or property
     has_behavioural_content = any(
-        field in parsed and parsed[field]
-        for field in ("constraints", "invariants", "errors", "properties")
+        field in parsed and parsed[field] for field in ("constraints", "invariants", "errors", "properties")
     )
     if not has_behavioural_content:
-        issues.append({
-            "check": "no_behavioural_content",
-            "message": (
-                "Behaviour spec must define at least one of: "
-                "constraints, invariants, errors, or properties"
-            ),
-        })
+        issues.append(
+            {
+                "check": "no_behavioural_content",
+                "message": ("Behaviour spec must define at least one of: constraints, invariants, errors, or properties"),
+            }
+        )
 
     result = {"file_path": file_path}
     if issues:
@@ -284,6 +302,7 @@ def validate_behaviour(content: str, file_path: str) -> dict:
 # CLI
 # ---------------------------------------------------------------------------
 
+
 def main() -> None:
     if len(sys.argv) < 2:
         print("Usage: validate_behaviour.py <behaviour-yaml-path>", file=sys.stderr)
@@ -293,19 +312,29 @@ def main() -> None:
     path = Path(file_path)
 
     if not path.exists():
-        print(json.dumps({
-            "status": "fail", "file_path": file_path,
-            "issues": [{"check": "file_not_found", "message": f"File not found: {file_path}"}],
-        }))
+        print(
+            json.dumps(
+                {
+                    "status": "fail",
+                    "file_path": file_path,
+                    "issues": [{"check": "file_not_found", "message": f"File not found: {file_path}"}],
+                }
+            )
+        )
         sys.exit(1)
 
     try:
         content = path.read_text(encoding="utf-8")
     except (UnicodeDecodeError, OSError) as e:
-        print(json.dumps({
-            "status": "fail", "file_path": file_path,
-            "issues": [{"check": "read_error", "message": f"Cannot read file: {e}", "severity": "error"}],
-        }))
+        print(
+            json.dumps(
+                {
+                    "status": "fail",
+                    "file_path": file_path,
+                    "issues": [{"check": "read_error", "message": f"Cannot read file: {e}", "severity": "error"}],
+                }
+            )
+        )
         sys.exit(1)
 
     result = validate_behaviour(content, file_path)

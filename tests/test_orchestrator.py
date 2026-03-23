@@ -535,8 +535,7 @@ def test_cli_bulk_sync_plan(tmp_path):
         oh = compute_hash(body)
         (tmp_path / name).write_text(
             f"# @unslop-managed — do not edit directly. Edit {spec_name} instead.\n"
-            f"# spec-hash:{sh} output-hash:{oh} generated:2026-03-23T00:00:00Z\n"
-            + body
+            f"# spec-hash:{sh} output-hash:{oh} generated:2026-03-23T00:00:00Z\n" + body
         )
 
     # Make both stale
@@ -564,8 +563,7 @@ def test_cli_bulk_sync_plan_max_batch(tmp_path):
         oh = compute_hash(body)
         (tmp_path / name).write_text(
             f"# @unslop-managed — do not edit directly. Edit {spec_name} instead.\n"
-            f"# spec-hash:{sh} output-hash:{oh} generated:2026-03-23T00:00:00Z\n"
-            + body
+            f"# spec-hash:{sh} output-hash:{oh} generated:2026-03-23T00:00:00Z\n" + body
         )
         (tmp_path / spec_name).write_text(f"# f{i} v2\n")
 
@@ -586,8 +584,7 @@ def test_cli_bulk_sync_plan_empty(tmp_path):
     oh = compute_hash(body)
     (tmp_path / "a.py").write_text(
         f"# @unslop-managed — do not edit directly. Edit a.py.spec.md instead.\n"
-        f"# spec-hash:{sh} output-hash:{oh} generated:2026-03-23T00:00:00Z\n"
-        + body
+        f"# spec-hash:{sh} output-hash:{oh} generated:2026-03-23T00:00:00Z\n" + body
     )
     proc = _run_cli("bulk-sync-plan", "--root", str(tmp_path))
     assert proc.returncode == 0
@@ -2498,9 +2495,7 @@ def test_strict_child_only_child_defines_both_strict_sections(tmp_path):
     shared = tmp_path / "shared"
     shared.mkdir()
     (shared / "base.impl.md").write_text(
-        "---\ntarget-language: python\n---\n\n"
-        "## Strategy\n\nParent strategy.\n\n"
-        "## Type Sketch\n\nParentType { a: int }\n"
+        "---\ntarget-language: python\n---\n\n## Strategy\n\nParent strategy.\n\n## Type Sketch\n\nParentType { a: int }\n"
     )
     (tmp_path / "child.impl.md").write_text(
         "---\nsource-spec: child.spec.md\ntarget-language: python\n"
@@ -2553,12 +2548,8 @@ def test_ripple_check_transitive_deps(tmp_path):
     (tmp_path / "src").mkdir()
     # A -> B -> C (C depends on B, B depends on A)
     (tmp_path / "src" / "a.py.spec.md").write_text("# A Spec\n")
-    (tmp_path / "src" / "b.py.spec.md").write_text(
-        "---\ndepends-on:\n  - src/a.py.spec.md\n---\n# B Spec\n"
-    )
-    (tmp_path / "src" / "c.py.spec.md").write_text(
-        "---\ndepends-on:\n  - src/b.py.spec.md\n---\n# C Spec\n"
-    )
+    (tmp_path / "src" / "b.py.spec.md").write_text("---\ndepends-on:\n  - src/a.py.spec.md\n---\n# B Spec\n")
+    (tmp_path / "src" / "c.py.spec.md").write_text("---\ndepends-on:\n  - src/b.py.spec.md\n---\n# C Spec\n")
 
     result = ripple_check(["src/a.py.spec.md"], str(tmp_path))
     assert result["layers"]["abstract"]["total"] == 3
@@ -2598,12 +2589,8 @@ def test_ripple_check_build_order(tmp_path):
     """Build order should respect dependency ordering."""
     (tmp_path / "src").mkdir()
     (tmp_path / "src" / "base.py.spec.md").write_text("# Base\n")
-    (tmp_path / "src" / "mid.py.spec.md").write_text(
-        "---\ndepends-on:\n  - src/base.py.spec.md\n---\n# Mid\n"
-    )
-    (tmp_path / "src" / "top.py.spec.md").write_text(
-        "---\ndepends-on:\n  - src/mid.py.spec.md\n---\n# Top\n"
-    )
+    (tmp_path / "src" / "mid.py.spec.md").write_text("---\ndepends-on:\n  - src/base.py.spec.md\n---\n# Mid\n")
+    (tmp_path / "src" / "top.py.spec.md").write_text("---\ndepends-on:\n  - src/mid.py.spec.md\n---\n# Top\n")
 
     result = ripple_check(["src/base.py.spec.md"], str(tmp_path))
     order = result["build_order"]
@@ -2619,8 +2606,7 @@ def test_ripple_check_concrete_only_in_build_order(tmp_path):
     # a.py.spec.md — the changed spec
     (tmp_path / "src" / "a.py.spec.md").write_text("# A\n")
     (tmp_path / "src" / "a.py.impl.md").write_text(
-        "---\nsource-spec: src/a.py.spec.md\ntarget-language: python\nephemeral: false\n---\n\n"
-        "## Strategy\n\nA strategy.\n"
+        "---\nsource-spec: src/a.py.spec.md\ntarget-language: python\nephemeral: false\n---\n\n## Strategy\n\nA strategy.\n"
     )
     # b.py.spec.md — NOT in abstract depends-on, but its impl has concrete-dep on a's impl
     (tmp_path / "src" / "b.py.spec.md").write_text("# B\n")
@@ -2644,8 +2630,7 @@ def test_ripple_check_concrete_chain_build_order(tmp_path):
     (tmp_path / "src").mkdir()
     (tmp_path / "src" / "a.py.spec.md").write_text("# A\n")
     (tmp_path / "src" / "a.py.impl.md").write_text(
-        "---\nsource-spec: src/a.py.spec.md\ntarget-language: python\nephemeral: false\n---\n\n"
-        "## Strategy\n\nA strategy.\n"
+        "---\nsource-spec: src/a.py.spec.md\ntarget-language: python\nephemeral: false\n---\n\n## Strategy\n\nA strategy.\n"
     )
     (tmp_path / "src" / "b.py.spec.md").write_text("# B\n")
     (tmp_path / "src" / "b.py.impl.md").write_text(
@@ -2676,9 +2661,7 @@ def test_ripple_check_multiple_input_specs(tmp_path):
     (tmp_path / "src").mkdir()
     (tmp_path / "src" / "a.py.spec.md").write_text("# A\n")
     (tmp_path / "src" / "b.py.spec.md").write_text("# B\n")
-    (tmp_path / "src" / "c.py.spec.md").write_text(
-        "---\ndepends-on:\n  - src/a.py.spec.md\n---\n# C\n"
-    )
+    (tmp_path / "src" / "c.py.spec.md").write_text("---\ndepends-on:\n  - src/a.py.spec.md\n---\n# C\n")
 
     result = ripple_check(["src/a.py.spec.md", "src/b.py.spec.md"], str(tmp_path))
     assert result["layers"]["abstract"]["total"] == 3  # a, b, c
@@ -2775,7 +2758,7 @@ def test_ripple_check_ghost_stale_unit_spec(tmp_path):
     assert "pkg/calc.py" in ghost_paths, f"Expected pkg/calc.py in ghost_stale, got: {ghost_paths}"
     assert "pkg/utils.py" in ghost_paths, f"Expected pkg/utils.py in ghost_stale, got: {ghost_paths}"
     # The bogus basename must NOT appear
-    assert "pkg/mod.unit" not in ghost_paths, f"Bogus 'pkg/mod.unit' should not appear in ghost_stale"
+    assert "pkg/mod.unit" not in ghost_paths, "Bogus 'pkg/mod.unit' should not appear in ghost_stale"
 
 
 def test_deep_sync_plan_ghost_stale_unit_spec(tmp_path):
@@ -2834,10 +2817,11 @@ def test_deep_sync_plan_ghost_stale_unit_spec(tmp_path):
     plan_managed = [e["managed"] for e in plan["plan"]]
 
     # Should contain real managed files
-    assert "pkg/calc.py" in plan_managed or "pkg/utils.py" in plan_managed or "pkg" in plan_managed, \
+    assert "pkg/calc.py" in plan_managed or "pkg/utils.py" in plan_managed or "pkg" in plan_managed, (
         f"Expected unit spec managed files in plan, got: {plan_managed}"
+    )
     # Bogus basename must not appear
-    assert "pkg/mod.unit" not in plan_managed, f"Bogus 'pkg/mod.unit' should not appear in plan"
+    assert "pkg/mod.unit" not in plan_managed, "Bogus 'pkg/mod.unit' should not appear in plan"
 
 
 # --- concrete-manifest tests ---
@@ -2904,9 +2888,7 @@ def test_compute_concrete_manifest_basic(tmp_path):
 
 def test_compute_concrete_manifest_no_deps(tmp_path):
     """Impl with no deps should return None."""
-    (tmp_path / "simple.impl.md").write_text(
-        "---\nsource-spec: simple.spec.md\ntarget-language: python\n---\n"
-    )
+    (tmp_path / "simple.impl.md").write_text("---\nsource-spec: simple.spec.md\ntarget-language: python\n---\n")
     manifest = compute_concrete_manifest(str(tmp_path / "simple.impl.md"), str(tmp_path))
     assert manifest is None
 
@@ -3204,9 +3186,7 @@ def test_graph_includes_deps_edges(tmp_path):
     (tmp_path / ".unslop").mkdir()
     (tmp_path / "src").mkdir()
     (tmp_path / "src" / "a.py.spec.md").write_text("# A\n")
-    (tmp_path / "src" / "b.py.spec.md").write_text(
-        "---\ndepends-on:\n  - src/a.py.spec.md\n---\n# B\n"
-    )
+    (tmp_path / "src" / "b.py.spec.md").write_text("---\ndepends-on:\n  - src/a.py.spec.md\n---\n# B\n")
 
     result = render_dependency_graph(str(tmp_path))
     mermaid = result["mermaid"]
@@ -3252,9 +3232,7 @@ def test_graph_unit_spec_code_nodes(tmp_path):
     """Unit spec's ## Files entries should appear as code nodes in the graph."""
     (tmp_path / ".unslop").mkdir()
     (tmp_path / "pkg").mkdir()
-    (tmp_path / "pkg" / "mod.unit.spec.md").write_text(
-        "# Module unit spec\n\n## Files\n\n- `a.py`\n- `b.py`\n"
-    )
+    (tmp_path / "pkg" / "mod.unit.spec.md").write_text("# Module unit spec\n\n## Files\n\n- `a.py`\n- `b.py`\n")
     # Create the managed files so they show up
     (tmp_path / "pkg" / "a.py").write_text("# a\n")
     (tmp_path / "pkg" / "b.py").write_text("# b\n")
@@ -3337,9 +3315,7 @@ def test_graph_scope_filter(tmp_path):
     """Scoped graph should only include related specs."""
     (tmp_path / ".unslop").mkdir()
     (tmp_path / "a.py.spec.md").write_text("# A\n")
-    (tmp_path / "b.py.spec.md").write_text(
-        "---\ndepends-on:\n  - a.py.spec.md\n---\n# B\n"
-    )
+    (tmp_path / "b.py.spec.md").write_text("---\ndepends-on:\n  - a.py.spec.md\n---\n# B\n")
     (tmp_path / "c.py.spec.md").write_text("# C — unrelated\n")
 
     result = render_dependency_graph(str(tmp_path), scope=["a.py.spec.md"])
@@ -3393,9 +3369,7 @@ def _make_managed_with_manifest(tmp_path, name, spec_name, body, manifest_dict):
 def test_deep_ghost_manifest_3_layer_chain(tmp_path):
     """api -> service -> utils chain: changing utils should stale api via manifest."""
     # Create impl.md chain: api extends service extends utils
-    utils_text = (
-        "---\nephemeral: false\n---\n\n## Strategy\nUtils strategy v1.\n"
-    )
+    utils_text = "---\nephemeral: false\n---\n\n## Strategy\nUtils strategy v1.\n"
     (tmp_path / "utils.impl.md").write_text(utils_text)
 
     service_text = (
@@ -3405,8 +3379,7 @@ def test_deep_ghost_manifest_3_layer_chain(tmp_path):
     (tmp_path / "service.impl.md").write_text(service_text)
 
     api_text = (
-        "---\nsource-spec: api.py.spec.md\nephemeral: false\n"
-        "extends: service.impl.md\n---\n\n## Strategy\nAPI strategy.\n"
+        "---\nsource-spec: api.py.spec.md\nephemeral: false\nextends: service.impl.md\n---\n\n## Strategy\nAPI strategy.\n"
     )
     (tmp_path / "api.impl.md").write_text(api_text)
 
@@ -3418,22 +3391,14 @@ def test_deep_ghost_manifest_3_layer_chain(tmp_path):
     service_manifest = compute_concrete_manifest(str(tmp_path / "service.impl.md"), str(tmp_path))
     assert service_manifest is not None
     assert "utils.impl.md" in service_manifest
-    _make_managed_with_manifest(
-        tmp_path, "service.py", "service.py.spec.md",
-        "def service(): pass\n", service_manifest
-    )
+    _make_managed_with_manifest(tmp_path, "service.py", "service.py.spec.md", "def service(): pass\n", service_manifest)
 
     api_manifest = compute_concrete_manifest(str(tmp_path / "api.impl.md"), str(tmp_path))
     assert api_manifest is not None
     # Transitive manifest should include both service AND utils
     assert "service.impl.md" in api_manifest
-    assert "utils.impl.md" in api_manifest, (
-        "Transitive manifest should include grandparent utils.impl.md"
-    )
-    _make_managed_with_manifest(
-        tmp_path, "api.py", "api.py.spec.md",
-        "def api(): pass\n", api_manifest
-    )
+    assert "utils.impl.md" in api_manifest, "Transitive manifest should include grandparent utils.impl.md"
+    _make_managed_with_manifest(tmp_path, "api.py", "api.py.spec.md", "def api(): pass\n", api_manifest)
 
     # Verify both start fresh
     result = check_freshness(str(tmp_path))
@@ -3443,9 +3408,7 @@ def test_deep_ghost_manifest_3_layer_chain(tmp_path):
     assert service_entry[0]["state"] == "fresh"
 
     # Change utils (the deepest layer)
-    (tmp_path / "utils.impl.md").write_text(
-        "---\nephemeral: false\n---\n\n## Strategy\nUtils strategy v2 — CHANGED.\n"
-    )
+    (tmp_path / "utils.impl.md").write_text("---\nephemeral: false\n---\n\n## Strategy\nUtils strategy v2 — CHANGED.\n")
 
     # Both service and api should now be ghost-stale
     result = check_freshness(str(tmp_path))
@@ -3466,16 +3429,12 @@ def test_deep_ghost_transitive_manifest_includes_grandparent(tmp_path):
     (tmp_path / "utils.impl.md").write_text(utils_text)
 
     service_text = (
-        "---\nsource-spec: service.py.spec.md\nephemeral: false\n"
-        "extends: utils.impl.md\n---\n\n## Strategy\nService.\n"
+        "---\nsource-spec: service.py.spec.md\nephemeral: false\nextends: utils.impl.md\n---\n\n## Strategy\nService.\n"
     )
     (tmp_path / "service.impl.md").write_text(service_text)
     (tmp_path / "service.py.spec.md").write_text("# Service\n")
 
-    api_text = (
-        "---\nsource-spec: api.py.spec.md\nephemeral: false\n"
-        "extends: service.impl.md\n---\n\n## Strategy\nAPI.\n"
-    )
+    api_text = "---\nsource-spec: api.py.spec.md\nephemeral: false\nextends: service.impl.md\n---\n\n## Strategy\nAPI.\n"
     (tmp_path / "api.impl.md").write_text(api_text)
     (tmp_path / "api.py.spec.md").write_text("# API\n")
 
@@ -3490,9 +3449,7 @@ def test_deep_ghost_transitive_manifest_includes_grandparent(tmp_path):
     assert diagnostics == [], "Should be fresh before change"
 
     # Change utils — now diagnose should catch it directly
-    (tmp_path / "utils.impl.md").write_text(
-        "---\nephemeral: false\n---\n\n## Strategy\nUtils v2.\n"
-    )
+    (tmp_path / "utils.impl.md").write_text("---\nephemeral: false\n---\n\n## Strategy\nUtils v2.\n")
 
     diagnostics = diagnose_ghost_staleness(manifest, str(tmp_path))
     assert len(diagnostics) >= 1
@@ -3524,9 +3481,7 @@ def test_deep_ghost_manifest_4_layer_chain(tmp_path):
     assert diagnose_ghost_staleness(a_manifest, str(tmp_path)) == []
 
     # Change d (the deepest)
-    (tmp_path / "d.impl.md").write_text(
-        "---\nephemeral: false\n---\n\n## Strategy\nD v2.\n"
-    )
+    (tmp_path / "d.impl.md").write_text("---\nephemeral: false\n---\n\n## Strategy\nD v2.\n")
 
     diagnostics = diagnose_ghost_staleness(a_manifest, str(tmp_path))
     assert len(diagnostics) >= 1, "Should detect deep change through transitive manifest"
@@ -3562,10 +3517,7 @@ def test_deep_ghost_manifest_diamond_dependency(tmp_path):
     c_text = "---\nephemeral: false\nextends: d.impl.md\n---\n\n## Strategy\nC.\n"
     (tmp_path / "c.impl.md").write_text(c_text)
 
-    a_text = (
-        "---\nephemeral: false\nconcrete-dependencies:\n  - b.impl.md\n  - c.impl.md\n"
-        "---\n\n## Strategy\nA.\n"
-    )
+    a_text = "---\nephemeral: false\nconcrete-dependencies:\n  - b.impl.md\n  - c.impl.md\n---\n\n## Strategy\nA.\n"
     (tmp_path / "a.impl.md").write_text(a_text)
 
     a_manifest = compute_concrete_manifest(str(tmp_path / "a.impl.md"), str(tmp_path))
@@ -3578,9 +3530,7 @@ def test_deep_ghost_manifest_diamond_dependency(tmp_path):
     assert diagnose_ghost_staleness(a_manifest, str(tmp_path)) == []
 
     # Change d
-    (tmp_path / "d.impl.md").write_text(
-        "---\nephemeral: false\n---\n\n## Strategy\nD v2.\n"
-    )
+    (tmp_path / "d.impl.md").write_text("---\nephemeral: false\n---\n\n## Strategy\nD v2.\n")
 
     diagnostics = diagnose_ghost_staleness(a_manifest, str(tmp_path))
     assert len(diagnostics) >= 1, "Diamond dep change should be detected"
@@ -3589,13 +3539,15 @@ def test_deep_ghost_manifest_diamond_dependency(tmp_path):
 
 def test_deep_ghost_format_message_with_chain(tmp_path):
     """format_ghost_diagnostic should produce readable messages with chains."""
-    diagnostics = [{
-        "dep": "utils.impl.md",
-        "stored_hash": "aaa",
-        "current_hash": "bbb",
-        "reason": "changed",
-        "chain": ["utils.impl.md"],
-    }]
+    diagnostics = [
+        {
+            "dep": "utils.impl.md",
+            "stored_hash": "aaa",
+            "current_hash": "bbb",
+            "reason": "changed",
+            "chain": ["utils.impl.md"],
+        }
+    ]
     reasons = format_ghost_diagnostic(diagnostics)
     assert len(reasons) == 1
     assert "changed" in reasons[0]
@@ -3613,15 +3565,11 @@ def _setup_deep_sync_chain(tmp_path):
     (tmp_path / "utils.impl.md").write_text(utils_text)
 
     service_text = (
-        "---\nsource-spec: service.py.spec.md\nephemeral: false\n"
-        "extends: utils.impl.md\n---\n\n## Strategy\nService.\n"
+        "---\nsource-spec: service.py.spec.md\nephemeral: false\nextends: utils.impl.md\n---\n\n## Strategy\nService.\n"
     )
     (tmp_path / "service.impl.md").write_text(service_text)
 
-    api_text = (
-        "---\nsource-spec: api.py.spec.md\nephemeral: false\n"
-        "extends: service.impl.md\n---\n\n## Strategy\nAPI.\n"
-    )
+    api_text = "---\nsource-spec: api.py.spec.md\nephemeral: false\nextends: service.impl.md\n---\n\n## Strategy\nAPI.\n"
     (tmp_path / "api.impl.md").write_text(api_text)
 
     (tmp_path / "service.py.spec.md").write_text("# Service\n")
@@ -3629,16 +3577,10 @@ def _setup_deep_sync_chain(tmp_path):
 
     # Create managed files with transitive manifests
     service_manifest = compute_concrete_manifest(str(tmp_path / "service.impl.md"), str(tmp_path))
-    _make_managed_with_manifest(
-        tmp_path, "service.py", "service.py.spec.md",
-        "def service(): pass\n", service_manifest
-    )
+    _make_managed_with_manifest(tmp_path, "service.py", "service.py.spec.md", "def service(): pass\n", service_manifest)
 
     api_manifest = compute_concrete_manifest(str(tmp_path / "api.impl.md"), str(tmp_path))
-    _make_managed_with_manifest(
-        tmp_path, "api.py", "api.py.spec.md",
-        "def api(): pass\n", api_manifest
-    )
+    _make_managed_with_manifest(tmp_path, "api.py", "api.py.spec.md", "def api(): pass\n", api_manifest)
 
     return utils_text
 
@@ -3648,9 +3590,7 @@ def test_deep_sync_plan_basic(tmp_path):
     _setup_deep_sync_chain(tmp_path)
 
     # Change utils to make service and api stale
-    (tmp_path / "utils.impl.md").write_text(
-        "---\nephemeral: false\n---\n\n## Strategy\nUtils v2.\n"
-    )
+    (tmp_path / "utils.impl.md").write_text("---\nephemeral: false\n---\n\n## Strategy\nUtils v2.\n")
 
     result = compute_deep_sync_plan("service.py", str(tmp_path))
     assert "error" not in result
@@ -3666,9 +3606,7 @@ def test_deep_sync_plan_includes_downstream(tmp_path):
     _setup_deep_sync_chain(tmp_path)
 
     # Change utils
-    (tmp_path / "utils.impl.md").write_text(
-        "---\nephemeral: false\n---\n\n## Strategy\nUtils v2.\n"
-    )
+    (tmp_path / "utils.impl.md").write_text("---\nephemeral: false\n---\n\n## Strategy\nUtils v2.\n")
 
     result = compute_deep_sync_plan("service.py", str(tmp_path))
     managed_files = [e["managed"] for e in result["plan"]]
@@ -3684,9 +3622,7 @@ def test_deep_sync_plan_topological_order(tmp_path):
     _setup_deep_sync_chain(tmp_path)
 
     # Change utils
-    (tmp_path / "utils.impl.md").write_text(
-        "---\nephemeral: false\n---\n\n## Strategy\nUtils v2.\n"
-    )
+    (tmp_path / "utils.impl.md").write_text("---\nephemeral: false\n---\n\n## Strategy\nUtils v2.\n")
 
     result = compute_deep_sync_plan("service.py", str(tmp_path))
     managed_files = [e["managed"] for e in result["plan"]]
@@ -3694,9 +3630,7 @@ def test_deep_sync_plan_topological_order(tmp_path):
     if "service.py" in managed_files and "api.py" in managed_files:
         service_idx = managed_files.index("service.py")
         api_idx = managed_files.index("api.py")
-        assert service_idx < api_idx, (
-            f"service.py (idx {service_idx}) should come before api.py (idx {api_idx})"
-        )
+        assert service_idx < api_idx, f"service.py (idx {service_idx}) should come before api.py (idx {api_idx})"
 
 
 def test_deep_sync_plan_fresh_files_excluded(tmp_path):
@@ -3718,9 +3652,7 @@ def test_deep_sync_plan_modified_files_skipped(tmp_path):
     (tmp_path / "api.py").write_text(api_content + "\n# user edit\n")
 
     # Change utils to trigger staleness
-    (tmp_path / "utils.impl.md").write_text(
-        "---\nephemeral: false\n---\n\n## Strategy\nUtils v2.\n"
-    )
+    (tmp_path / "utils.impl.md").write_text("---\nephemeral: false\n---\n\n## Strategy\nUtils v2.\n")
 
     # Without force, api.py should be in skipped (it's modified AND stale = conflict)
     compute_deep_sync_plan("service.py", str(tmp_path))
@@ -3734,9 +3666,7 @@ def test_deep_sync_plan_accepts_spec_path(tmp_path):
     """Should accept a spec path as input."""
     _setup_deep_sync_chain(tmp_path)
 
-    (tmp_path / "utils.impl.md").write_text(
-        "---\nephemeral: false\n---\n\n## Strategy\nUtils v2.\n"
-    )
+    (tmp_path / "utils.impl.md").write_text("---\nephemeral: false\n---\n\n## Strategy\nUtils v2.\n")
 
     result = compute_deep_sync_plan("service.py.spec.md", str(tmp_path))
     assert "error" not in result
@@ -3748,16 +3678,12 @@ def test_deep_sync_plan_concrete_ordering(tmp_path):
     (tmp_path / ".unslop").mkdir()
 
     # Chain: z extends b extends a (concrete only, no abstract depends-on)
-    (tmp_path / "a.impl.md").write_text(
-        "---\nsource-spec: a.py.spec.md\nephemeral: false\n---\n\n## Strategy\nA.\n"
-    )
+    (tmp_path / "a.impl.md").write_text("---\nsource-spec: a.py.spec.md\nephemeral: false\n---\n\n## Strategy\nA.\n")
     (tmp_path / "b.impl.md").write_text(
-        "---\nsource-spec: b.py.spec.md\nephemeral: false\n"
-        "extends: a.impl.md\n---\n\n## Strategy\nB.\n"
+        "---\nsource-spec: b.py.spec.md\nephemeral: false\nextends: a.impl.md\n---\n\n## Strategy\nB.\n"
     )
     (tmp_path / "z.impl.md").write_text(
-        "---\nsource-spec: z.py.spec.md\nephemeral: false\n"
-        "extends: b.impl.md\n---\n\n## Strategy\nZ.\n"
+        "---\nsource-spec: z.py.spec.md\nephemeral: false\nextends: b.impl.md\n---\n\n## Strategy\nZ.\n"
     )
 
     (tmp_path / "a.py.spec.md").write_text("# A\n")
@@ -3791,13 +3717,9 @@ def test_deep_sync_plan_concrete_ordering(tmp_path):
 
     # a.py must come before b.py, b.py before z.py
     if "a.py" in managed and "b.py" in managed:
-        assert managed.index("a.py") < managed.index("b.py"), (
-            f"a.py should come before b.py, got: {managed}"
-        )
+        assert managed.index("a.py") < managed.index("b.py"), f"a.py should come before b.py, got: {managed}"
     if "b.py" in managed and "z.py" in managed:
-        assert managed.index("b.py") < managed.index("z.py"), (
-            f"b.py should come before z.py, got: {managed}"
-        )
+        assert managed.index("b.py") < managed.index("z.py"), f"b.py should come before z.py, got: {managed}"
 
 
 def test_deep_sync_plan_concrete_deps_ordering(tmp_path):
@@ -3820,9 +3742,7 @@ def test_deep_sync_plan_concrete_deps_ordering(tmp_path):
         ("utils.py", "utils.py.spec.md", "utils.impl.md"),
         ("service.py", "service.py.spec.md", "service.impl.md"),
     ]:
-        manifest = compute_concrete_manifest(
-            str(tmp_path / impl), str(tmp_path)
-        )
+        manifest = compute_concrete_manifest(str(tmp_path / impl), str(tmp_path))
         body = f"def {name.replace('.py', '')}(): pass\n"
         sh = compute_hash((tmp_path / spec).read_text())
         oh = compute_hash(body)
@@ -3851,16 +3771,12 @@ def test_deep_sync_plan_diamond_dependency(tmp_path):
     """Diamond: d extends both b and c, both extend a. Order: a, b, c, d."""
     (tmp_path / ".unslop").mkdir()
 
-    (tmp_path / "a.impl.md").write_text(
-        "---\nsource-spec: a.py.spec.md\nephemeral: false\n---\n\n## Strategy\nA.\n"
-    )
+    (tmp_path / "a.impl.md").write_text("---\nsource-spec: a.py.spec.md\nephemeral: false\n---\n\n## Strategy\nA.\n")
     (tmp_path / "b.impl.md").write_text(
-        "---\nsource-spec: b.py.spec.md\nephemeral: false\n"
-        "extends: a.impl.md\n---\n\n## Strategy\nB.\n"
+        "---\nsource-spec: b.py.spec.md\nephemeral: false\nextends: a.impl.md\n---\n\n## Strategy\nB.\n"
     )
     (tmp_path / "c.impl.md").write_text(
-        "---\nsource-spec: c.py.spec.md\nephemeral: false\n"
-        "extends: a.impl.md\n---\n\n## Strategy\nC.\n"
+        "---\nsource-spec: c.py.spec.md\nephemeral: false\nextends: a.impl.md\n---\n\n## Strategy\nC.\n"
     )
     (tmp_path / "d.impl.md").write_text(
         "---\nsource-spec: d.py.spec.md\nephemeral: false\n"
@@ -3874,9 +3790,7 @@ def test_deep_sync_plan_diamond_dependency(tmp_path):
         name = f"{letter}.py"
         spec = f"{letter}.py.spec.md"
         impl = f"{letter}.impl.md"
-        manifest = compute_concrete_manifest(
-            str(tmp_path / impl), str(tmp_path)
-        )
+        manifest = compute_concrete_manifest(str(tmp_path / impl), str(tmp_path))
         body = f"def {letter}(): pass\n"
         sh = compute_hash((tmp_path / spec).read_text())
         oh = compute_hash(body)
@@ -3897,17 +3811,11 @@ def test_deep_sync_plan_diamond_dependency(tmp_path):
 
     # a must come before b and c; b and c must come before d
     if "a.py" in managed and "d.py" in managed:
-        assert managed.index("a.py") < managed.index("d.py"), (
-            f"a.py should come before d.py, got: {managed}"
-        )
+        assert managed.index("a.py") < managed.index("d.py"), f"a.py should come before d.py, got: {managed}"
     if "b.py" in managed and "d.py" in managed:
-        assert managed.index("b.py") < managed.index("d.py"), (
-            f"b.py should come before d.py, got: {managed}"
-        )
+        assert managed.index("b.py") < managed.index("d.py"), f"b.py should come before d.py, got: {managed}"
     if "c.py" in managed and "d.py" in managed:
-        assert managed.index("c.py") < managed.index("d.py"), (
-            f"c.py should come before d.py, got: {managed}"
-        )
+        assert managed.index("c.py") < managed.index("d.py"), f"c.py should come before d.py, got: {managed}"
 
 
 def test_deep_sync_plan_one_pass_convergence(tmp_path):
@@ -3915,9 +3823,7 @@ def test_deep_sync_plan_one_pass_convergence(tmp_path):
     _setup_deep_sync_chain(tmp_path)
 
     # Change utils
-    (tmp_path / "utils.impl.md").write_text(
-        "---\nephemeral: false\n---\n\n## Strategy\nUtils v2.\n"
-    )
+    (tmp_path / "utils.impl.md").write_text("---\nephemeral: false\n---\n\n## Strategy\nUtils v2.\n")
 
     result = compute_deep_sync_plan("service.py", str(tmp_path))
     managed = [e["managed"] for e in result["plan"]]
@@ -3925,8 +3831,7 @@ def test_deep_sync_plan_one_pass_convergence(tmp_path):
     # service must come before api in the plan
     if "service.py" in managed and "api.py" in managed:
         assert managed.index("service.py") < managed.index("api.py"), (
-            f"service.py must precede api.py for one-pass convergence, "
-            f"got: {managed}"
+            f"service.py must precede api.py for one-pass convergence, got: {managed}"
         )
 
 
@@ -3936,29 +3841,20 @@ def test_deep_sync_plan_mixed_abstract_and_concrete_deps(tmp_path):
 
     # Abstract dep: handler depends-on auth
     (tmp_path / "auth.py.spec.md").write_text("# Auth\n")
-    (tmp_path / "handler.py.spec.md").write_text(
-        "---\ndepends-on:\n  - auth.py.spec.md\n---\n# Handler\n"
-    )
+    (tmp_path / "handler.py.spec.md").write_text("---\ndepends-on:\n  - auth.py.spec.md\n---\n# Handler\n")
 
     # Concrete dep: handler.impl extends base.impl
-    (tmp_path / "base.impl.md").write_text(
-        "---\nephemeral: false\n---\n\n## Strategy\nBase patterns.\n"
-    )
-    (tmp_path / "auth.impl.md").write_text(
-        "---\nsource-spec: auth.py.spec.md\nephemeral: false\n---\n\n## Strategy\nAuth.\n"
-    )
+    (tmp_path / "base.impl.md").write_text("---\nephemeral: false\n---\n\n## Strategy\nBase patterns.\n")
+    (tmp_path / "auth.impl.md").write_text("---\nsource-spec: auth.py.spec.md\nephemeral: false\n---\n\n## Strategy\nAuth.\n")
     (tmp_path / "handler.impl.md").write_text(
-        "---\nsource-spec: handler.py.spec.md\nephemeral: false\n"
-        "extends: base.impl.md\n---\n\n## Strategy\nHandler.\n"
+        "---\nsource-spec: handler.py.spec.md\nephemeral: false\nextends: base.impl.md\n---\n\n## Strategy\nHandler.\n"
     )
 
     for name, spec, impl in [
         ("auth.py", "auth.py.spec.md", "auth.impl.md"),
         ("handler.py", "handler.py.spec.md", "handler.impl.md"),
     ]:
-        manifest = compute_concrete_manifest(
-            str(tmp_path / impl), str(tmp_path)
-        )
+        manifest = compute_concrete_manifest(str(tmp_path / impl), str(tmp_path))
         body = f"def {name.replace('.py', '')}(): pass\n"
         sh = compute_hash((tmp_path / spec).read_text())
         oh = compute_hash(body)
@@ -3979,27 +3875,21 @@ def test_deep_sync_plan_mixed_abstract_and_concrete_deps(tmp_path):
 
     # auth.py must come before handler.py (abstract depends-on)
     if "auth.py" in managed and "handler.py" in managed:
-        assert managed.index("auth.py") < managed.index("handler.py"), (
-            f"auth.py should precede handler.py, got: {managed}"
-        )
+        assert managed.index("auth.py") < managed.index("handler.py"), f"auth.py should precede handler.py, got: {managed}"
 
 
 def test_deep_sync_plan_uses_existing_chain_setup(tmp_path):
     """Verify the existing chain setup respects concrete topo order."""
     _setup_deep_sync_chain(tmp_path)
 
-    (tmp_path / "utils.impl.md").write_text(
-        "---\nephemeral: false\n---\n\n## Strategy\nUtils v2.\n"
-    )
+    (tmp_path / "utils.impl.md").write_text("---\nephemeral: false\n---\n\n## Strategy\nUtils v2.\n")
 
     result = compute_deep_sync_plan("api.py", str(tmp_path))
     managed = [e["managed"] for e in result["plan"]]
 
     # Both should be in plan, service before api
     if "service.py" in managed and "api.py" in managed:
-        assert managed.index("service.py") < managed.index("api.py"), (
-            f"service.py must come before api.py, got: {managed}"
-        )
+        assert managed.index("service.py") < managed.index("api.py"), f"service.py must come before api.py, got: {managed}"
 
 
 def test_deep_sync_plan_missing_spec(tmp_path):
@@ -4022,8 +3912,7 @@ def test_deep_sync_plan_resolves_spec_from_header(tmp_path):
     oh = compute_hash(body)
     (tmp_path / "widget.py").write_text(
         "# @unslop-managed — do not edit directly. Edit specs/widget.spec.md instead.\n"
-        f"# spec-hash:{sh} output-hash:{oh} generated:2026-03-23T00:00:00Z\n"
-        + body
+        f"# spec-hash:{sh} output-hash:{oh} generated:2026-03-23T00:00:00Z\n" + body
     )
 
     result = compute_deep_sync_plan("widget.py", str(tmp_path))
@@ -4062,8 +3951,7 @@ def test_deep_sync_plan_header_spec_missing_returns_error(tmp_path):
     oh = compute_hash(body)
     (tmp_path / "x.py").write_text(
         "# @unslop-managed — do not edit directly. Edit missing/x.spec.md instead.\n"
-        f"# spec-hash:{sh} output-hash:{oh} generated:2026-03-23T00:00:00Z\n"
-        + body
+        f"# spec-hash:{sh} output-hash:{oh} generated:2026-03-23T00:00:00Z\n" + body
     )
 
     result = compute_deep_sync_plan("x.py", str(tmp_path))
@@ -4079,25 +3967,19 @@ def test_graph_scope_includes_concrete_dependents(tmp_path):
     (tmp_path / ".unslop").mkdir()
 
     # utils.impl.md (base, no source spec)
-    (tmp_path / "utils.impl.md").write_text(
-        "---\nephemeral: false\n---\n\n## Strategy\nUtils.\n"
-    )
+    (tmp_path / "utils.impl.md").write_text("---\nephemeral: false\n---\n\n## Strategy\nUtils.\n")
     # utils.spec.md
     (tmp_path / "utils.py.spec.md").write_text("# Utils\n")
     # utils.py.impl.md extends utils.impl.md
     (tmp_path / "utils.py.impl.md").write_text(
-        "---\nsource-spec: utils.py.spec.md\nephemeral: false\n"
-        "extends: utils.impl.md\n---\n\n## Strategy\nUtils py.\n"
+        "---\nsource-spec: utils.py.spec.md\nephemeral: false\nextends: utils.impl.md\n---\n\n## Strategy\nUtils py.\n"
     )
 
     # service.spec.md
-    (tmp_path / "service.py.spec.md").write_text(
-        "---\ndepends-on:\n  - utils.py.spec.md\n---\n# Service\n"
-    )
+    (tmp_path / "service.py.spec.md").write_text("---\ndepends-on:\n  - utils.py.spec.md\n---\n# Service\n")
     # service.impl.md extends utils.impl.md (concrete dep)
     (tmp_path / "service.py.impl.md").write_text(
-        "---\nsource-spec: service.py.spec.md\nephemeral: false\n"
-        "extends: utils.impl.md\n---\n\n## Strategy\nService.\n"
+        "---\nsource-spec: service.py.spec.md\nephemeral: false\nextends: utils.impl.md\n---\n\n## Strategy\nService.\n"
     )
 
     # Scope to utils.py.spec.md — should include service too
@@ -4105,17 +3987,11 @@ def test_graph_scope_includes_concrete_dependents(tmp_path):
 
     node_paths = [n["path"] for n in result["nodes"]]
     assert "utils.py.spec.md" in node_paths
-    assert "service.py.spec.md" in node_paths, (
-        "service.py.spec.md should be in scope (depends on utils.py.spec.md)"
-    )
+    assert "service.py.spec.md" in node_paths, "service.py.spec.md should be in scope (depends on utils.py.spec.md)"
     # The concrete impls should also be included
     impl_nodes = [n["path"] for n in result["nodes"] if n["layer"] == "concrete"]
-    assert "utils.py.impl.md" in impl_nodes or "utils.impl.md" in impl_nodes, (
-        "Concrete layer should include utils impl nodes"
-    )
-    assert "service.py.impl.md" in impl_nodes, (
-        "service.py.impl.md should be in scope via concrete dependency on utils.impl.md"
-    )
+    assert "utils.py.impl.md" in impl_nodes or "utils.impl.md" in impl_nodes, "Concrete layer should include utils impl nodes"
+    assert "service.py.impl.md" in impl_nodes, "service.py.impl.md should be in scope via concrete dependency on utils.impl.md"
 
 
 def test_graph_scope_concrete_only_chain(tmp_path):
@@ -4123,22 +3999,18 @@ def test_graph_scope_concrete_only_chain(tmp_path):
     (tmp_path / ".unslop").mkdir()
 
     # Base impl (no source spec)
-    (tmp_path / "base.impl.md").write_text(
-        "---\nephemeral: false\n---\n\n## Strategy\nBase.\n"
-    )
+    (tmp_path / "base.impl.md").write_text("---\nephemeral: false\n---\n\n## Strategy\nBase.\n")
 
     # Child spec + impl extending base
     (tmp_path / "child.py.spec.md").write_text("# Child\n")
     (tmp_path / "child.py.impl.md").write_text(
-        "---\nsource-spec: child.py.spec.md\nephemeral: false\n"
-        "extends: base.impl.md\n---\n\n## Strategy\nChild.\n"
+        "---\nsource-spec: child.py.spec.md\nephemeral: false\nextends: base.impl.md\n---\n\n## Strategy\nChild.\n"
     )
 
     # Grandchild spec + impl extending child
     (tmp_path / "grand.py.spec.md").write_text("# Grand\n")
     (tmp_path / "grand.py.impl.md").write_text(
-        "---\nsource-spec: grand.py.spec.md\nephemeral: false\n"
-        "extends: child.py.impl.md\n---\n\n## Strategy\nGrand.\n"
+        "---\nsource-spec: grand.py.spec.md\nephemeral: false\nextends: child.py.impl.md\n---\n\n## Strategy\nGrand.\n"
     )
 
     # Scope to child — should include base (upstream) and grand (downstream)
@@ -4172,9 +4044,7 @@ def test_graph_scope_dual_layer_no_abstract_dep(tmp_path):
 
     impl_nodes = [n["path"] for n in result["nodes"] if n["layer"] == "concrete"]
     assert "provider.py.impl.md" in impl_nodes
-    assert "consumer.py.impl.md" in impl_nodes, (
-        "consumer should be in scope via concrete-dependencies on provider"
-    )
+    assert "consumer.py.impl.md" in impl_nodes, "consumer should be in scope via concrete-dependencies on provider"
 
 
 def test_graph_scope_unrelated_excluded(tmp_path):
@@ -4182,9 +4052,7 @@ def test_graph_scope_unrelated_excluded(tmp_path):
     (tmp_path / ".unslop").mkdir()
 
     (tmp_path / "a.py.spec.md").write_text("# A\n")
-    (tmp_path / "a.py.impl.md").write_text(
-        "---\nsource-spec: a.py.spec.md\nephemeral: false\n---\n\n## Strategy\nA.\n"
-    )
+    (tmp_path / "a.py.impl.md").write_text("---\nsource-spec: a.py.spec.md\nephemeral: false\n---\n\n## Strategy\nA.\n")
 
     (tmp_path / "unrelated.py.spec.md").write_text("# Unrelated\n")
     (tmp_path / "unrelated.py.impl.md").write_text(
@@ -4260,9 +4128,7 @@ def test_graph_stale_only_includes_upstream_deps(tmp_path):
     (tmp_path / "dep.py.spec.md").write_text("# Dep\n")
 
     # consumer depends on dep, and is stale
-    (tmp_path / "consumer.py.spec.md").write_text(
-        "---\ndepends-on:\n  - dep.py.spec.md\n---\n# Consumer v2 — changed\n"
-    )
+    (tmp_path / "consumer.py.spec.md").write_text("---\ndepends-on:\n  - dep.py.spec.md\n---\n# Consumer v2 — changed\n")
     body = "def consumer(): pass"
     sh = compute_hash("# Consumer v1\n")  # old hash, doesn't match current
     oh = compute_hash(body)
@@ -4275,26 +4141,22 @@ def test_graph_stale_only_includes_upstream_deps(tmp_path):
     node_paths = [n["path"] for n in result["nodes"]]
 
     assert "consumer.py.spec.md" in node_paths
-    assert "dep.py.spec.md" in node_paths, (
-        "dep.py.spec.md should be included as upstream of stale consumer"
-    )
+    assert "dep.py.spec.md" in node_paths, "dep.py.spec.md should be included as upstream of stale consumer"
 
 
 # ── Causal Stale-Only Pruning (v0.11.9) ──────────────────────────────────────
+
 
 def test_graph_stale_only_includes_upstream_concrete_provider(tmp_path):
     """--stale-only should include upstream concrete provider even if it has no managed output."""
     (tmp_path / ".unslop").mkdir()
 
     # core.impl.md — base strategy, no source-spec, no managed .py
-    (tmp_path / "core.impl.md").write_text(
-        "---\nephemeral: false\n---\n\n## Strategy\nCore patterns v1.\n"
-    )
+    (tmp_path / "core.impl.md").write_text("---\nephemeral: false\n---\n\n## Strategy\nCore patterns v1.\n")
 
     # api.impl.md extends core, has source-spec and managed output
     (tmp_path / "api.impl.md").write_text(
-        "---\nsource-spec: api.py.spec.md\nephemeral: false\n"
-        "extends: core.impl.md\n---\n\n## Strategy\nAPI.\n"
+        "---\nsource-spec: api.py.spec.md\nephemeral: false\nextends: core.impl.md\n---\n\n## Strategy\nAPI.\n"
     )
     (tmp_path / "api.py.spec.md").write_text("# API\n")
 
@@ -4306,34 +4168,26 @@ def test_graph_stale_only_includes_upstream_concrete_provider(tmp_path):
     mh = format_manifest_header(manifest)
     (tmp_path / "api.py").write_text(
         f"# @unslop-managed — do not edit directly. Edit api.py.spec.md instead.\n"
-        f"# spec-hash:{sh} output-hash:{oh} concrete-manifest:{mh} generated:2026-03-23T00:00:00Z\n"
-        + body
+        f"# spec-hash:{sh} output-hash:{oh} concrete-manifest:{mh} generated:2026-03-23T00:00:00Z\n" + body
     )
 
     # Now change core.impl.md — this makes api.py ghost-stale
-    (tmp_path / "core.impl.md").write_text(
-        "---\nephemeral: false\n---\n\n## Strategy\nCore patterns v2.\n"
-    )
+    (tmp_path / "core.impl.md").write_text("---\nephemeral: false\n---\n\n## Strategy\nCore patterns v2.\n")
 
     result = render_dependency_graph(str(tmp_path), stale_only=True)
     node_paths = [n["path"] for n in result["nodes"]]
 
     assert "api.impl.md" in node_paths, "Stale impl should be in graph"
-    assert "core.impl.md" in node_paths, (
-        "core.impl.md should be included as upstream causal provider of api's ghost-staleness"
-    )
+    assert "core.impl.md" in node_paths, "core.impl.md should be included as upstream causal provider of api's ghost-staleness"
 
 
 def test_graph_stale_only_context_provider_type(tmp_path):
     """Context providers should have type 'context_provider' in node info."""
     (tmp_path / ".unslop").mkdir()
 
-    (tmp_path / "core.impl.md").write_text(
-        "---\nephemeral: false\n---\n\n## Strategy\nCore v1.\n"
-    )
+    (tmp_path / "core.impl.md").write_text("---\nephemeral: false\n---\n\n## Strategy\nCore v1.\n")
     (tmp_path / "api.impl.md").write_text(
-        "---\nsource-spec: api.py.spec.md\nephemeral: false\n"
-        "extends: core.impl.md\n---\n\n## Strategy\nAPI.\n"
+        "---\nsource-spec: api.py.spec.md\nephemeral: false\nextends: core.impl.md\n---\n\n## Strategy\nAPI.\n"
     )
     (tmp_path / "api.py.spec.md").write_text("# API\n")
 
@@ -4344,13 +4198,10 @@ def test_graph_stale_only_context_provider_type(tmp_path):
     mh = format_manifest_header(manifest)
     (tmp_path / "api.py").write_text(
         f"# @unslop-managed — do not edit directly. Edit api.py.spec.md instead.\n"
-        f"# spec-hash:{sh} output-hash:{oh} concrete-manifest:{mh} generated:2026-03-23T00:00:00Z\n"
-        + body
+        f"# spec-hash:{sh} output-hash:{oh} concrete-manifest:{mh} generated:2026-03-23T00:00:00Z\n" + body
     )
 
-    (tmp_path / "core.impl.md").write_text(
-        "---\nephemeral: false\n---\n\n## Strategy\nCore v2.\n"
-    )
+    (tmp_path / "core.impl.md").write_text("---\nephemeral: false\n---\n\n## Strategy\nCore v2.\n")
 
     result = render_dependency_graph(str(tmp_path), stale_only=True)
     core_nodes = [n for n in result["nodes"] if n["path"] == "core.impl.md"]
@@ -4362,12 +4213,9 @@ def test_graph_stale_only_context_provider_styling(tmp_path):
     """Context providers should use dashed grey styling in Mermaid output."""
     (tmp_path / ".unslop").mkdir()
 
-    (tmp_path / "core.impl.md").write_text(
-        "---\nephemeral: false\n---\n\n## Strategy\nCore v1.\n"
-    )
+    (tmp_path / "core.impl.md").write_text("---\nephemeral: false\n---\n\n## Strategy\nCore v1.\n")
     (tmp_path / "api.impl.md").write_text(
-        "---\nsource-spec: api.py.spec.md\nephemeral: false\n"
-        "extends: core.impl.md\n---\n\n## Strategy\nAPI.\n"
+        "---\nsource-spec: api.py.spec.md\nephemeral: false\nextends: core.impl.md\n---\n\n## Strategy\nAPI.\n"
     )
     (tmp_path / "api.py.spec.md").write_text("# API\n")
 
@@ -4378,13 +4226,10 @@ def test_graph_stale_only_context_provider_styling(tmp_path):
     mh = format_manifest_header(manifest)
     (tmp_path / "api.py").write_text(
         f"# @unslop-managed — do not edit directly. Edit api.py.spec.md instead.\n"
-        f"# spec-hash:{sh} output-hash:{oh} concrete-manifest:{mh} generated:2026-03-23T00:00:00Z\n"
-        + body
+        f"# spec-hash:{sh} output-hash:{oh} concrete-manifest:{mh} generated:2026-03-23T00:00:00Z\n" + body
     )
 
-    (tmp_path / "core.impl.md").write_text(
-        "---\nephemeral: false\n---\n\n## Strategy\nCore v2.\n"
-    )
+    (tmp_path / "core.impl.md").write_text("---\nephemeral: false\n---\n\n## Strategy\nCore v2.\n")
 
     result = render_dependency_graph(str(tmp_path), stale_only=True)
     assert "contextProvider" in result["mermaid"]
@@ -4395,15 +4240,10 @@ def test_graph_stale_only_transitive_concrete_chain(tmp_path):
     """Upstream chain: patterns -> core -> api, all should appear when api is stale."""
     (tmp_path / ".unslop").mkdir()
 
-    (tmp_path / "patterns.impl.md").write_text(
-        "---\nephemeral: false\n---\n\n## Strategy\nPatterns v1.\n"
-    )
-    (tmp_path / "core.impl.md").write_text(
-        "---\nephemeral: false\nextends: patterns.impl.md\n---\n\n## Strategy\nCore.\n"
-    )
+    (tmp_path / "patterns.impl.md").write_text("---\nephemeral: false\n---\n\n## Strategy\nPatterns v1.\n")
+    (tmp_path / "core.impl.md").write_text("---\nephemeral: false\nextends: patterns.impl.md\n---\n\n## Strategy\nCore.\n")
     (tmp_path / "api.impl.md").write_text(
-        "---\nsource-spec: api.py.spec.md\nephemeral: false\n"
-        "extends: core.impl.md\n---\n\n## Strategy\nAPI.\n"
+        "---\nsource-spec: api.py.spec.md\nephemeral: false\nextends: core.impl.md\n---\n\n## Strategy\nAPI.\n"
     )
     (tmp_path / "api.py.spec.md").write_text("# API\n")
 
@@ -4414,14 +4254,11 @@ def test_graph_stale_only_transitive_concrete_chain(tmp_path):
     mh = format_manifest_header(manifest)
     (tmp_path / "api.py").write_text(
         f"# @unslop-managed — do not edit directly. Edit api.py.spec.md instead.\n"
-        f"# spec-hash:{sh} output-hash:{oh} concrete-manifest:{mh} generated:2026-03-23T00:00:00Z\n"
-        + body
+        f"# spec-hash:{sh} output-hash:{oh} concrete-manifest:{mh} generated:2026-03-23T00:00:00Z\n" + body
     )
 
     # Change patterns (root cause) — triggers ghost-staleness through the chain
-    (tmp_path / "patterns.impl.md").write_text(
-        "---\nephemeral: false\n---\n\n## Strategy\nPatterns v2.\n"
-    )
+    (tmp_path / "patterns.impl.md").write_text("---\nephemeral: false\n---\n\n## Strategy\nPatterns v2.\n")
 
     result = render_dependency_graph(str(tmp_path), stale_only=True)
     node_paths = [n["path"] for n in result["nodes"]]
@@ -4435,9 +4272,7 @@ def test_graph_stale_only_concrete_deps_not_just_extends(tmp_path):
     """concrete-dependencies (not just extends) should also be traced."""
     (tmp_path / ".unslop").mkdir()
 
-    (tmp_path / "utils.impl.md").write_text(
-        "---\nephemeral: false\n---\n\n## Strategy\nUtils v1.\n"
-    )
+    (tmp_path / "utils.impl.md").write_text("---\nephemeral: false\n---\n\n## Strategy\nUtils v1.\n")
     (tmp_path / "service.impl.md").write_text(
         "---\nsource-spec: service.py.spec.md\nephemeral: false\n"
         "concrete-dependencies:\n  - utils.impl.md\n---\n\n## Strategy\nService.\n"
@@ -4451,21 +4286,16 @@ def test_graph_stale_only_concrete_deps_not_just_extends(tmp_path):
     mh = format_manifest_header(manifest)
     (tmp_path / "service.py").write_text(
         f"# @unslop-managed — do not edit directly. Edit service.py.spec.md instead.\n"
-        f"# spec-hash:{sh} output-hash:{oh} concrete-manifest:{mh} generated:2026-03-23T00:00:00Z\n"
-        + body
+        f"# spec-hash:{sh} output-hash:{oh} concrete-manifest:{mh} generated:2026-03-23T00:00:00Z\n" + body
     )
 
-    (tmp_path / "utils.impl.md").write_text(
-        "---\nephemeral: false\n---\n\n## Strategy\nUtils v2.\n"
-    )
+    (tmp_path / "utils.impl.md").write_text("---\nephemeral: false\n---\n\n## Strategy\nUtils v2.\n")
 
     result = render_dependency_graph(str(tmp_path), stale_only=True)
     node_paths = [n["path"] for n in result["nodes"]]
 
     assert "service.impl.md" in node_paths
-    assert "utils.impl.md" in node_paths, (
-        "utils.impl.md should be included as concrete-dependency provider"
-    )
+    assert "utils.impl.md" in node_paths, "utils.impl.md should be included as concrete-dependency provider"
 
 
 def test_graph_stale_only_fresh_unrelated_impl_excluded(tmp_path):
@@ -4482,17 +4312,13 @@ def test_graph_stale_only_fresh_unrelated_impl_excluded(tmp_path):
     oh_u = compute_hash(body_u)
     (tmp_path / "unrelated.py").write_text(
         f"# @unslop-managed — do not edit directly. Edit unrelated.py.spec.md instead.\n"
-        f"# spec-hash:{sh_u} output-hash:{oh_u} generated:2026-03-23T00:00:00Z\n"
-        + body_u
+        f"# spec-hash:{sh_u} output-hash:{oh_u} generated:2026-03-23T00:00:00Z\n" + body_u
     )
 
     # Stale impl chain
-    (tmp_path / "core.impl.md").write_text(
-        "---\nephemeral: false\n---\n\n## Strategy\nCore v1.\n"
-    )
+    (tmp_path / "core.impl.md").write_text("---\nephemeral: false\n---\n\n## Strategy\nCore v1.\n")
     (tmp_path / "api.impl.md").write_text(
-        "---\nsource-spec: api.py.spec.md\nephemeral: false\n"
-        "extends: core.impl.md\n---\n\n## Strategy\nAPI.\n"
+        "---\nsource-spec: api.py.spec.md\nephemeral: false\nextends: core.impl.md\n---\n\n## Strategy\nAPI.\n"
     )
     (tmp_path / "api.py.spec.md").write_text("# API\n")
     manifest = compute_concrete_manifest(str(tmp_path / "api.impl.md"), str(tmp_path))
@@ -4502,13 +4328,10 @@ def test_graph_stale_only_fresh_unrelated_impl_excluded(tmp_path):
     mh = format_manifest_header(manifest)
     (tmp_path / "api.py").write_text(
         f"# @unslop-managed — do not edit directly. Edit api.py.spec.md instead.\n"
-        f"# spec-hash:{sh} output-hash:{oh} concrete-manifest:{mh} generated:2026-03-23T00:00:00Z\n"
-        + body
+        f"# spec-hash:{sh} output-hash:{oh} concrete-manifest:{mh} generated:2026-03-23T00:00:00Z\n" + body
     )
 
-    (tmp_path / "core.impl.md").write_text(
-        "---\nephemeral: false\n---\n\n## Strategy\nCore v2.\n"
-    )
+    (tmp_path / "core.impl.md").write_text("---\nephemeral: false\n---\n\n## Strategy\nCore v2.\n")
 
     result = render_dependency_graph(str(tmp_path), stale_only=True)
     node_paths = [n["path"] for n in result["nodes"]]
@@ -4523,12 +4346,9 @@ def test_graph_stale_only_edges_connect_causal_chain(tmp_path):
     """The Mermaid output should contain an edge from core.impl.md to api.impl.md."""
     (tmp_path / ".unslop").mkdir()
 
-    (tmp_path / "core.impl.md").write_text(
-        "---\nephemeral: false\n---\n\n## Strategy\nCore v1.\n"
-    )
+    (tmp_path / "core.impl.md").write_text("---\nephemeral: false\n---\n\n## Strategy\nCore v1.\n")
     (tmp_path / "api.impl.md").write_text(
-        "---\nsource-spec: api.py.spec.md\nephemeral: false\n"
-        "extends: core.impl.md\n---\n\n## Strategy\nAPI.\n"
+        "---\nsource-spec: api.py.spec.md\nephemeral: false\nextends: core.impl.md\n---\n\n## Strategy\nAPI.\n"
     )
     (tmp_path / "api.py.spec.md").write_text("# API\n")
 
@@ -4539,13 +4359,10 @@ def test_graph_stale_only_edges_connect_causal_chain(tmp_path):
     mh = format_manifest_header(manifest)
     (tmp_path / "api.py").write_text(
         f"# @unslop-managed — do not edit directly. Edit api.py.spec.md instead.\n"
-        f"# spec-hash:{sh} output-hash:{oh} concrete-manifest:{mh} generated:2026-03-23T00:00:00Z\n"
-        + body
+        f"# spec-hash:{sh} output-hash:{oh} concrete-manifest:{mh} generated:2026-03-23T00:00:00Z\n" + body
     )
 
-    (tmp_path / "core.impl.md").write_text(
-        "---\nephemeral: false\n---\n\n## Strategy\nCore v2.\n"
-    )
+    (tmp_path / "core.impl.md").write_text("---\nephemeral: false\n---\n\n## Strategy\nCore v2.\n")
 
     result = render_dependency_graph(str(tmp_path), stale_only=True)
     # The extends edge should be present in the Mermaid output
@@ -4553,6 +4370,7 @@ def test_graph_stale_only_edges_connect_causal_chain(tmp_path):
 
 
 # ── Bulk-Sync Worktree Optimization (L.2) ────────────────────────────────────
+
 
 def test_bulk_sync_plan_empty_when_all_fresh(tmp_path):
     """No batches when everything is fresh."""
@@ -4568,9 +4386,7 @@ def test_bulk_sync_plan_finds_all_stale(tmp_path):
     _setup_deep_sync_chain(tmp_path)
 
     # Make utils stale — triggers ghost-staleness for service + api
-    (tmp_path / "utils.impl.md").write_text(
-        "---\nephemeral: false\n---\n\n## Strategy\nUtils v2.\n"
-    )
+    (tmp_path / "utils.impl.md").write_text("---\nephemeral: false\n---\n\n## Strategy\nUtils v2.\n")
 
     result = compute_bulk_sync_plan(str(tmp_path))
     assert result["stats"]["to_regenerate"] >= 2
@@ -4583,9 +4399,7 @@ def test_bulk_sync_plan_respects_topo_order(tmp_path):
     """service.py must be in an earlier batch than api.py (dependency order)."""
     _setup_deep_sync_chain(tmp_path)
 
-    (tmp_path / "utils.impl.md").write_text(
-        "---\nephemeral: false\n---\n\n## Strategy\nUtils v2.\n"
-    )
+    (tmp_path / "utils.impl.md").write_text("---\nephemeral: false\n---\n\n## Strategy\nUtils v2.\n")
 
     result = compute_bulk_sync_plan(str(tmp_path))
 
@@ -4601,9 +4415,7 @@ def test_bulk_sync_plan_respects_topo_order(tmp_path):
 
     assert service_batch is not None, "service.py should be in the plan"
     assert api_batch is not None, "api.py should be in the plan"
-    assert service_batch <= api_batch, (
-        f"service.py (batch {service_batch}) must come before api.py (batch {api_batch})"
-    )
+    assert service_batch <= api_batch, f"service.py (batch {service_batch}) must come before api.py (batch {api_batch})"
 
 
 def test_bulk_sync_plan_max_batch_size(tmp_path):
@@ -4620,8 +4432,7 @@ def test_bulk_sync_plan_max_batch_size(tmp_path):
         oh = compute_hash(body)
         (tmp_path / name).write_text(
             f"# @unslop-managed — do not edit directly. Edit {spec_name} instead.\n"
-            f"# spec-hash:{sh} output-hash:{oh} generated:2026-03-23T00:00:00Z\n"
-            + body
+            f"# spec-hash:{sh} output-hash:{oh} generated:2026-03-23T00:00:00Z\n" + body
         )
 
     # Now make all specs stale by changing them
@@ -4643,9 +4454,7 @@ def test_bulk_sync_plan_skips_modified_without_force(tmp_path):
     (tmp_path / "api.py").write_text(api_content + "\n# user edit\n")
 
     # Also make utils stale so there's something to regenerate
-    (tmp_path / "utils.impl.md").write_text(
-        "---\nephemeral: false\n---\n\n## Strategy\nUtils v2.\n"
-    )
+    (tmp_path / "utils.impl.md").write_text("---\nephemeral: false\n---\n\n## Strategy\nUtils v2.\n")
 
     result = compute_bulk_sync_plan(str(tmp_path))
     all_managed = [f["managed"] for b in result["batches"] for f in b["files"]]
@@ -4662,9 +4471,7 @@ def test_bulk_sync_plan_includes_batch_indices(tmp_path):
     """Each batch should have a sequential batch_index."""
     _setup_deep_sync_chain(tmp_path)
 
-    (tmp_path / "utils.impl.md").write_text(
-        "---\nephemeral: false\n---\n\n## Strategy\nUtils v2.\n"
-    )
+    (tmp_path / "utils.impl.md").write_text("---\nephemeral: false\n---\n\n## Strategy\nUtils v2.\n")
 
     result = compute_bulk_sync_plan(str(tmp_path))
     for i, batch in enumerate(result["batches"]):
@@ -4686,8 +4493,7 @@ def test_bulk_sync_plan_independent_files_same_batch(tmp_path):
         oh = compute_hash(body)
         (tmp_path / name).write_text(
             f"# @unslop-managed — do not edit directly. Edit {spec_name} instead.\n"
-            f"# spec-hash:{sh} output-hash:{oh} generated:2026-03-23T00:00:00Z\n"
-            + body
+            f"# spec-hash:{sh} output-hash:{oh} generated:2026-03-23T00:00:00Z\n" + body
         )
 
     # Make both stale
@@ -4705,9 +4511,7 @@ def test_bulk_sync_plan_build_order_returned(tmp_path):
     """build_order should be present in the result."""
     _setup_deep_sync_chain(tmp_path)
 
-    (tmp_path / "utils.impl.md").write_text(
-        "---\nephemeral: false\n---\n\n## Strategy\nUtils v2.\n"
-    )
+    (tmp_path / "utils.impl.md").write_text("---\nephemeral: false\n---\n\n## Strategy\nUtils v2.\n")
 
     result = compute_bulk_sync_plan(str(tmp_path))
     assert "build_order" in result
@@ -4716,29 +4520,24 @@ def test_bulk_sync_plan_build_order_returned(tmp_path):
 
 # ── Unified DAG & Parallel Batch Isolation (v0.11.11) ────────────────────────
 
+
 def test_unified_dag_contains_both_edge_types(tmp_path):
     """DAG should have edges from both abstract depends-on and concrete extends."""
     (tmp_path / ".unslop").mkdir()
 
     # Abstract: handler depends-on auth
     (tmp_path / "auth.py.spec.md").write_text("# Auth\n")
-    (tmp_path / "handler.py.spec.md").write_text(
-        "---\ndepends-on:\n  - auth.py.spec.md\n---\n# Handler\n"
-    )
+    (tmp_path / "handler.py.spec.md").write_text("---\ndepends-on:\n  - auth.py.spec.md\n---\n# Handler\n")
 
     # Concrete: handler extends base
-    (tmp_path / "base.impl.md").write_text(
-        "---\nephemeral: false\n---\n\n## Strategy\nBase.\n"
-    )
+    (tmp_path / "base.impl.md").write_text("---\nephemeral: false\n---\n\n## Strategy\nBase.\n")
     (tmp_path / "handler.impl.md").write_text(
-        "---\nsource-spec: handler.py.spec.md\nephemeral: false\n"
-        "extends: base.impl.md\n---\n\n## Strategy\nHandler.\n"
+        "---\nsource-spec: handler.py.spec.md\nephemeral: false\nextends: base.impl.md\n---\n\n## Strategy\nHandler.\n"
     )
-    (tmp_path / "auth.impl.md").write_text(
-        "---\nsource-spec: auth.py.spec.md\nephemeral: false\n---\n\n## Strategy\nAuth.\n"
-    )
+    (tmp_path / "auth.impl.md").write_text("---\nsource-spec: auth.py.spec.md\nephemeral: false\n---\n\n## Strategy\nAuth.\n")
 
     from pathlib import Path
+
     graph, impl_to_spec = _build_unified_dag(Path(tmp_path).resolve())
 
     # handler.py.spec.md should depend on auth.py.spec.md (abstract)
@@ -4752,16 +4551,12 @@ def test_parallel_batches_never_contain_dependent_specs(tmp_path):
     (tmp_path / ".unslop").mkdir()
 
     # Chain: c extends b extends a
-    (tmp_path / "a.impl.md").write_text(
-        "---\nsource-spec: a.py.spec.md\nephemeral: false\n---\n\n## Strategy\nA.\n"
-    )
+    (tmp_path / "a.impl.md").write_text("---\nsource-spec: a.py.spec.md\nephemeral: false\n---\n\n## Strategy\nA.\n")
     (tmp_path / "b.impl.md").write_text(
-        "---\nsource-spec: b.py.spec.md\nephemeral: false\n"
-        "extends: a.impl.md\n---\n\n## Strategy\nB.\n"
+        "---\nsource-spec: b.py.spec.md\nephemeral: false\nextends: a.impl.md\n---\n\n## Strategy\nB.\n"
     )
     (tmp_path / "c.impl.md").write_text(
-        "---\nsource-spec: c.py.spec.md\nephemeral: false\n"
-        "extends: b.impl.md\n---\n\n## Strategy\nC.\n"
+        "---\nsource-spec: c.py.spec.md\nephemeral: false\nextends: b.impl.md\n---\n\n## Strategy\nC.\n"
     )
 
     for letter in "abc":
@@ -4771,9 +4566,7 @@ def test_parallel_batches_never_contain_dependent_specs(tmp_path):
         name = f"{letter}.py"
         spec = f"{letter}.py.spec.md"
         impl = f"{letter}.impl.md"
-        manifest = compute_concrete_manifest(
-            str(tmp_path / impl), str(tmp_path)
-        )
+        manifest = compute_concrete_manifest(str(tmp_path / impl), str(tmp_path))
         body = f"def {letter}(): pass\n"
         sh = compute_hash((tmp_path / spec).read_text())
         oh = compute_hash(body)
@@ -4787,14 +4580,13 @@ def test_parallel_batches_never_contain_dependent_specs(tmp_path):
 
     # Make all stale
     for letter in "abc":
-        (tmp_path / f"{letter}.py.spec.md").write_text(
-            f"# {letter.upper()} v2\n"
-        )
+        (tmp_path / f"{letter}.py.spec.md").write_text(f"# {letter.upper()} v2\n")
 
     result = compute_bulk_sync_plan(str(tmp_path))
 
     # Verify: no batch contains both a spec and its dependency
     from pathlib import Path as P
+
     graph, _ = _build_unified_dag(P(tmp_path).resolve())
 
     for batch in result["batches"]:
@@ -4803,8 +4595,7 @@ def test_parallel_batches_never_contain_dependent_specs(tmp_path):
             deps = graph.get(spec, set())
             overlap = deps & specs_in_batch
             assert not overlap, (
-                f"Batch {batch['batch_index']} contains {spec} and its "
-                f"dependency {overlap} — parallel race condition!"
+                f"Batch {batch['batch_index']} contains {spec} and its dependency {overlap} — parallel race condition!"
             )
 
 
@@ -4813,16 +4604,12 @@ def test_parallel_batches_independent_specs_same_batch(tmp_path):
     (tmp_path / ".unslop").mkdir()
 
     # b and c both extend a, but are independent of each other
-    (tmp_path / "a.impl.md").write_text(
-        "---\nsource-spec: a.py.spec.md\nephemeral: false\n---\n\n## Strategy\nA.\n"
-    )
+    (tmp_path / "a.impl.md").write_text("---\nsource-spec: a.py.spec.md\nephemeral: false\n---\n\n## Strategy\nA.\n")
     (tmp_path / "b.impl.md").write_text(
-        "---\nsource-spec: b.py.spec.md\nephemeral: false\n"
-        "extends: a.impl.md\n---\n\n## Strategy\nB.\n"
+        "---\nsource-spec: b.py.spec.md\nephemeral: false\nextends: a.impl.md\n---\n\n## Strategy\nB.\n"
     )
     (tmp_path / "c.impl.md").write_text(
-        "---\nsource-spec: c.py.spec.md\nephemeral: false\n"
-        "extends: a.impl.md\n---\n\n## Strategy\nC.\n"
+        "---\nsource-spec: c.py.spec.md\nephemeral: false\nextends: a.impl.md\n---\n\n## Strategy\nC.\n"
     )
 
     for letter in "abc":
@@ -4832,9 +4619,7 @@ def test_parallel_batches_independent_specs_same_batch(tmp_path):
         name = f"{letter}.py"
         spec = f"{letter}.py.spec.md"
         impl = f"{letter}.impl.md"
-        manifest = compute_concrete_manifest(
-            str(tmp_path / impl), str(tmp_path)
-        )
+        manifest = compute_concrete_manifest(str(tmp_path / impl), str(tmp_path))
         body = f"def {letter}(): pass\n"
         sh = compute_hash((tmp_path / spec).read_text())
         oh = compute_hash(body)
@@ -4848,9 +4633,7 @@ def test_parallel_batches_independent_specs_same_batch(tmp_path):
 
     # Make all stale
     for letter in "abc":
-        (tmp_path / f"{letter}.py.spec.md").write_text(
-            f"# {letter.upper()} v2\n"
-        )
+        (tmp_path / f"{letter}.py.spec.md").write_text(f"# {letter.upper()} v2\n")
 
     result = compute_bulk_sync_plan(str(tmp_path))
 
@@ -4865,8 +4648,7 @@ def test_parallel_batches_independent_specs_same_batch(tmp_path):
 
     assert b_batch is not None and c_batch is not None
     assert b_batch == c_batch, (
-        f"b.py (batch {b_batch}) and c.py (batch {c_batch}) are independent "
-        "and should be in the same batch"
+        f"b.py (batch {b_batch}) and c.py (batch {c_batch}) are independent and should be in the same batch"
     )
 
 
@@ -4874,16 +4656,12 @@ def test_parallel_batches_diamond_safe(tmp_path):
     """Diamond: d depends on b+c, both depend on a. Three depth levels."""
     (tmp_path / ".unslop").mkdir()
 
-    (tmp_path / "a.impl.md").write_text(
-        "---\nsource-spec: a.py.spec.md\nephemeral: false\n---\n\n## Strategy\nA.\n"
-    )
+    (tmp_path / "a.impl.md").write_text("---\nsource-spec: a.py.spec.md\nephemeral: false\n---\n\n## Strategy\nA.\n")
     (tmp_path / "b.impl.md").write_text(
-        "---\nsource-spec: b.py.spec.md\nephemeral: false\n"
-        "extends: a.impl.md\n---\n\n## Strategy\nB.\n"
+        "---\nsource-spec: b.py.spec.md\nephemeral: false\nextends: a.impl.md\n---\n\n## Strategy\nB.\n"
     )
     (tmp_path / "c.impl.md").write_text(
-        "---\nsource-spec: c.py.spec.md\nephemeral: false\n"
-        "extends: a.impl.md\n---\n\n## Strategy\nC.\n"
+        "---\nsource-spec: c.py.spec.md\nephemeral: false\nextends: a.impl.md\n---\n\n## Strategy\nC.\n"
     )
     (tmp_path / "d.impl.md").write_text(
         "---\nsource-spec: d.py.spec.md\nephemeral: false\n"
@@ -4897,9 +4675,7 @@ def test_parallel_batches_diamond_safe(tmp_path):
         name = f"{letter}.py"
         spec = f"{letter}.py.spec.md"
         impl = f"{letter}.impl.md"
-        manifest = compute_concrete_manifest(
-            str(tmp_path / impl), str(tmp_path)
-        )
+        manifest = compute_concrete_manifest(str(tmp_path / impl), str(tmp_path))
         body = f"def {letter}(): pass\n"
         sh = compute_hash((tmp_path / spec).read_text())
         oh = compute_hash(body)
@@ -4913,9 +4689,7 @@ def test_parallel_batches_diamond_safe(tmp_path):
 
     # Make all stale
     for letter in "abcd":
-        (tmp_path / f"{letter}.py.spec.md").write_text(
-            f"# {letter.upper()} v2\n"
-        )
+        (tmp_path / f"{letter}.py.spec.md").write_text(f"# {letter.upper()} v2\n")
 
     result = compute_bulk_sync_plan(str(tmp_path))
 
@@ -4930,8 +4704,7 @@ def test_parallel_batches_diamond_safe(tmp_path):
     assert batch_map.get("a.py", 999) < batch_map.get("c.py", 999)
     # b and c should be same batch (both depth 1)
     assert batch_map.get("b.py") == batch_map.get("c.py"), (
-        f"b.py (batch {batch_map.get('b.py')}) and c.py "
-        f"(batch {batch_map.get('c.py')}) should be same batch"
+        f"b.py (batch {batch_map.get('b.py')}) and c.py (batch {batch_map.get('c.py')}) should be same batch"
     )
     # d must come after b and c
     assert batch_map.get("d.py", 999) > batch_map.get("b.py", 0)
@@ -4943,12 +4716,9 @@ def test_parallel_batches_respect_abstract_deps(tmp_path):
 
     # auth has no deps, handler depends-on auth (abstract only)
     (tmp_path / "auth.py.spec.md").write_text("# Auth\n")
-    (tmp_path / "handler.py.spec.md").write_text(
-        "---\ndepends-on:\n  - auth.py.spec.md\n---\n# Handler\n"
-    )
+    (tmp_path / "handler.py.spec.md").write_text("---\ndepends-on:\n  - auth.py.spec.md\n---\n# Handler\n")
 
-    for name, spec in [("auth.py", "auth.py.spec.md"),
-                        ("handler.py", "handler.py.spec.md")]:
+    for name, spec in [("auth.py", "auth.py.spec.md"), ("handler.py", "handler.py.spec.md")]:
         body = f"def {name.replace('.py', '')}(): pass\n"
         sh = compute_hash((tmp_path / spec).read_text())
         oh = compute_hash(body)
@@ -4960,9 +4730,7 @@ def test_parallel_batches_respect_abstract_deps(tmp_path):
 
     # Make both stale
     (tmp_path / "auth.py.spec.md").write_text("# Auth v2\n")
-    (tmp_path / "handler.py.spec.md").write_text(
-        "---\ndepends-on:\n  - auth.py.spec.md\n---\n# Handler v2\n"
-    )
+    (tmp_path / "handler.py.spec.md").write_text("---\ndepends-on:\n  - auth.py.spec.md\n---\n# Handler v2\n")
 
     result = compute_bulk_sync_plan(str(tmp_path))
 
@@ -4972,8 +4740,7 @@ def test_parallel_batches_respect_abstract_deps(tmp_path):
             batch_map[f["managed"]] = batch["batch_index"]
 
     assert batch_map.get("auth.py", 999) < batch_map.get("handler.py", 0), (
-        f"auth.py (batch {batch_map.get('auth.py')}) must come before "
-        f"handler.py (batch {batch_map.get('handler.py')})"
+        f"auth.py (batch {batch_map.get('auth.py')}) must come before handler.py (batch {batch_map.get('handler.py')})"
     )
 
 
@@ -4982,9 +4749,7 @@ def test_deep_sync_unified_dag_ordering(tmp_path):
     _setup_deep_sync_chain(tmp_path)
 
     # Change utils — triggers ghost-staleness through concrete chain
-    (tmp_path / "utils.impl.md").write_text(
-        "---\nephemeral: false\n---\n\n## Strategy\nUtils v2.\n"
-    )
+    (tmp_path / "utils.impl.md").write_text("---\nephemeral: false\n---\n\n## Strategy\nUtils v2.\n")
 
     result = compute_deep_sync_plan("api.py", str(tmp_path))
     managed = [e["managed"] for e in result["plan"]]
@@ -5011,10 +4776,7 @@ def test_compute_parallel_batches_single_entry():
 
 def test_compute_parallel_batches_max_batch_splits_wave():
     """A wave larger than max_batch_size should be split."""
-    entries = [
-        {"managed": f"f{i}.py", "spec": f"f{i}.py.spec.md"}
-        for i in range(5)
-    ]
+    entries = [{"managed": f"f{i}.py", "spec": f"f{i}.py.spec.md"} for i in range(5)]
     graph = {f"f{i}.py.spec.md": set() for i in range(5)}
     batches = _compute_parallel_batches(entries, graph, max_batch_size=2)
     for batch in batches:
@@ -5065,10 +4827,7 @@ def test_compute_parallel_batches_partial_cycle():
 
 def test_compute_parallel_batches_cycle_respects_max_batch():
     """Cycle fallback should still respect max_batch_size."""
-    entries = [
-        {"managed": f"f{i}.py", "spec": f"f{i}.py.spec.md"}
-        for i in range(5)
-    ]
+    entries = [{"managed": f"f{i}.py", "spec": f"f{i}.py.spec.md"} for i in range(5)]
     # All in a cycle
     specs = [f"f{i}.py.spec.md" for i in range(5)]
     graph = {specs[i]: {specs[(i + 1) % 5]} for i in range(5)}
@@ -5081,20 +4840,17 @@ def test_compute_parallel_batches_cycle_respects_max_batch():
 
 # ── Resume Sync Plan (v0.11.12) ─────────────────────────────────────────────
 
+
 def _setup_resume_chain(tmp_path):
     """Helper: a -> b -> c chain, all stale, for resume tests."""
     (tmp_path / ".unslop").mkdir()
 
-    (tmp_path / "a.impl.md").write_text(
-        "---\nsource-spec: a.py.spec.md\nephemeral: false\n---\n\n## Strategy\nA.\n"
-    )
+    (tmp_path / "a.impl.md").write_text("---\nsource-spec: a.py.spec.md\nephemeral: false\n---\n\n## Strategy\nA.\n")
     (tmp_path / "b.impl.md").write_text(
-        "---\nsource-spec: b.py.spec.md\nephemeral: false\n"
-        "extends: a.impl.md\n---\n\n## Strategy\nB.\n"
+        "---\nsource-spec: b.py.spec.md\nephemeral: false\nextends: a.impl.md\n---\n\n## Strategy\nB.\n"
     )
     (tmp_path / "c.impl.md").write_text(
-        "---\nsource-spec: c.py.spec.md\nephemeral: false\n"
-        "extends: b.impl.md\n---\n\n## Strategy\nC.\n"
+        "---\nsource-spec: c.py.spec.md\nephemeral: false\nextends: b.impl.md\n---\n\n## Strategy\nC.\n"
     )
 
     for letter in "abc":
@@ -5104,9 +4860,7 @@ def _setup_resume_chain(tmp_path):
         name = f"{letter}.py"
         spec = f"{letter}.py.spec.md"
         impl = f"{letter}.impl.md"
-        manifest = compute_concrete_manifest(
-            str(tmp_path / impl), str(tmp_path)
-        )
+        manifest = compute_concrete_manifest(str(tmp_path / impl), str(tmp_path))
         body = f"def {letter}(): pass\n"
         sh = compute_hash((tmp_path / spec).read_text())
         oh = compute_hash(body)
@@ -5120,9 +4874,7 @@ def _setup_resume_chain(tmp_path):
 
     # Make all stale
     for letter in "abc":
-        (tmp_path / f"{letter}.py.spec.md").write_text(
-            f"# {letter.upper()} v2\n"
-        )
+        (tmp_path / f"{letter}.py.spec.md").write_text(f"# {letter.upper()} v2\n")
 
 
 def test_resume_plan_excludes_succeeded(tmp_path):
@@ -5153,9 +4905,7 @@ def test_resume_plan_includes_downstream_of_failure(tmp_path):
 
     all_managed = [f["managed"] for b in result["batches"] for f in b["files"]]
     assert "b.py" in all_managed
-    assert "c.py" in all_managed, (
-        "c.py depends on b.py and should be in the resume plan"
-    )
+    assert "c.py" in all_managed, "c.py depends on b.py and should be in the resume plan"
 
 
 def test_resume_plan_respects_topo_order(tmp_path):
@@ -5189,9 +4939,7 @@ def test_resume_plan_batch_isolation(tmp_path):
             batch_map[f["managed"]] = batch["batch_index"]
 
     if "b.py" in batch_map and "c.py" in batch_map:
-        assert batch_map["b.py"] < batch_map["c.py"], (
-            "b.py and c.py have a dependency — different batches required"
-        )
+        assert batch_map["b.py"] < batch_map["c.py"], "b.py and c.py have a dependency — different batches required"
 
 
 def test_resume_plan_empty_when_all_fresh(tmp_path):
@@ -5205,8 +4953,7 @@ def test_resume_plan_empty_when_all_fresh(tmp_path):
     oh = compute_hash(body)
     (tmp_path / "a.py").write_text(
         f"# @unslop-managed — do not edit directly. Edit a.py.spec.md instead.\n"
-        f"# spec-hash:{sh} output-hash:{oh} generated:2026-03-23T00:00:00Z\n"
-        + body
+        f"# spec-hash:{sh} output-hash:{oh} generated:2026-03-23T00:00:00Z\n" + body
     )
 
     result = compute_resume_plan(
@@ -5228,11 +4975,7 @@ def test_resume_plan_cause_field(tmp_path):
         succeeded_files=["a.py"],
     )
 
-    causes = {
-        f["managed"]: f["cause"]
-        for b in result["batches"]
-        for f in b["files"]
-    }
+    causes = {f["managed"]: f["cause"] for b in result["batches"] for f in b["files"]}
     assert causes.get("b.py") == "retry"
     assert causes.get("c.py") == "downstream"
 
@@ -5269,9 +5012,12 @@ def test_resume_plan_cli(tmp_path):
 
     proc = _run_cli(
         "resume-sync-plan",
-        "--failed", "b.py",
-        "--succeeded", "a.py",
-        "--root", str(tmp_path),
+        "--failed",
+        "b.py",
+        "--succeeded",
+        "a.py",
+        "--root",
+        str(tmp_path),
     )
     assert proc.returncode == 0, f"stderr: {proc.stderr}"
     result = json.loads(proc.stdout)

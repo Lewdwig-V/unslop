@@ -1,4 +1,5 @@
 """unslop validate-pseudocode — structural linting for pseudocode in concrete specs."""
+
 from __future__ import annotations
 
 import json
@@ -9,60 +10,69 @@ from pathlib import Path
 # Language-specific tokens that must not appear in pseudocode.
 # Split into word-boundary tokens (alphanumeric) and operator tokens (symbols).
 _BANNED_KEYWORD_TOKENS = {
-    "def", "func", "fn", "let", "var", "const", "lambda",
-    "pub", "use", "mod", "impl", "struct", "enum", "package",
-    "async", "await", "class", "public", "private",
-    "match", "case",
+    "def",
+    "func",
+    "fn",
+    "let",
+    "var",
+    "const",
+    "lambda",
+    "pub",
+    "use",
+    "mod",
+    "impl",
+    "struct",
+    "enum",
+    "package",
+    "async",
+    "await",
+    "class",
+    "public",
+    "private",
+    "match",
+    "case",
 }
 _BANNED_OPERATOR_TOKENS = {"=>", "->"}
 
 # Build a single pattern: \b for keywords, re.escape for operators
 _kw_alt = "|".join(sorted(_BANNED_KEYWORD_TOKENS))
 _op_alt = "|".join(re.escape(t) for t in sorted(_BANNED_OPERATOR_TOKENS))
-BANNED_SYNTAX = re.compile(
-    r"(?:\b(?:" + _kw_alt + r")\b|" + _op_alt + r")"
-)
+BANNED_SYNTAX = re.compile(r"(?:\b(?:" + _kw_alt + r")\b|" + _op_alt + r")")
 
 # Dot-notation method calls (potential library puns)
 # Matches: word.word( — e.g., time.sleep(, random.uniform(
 # Excludes: config.field (no parens) and common pseudocode like result.success
-LIBRARY_CALL = re.compile(r'\b[a-z_]\w*\.[a-z_]\w*\s*\(')
+LIBRARY_CALL = re.compile(r"\b[a-z_]\w*\.[a-z_]\w*\s*\(")
 
 # Bare assignment: x = y (but not x == y, x <= y, x >= y, x != y)
 # Must not match ←, :=, or comparison operators
-BARE_ASSIGNMENT = re.compile(r'(?<![<>!=:])=(?!=)')
+BARE_ASSIGNMENT = re.compile(r"(?<![<>!=:])=(?!=)")
 
 # Lines where = is a pure boolean comparison, not assignment.
 # FOR is deliberately excluded — FOR headers initialize an iterator
 # and MUST use ← or :=, not bare =.
 # CASE/WHEN are handled separately (only the condition before ":" is
 # comparison context; the action after ":" must still use ← or :=).
-COMPARISON_CONTEXT = re.compile(
-    r'^\s*(?:IF|ELSE\s+IF|WHILE|UNTIL|ASSERT)\b', re.IGNORECASE
-)
+COMPARISON_CONTEXT = re.compile(r"^\s*(?:IF|ELSE\s+IF|WHILE|UNTIL|ASSERT)\b", re.IGNORECASE)
 
 # CASE/WHEN lines need special handling: the condition part (before ":")
 # is comparison context, but the action part (after ":") is not.
-CASE_WHEN_PREFIX = re.compile(
-    r'^\s*(?:CASE|WHEN)\b', re.IGNORECASE
-)
+CASE_WHEN_PREFIX = re.compile(r"^\s*(?:CASE|WHEN)\b", re.IGNORECASE)
 
 # Lines where = MUST be an assignment operator (← or :=), never a comparison.
 # FOR initializes an iterator, SET/INCREMENT/DECREMENT mutate state.
-ASSIGNMENT_REQUIRED = re.compile(
-    r'^\s*(?:FOR|SET|INCREMENT|DECREMENT)\b', re.IGNORECASE
-)
+ASSIGNMENT_REQUIRED = re.compile(r"^\s*(?:FOR|SET|INCREMENT|DECREMENT)\b", re.IGNORECASE)
 
 # Multi-statement lines (semicolons as separators, not inside strings)
-MULTI_STATEMENT = re.compile(r';')
+MULTI_STATEMENT = re.compile(r";")
 
 # Single-char variable names (excluding i, j, k loop counters and math symbols)
 # Matches SET x ← or standalone single-char identifiers used as variables
-SINGLE_CHAR_VAR = re.compile(r'\bSET\s+([a-z])\s*[←:=]')
+SINGLE_CHAR_VAR = re.compile(r"\bSET\s+([a-z])\s*[←:=]")
 
 # FUNCTION without END FUNCTION tracking
-FUNCTION_START = re.compile(r'^\s*FUNCTION\b', re.IGNORECASE)
-FUNCTION_END = re.compile(r'^\s*END\s+FUNCTION\b', re.IGNORECASE)
+FUNCTION_START = re.compile(r"^\s*FUNCTION\b", re.IGNORECASE)
+FUNCTION_END = re.compile(r"^\s*END\s+FUNCTION\b", re.IGNORECASE)
 
 
 def extract_pseudocode_blocks(content: str) -> list[dict]:
@@ -80,10 +90,12 @@ def extract_pseudocode_blocks(content: str) -> list[dict]:
             block_start = i + 1  # 1-indexed
             block_lines = []
         elif in_block and stripped.startswith("```"):
-            blocks.append({
-                "start_line": block_start,
-                "lines": block_lines,
-            })
+            blocks.append(
+                {
+                    "start_line": block_start,
+                    "lines": block_lines,
+                }
+            )
             in_block = False
             block_lines = []
         elif in_block:
@@ -91,11 +103,13 @@ def extract_pseudocode_blocks(content: str) -> list[dict]:
 
     if in_block:
         # Unclosed block — still lint what we have
-        blocks.append({
-            "start_line": block_start,
-            "lines": block_lines,
-            "unclosed": True,
-        })
+        blocks.append(
+            {
+                "start_line": block_start,
+                "lines": block_lines,
+                "unclosed": True,
+            }
+        )
 
     return blocks
 
@@ -122,15 +136,15 @@ def lint_pseudocode(blocks: list[dict]) -> tuple[list[dict], list[dict]]:
             masked_for_comment = re.sub(_STR_PAT, '"_STR_"', stripped)
             # Now strip inline comments from the masked version to find the
             # comment boundary, then apply the same trim to the original line.
-            comment_match = re.search(r'//.*$', masked_for_comment)
+            comment_match = re.search(r"//.*$", masked_for_comment)
             if comment_match:
-                clean_line = stripped[:comment_match.start()].strip()
+                clean_line = stripped[: comment_match.start()].strip()
             else:
                 clean_line = stripped
             # Re-mask strings on the comment-stripped line for keyword scanning.
             scan_line = re.sub(_STR_PAT, '"_STR_"', clean_line)
             # Fully strip string literals for structural checks (bare =, ;)
-            code_part = re.sub(r'"[^"]*"', '', scan_line)
+            code_part = re.sub(r'"[^"]*"', "", scan_line)
 
             # Skip if the line becomes empty after stripping comments
             if not clean_line:
@@ -144,40 +158,45 @@ def lint_pseudocode(blocks: list[dict]) -> tuple[list[dict], list[dict]]:
                 if BARE_ASSIGNMENT.search(code_part):
                     if ASSIGNMENT_REQUIRED.match(scan_line):
                         # FOR/SET/INCREMENT/DECREMENT headers MUST use ← or :=
-                        violations.append({
-                            "line": line_num,
-                            "check": "bare_assignment",
-                            "text": stripped,
-                            "message": (
-                                "Assignment context requires `←` or `:=`, not bare `=` — "
-                                "FOR/SET/INCREMENT headers initialize or mutate state"
-                            ),
-                        })
+                        violations.append(
+                            {
+                                "line": line_num,
+                                "check": "bare_assignment",
+                                "text": stripped,
+                                "message": (
+                                    "Assignment context requires `←` or `:=`, not bare `=` — "
+                                    "FOR/SET/INCREMENT headers initialize or mutate state"
+                                ),
+                            }
+                        )
                     elif COMPARISON_CONTEXT.match(scan_line):
                         pass  # = is a comparison here (IF, WHILE, UNTIL, etc.)
                     elif CASE_WHEN_PREFIX.match(scan_line):
                         # Split at first ":" — condition is comparison, action is not
                         colon_idx = code_part.find(":")
                         if colon_idx >= 0:
-                            action_part = code_part[colon_idx + 1:]
-                            if BARE_ASSIGNMENT.search(action_part) and not re.search(r'[<>!]=', action_part):
-                                violations.append({
-                                    "line": line_num,
-                                    "check": "bare_assignment",
-                                    "text": stripped,
-                                    "message": (
-                                        "Bare assignment `=` in CASE/WHEN action — "
-                                        "use `SET ... ←` or `... := ...`"
-                                    ),
-                                })
+                            action_part = code_part[colon_idx + 1 :]
+                            if BARE_ASSIGNMENT.search(action_part) and not re.search(r"[<>!]=", action_part):
+                                violations.append(
+                                    {
+                                        "line": line_num,
+                                        "check": "bare_assignment",
+                                        "text": stripped,
+                                        "message": (
+                                            "Bare assignment `=` in CASE/WHEN action — use `SET ... ←` or `... := ...`"
+                                        ),
+                                    }
+                                )
                         # else: no colon means pure condition line, = is comparison
-                    elif not re.search(r'[<>!]=', code_part):
-                        violations.append({
-                            "line": line_num,
-                            "check": "bare_assignment",
-                            "text": stripped,
-                            "message": "Bare assignment `=` — use `SET ... ←` or `... := ...`",
-                        })
+                    elif not re.search(r"[<>!]=", code_part):
+                        violations.append(
+                            {
+                                "line": line_num,
+                                "check": "bare_assignment",
+                                "text": stripped,
+                                "message": "Bare assignment `=` — use `SET ... ←` or `... := ...`",
+                            }
+                        )
 
             # Check 2: Language-specific keywords and operators
             banned_match = BANNED_SYNTAX.search(scan_line)
@@ -196,46 +215,54 @@ def lint_pseudocode(blocks: list[dict]) -> tuple[list[dict], list[dict]]:
                         "(FUNCTION, SET, IF, SWITCH/CASE, "
                         "CALL ASYNC, WAIT FOR, etc.)"
                     )
-                violations.append({
-                    "line": line_num,
-                    "check": "language_keyword",
-                    "text": stripped,
-                    "message": msg,
-                })
+                violations.append(
+                    {
+                        "line": line_num,
+                        "check": "language_keyword",
+                        "text": stripped,
+                        "message": msg,
+                    }
+                )
 
             # Check 3: Multi-statement lines
             if MULTI_STATEMENT.search(code_part):
-                violations.append({
-                    "line": line_num,
-                    "check": "multi_statement",
-                    "text": stripped,
-                    "message": "Multiple statements on one line (`;` separator) — use one statement per line",
-                })
+                violations.append(
+                    {
+                        "line": line_num,
+                        "check": "multi_statement",
+                        "text": stripped,
+                        "message": "Multiple statements on one line (`;` separator) — use one statement per line",
+                    }
+                )
 
             # Check 4: Library calls (dot-notation with parens)
             if LIBRARY_CALL.search(scan_line):
                 match = LIBRARY_CALL.search(scan_line)
-                violations.append({
-                    "line": line_num,
-                    "check": "library_call",
-                    "text": stripped,
-                    "message": (
-                        f"Potential library call `{match.group().strip()}` — "
-                        "use a generic operation name instead (e.g., `WAIT` not `time.sleep()`)"
-                    ),
-                })
+                violations.append(
+                    {
+                        "line": line_num,
+                        "check": "library_call",
+                        "text": stripped,
+                        "message": (
+                            f"Potential library call `{match.group().strip()}` — "
+                            "use a generic operation name instead (e.g., `WAIT` not `time.sleep()`)"
+                        ),
+                    }
+                )
 
             # Check 5: Single-character variable names
             char_match = SINGLE_CHAR_VAR.search(scan_line)
             if char_match:
                 char = char_match.group(1)
-                if char not in ('i', 'j', 'k', 'n', 'm', 'x', 'y'):
-                    advisories.append({
-                        "line": line_num,
-                        "check": "abbreviated_name",
-                        "text": stripped,
-                        "message": f"Single-character variable `{char}` — use a descriptive name",
-                    })
+                if char not in ("i", "j", "k", "n", "m", "x", "y"):
+                    advisories.append(
+                        {
+                            "line": line_num,
+                            "check": "abbreviated_name",
+                            "text": stripped,
+                            "message": f"Single-character variable `{char}` — use a descriptive name",
+                        }
+                    )
 
             # Track FUNCTION / END FUNCTION scope
             if FUNCTION_START.search(scan_line):
@@ -244,30 +271,36 @@ def lint_pseudocode(blocks: list[dict]) -> tuple[list[dict], list[dict]]:
                 if function_stack:
                     function_stack.pop()
                 else:
-                    violations.append({
-                        "line": line_num,
-                        "check": "unmatched_end_function",
-                        "text": stripped,
-                        "message": "END FUNCTION without matching FUNCTION",
-                    })
+                    violations.append(
+                        {
+                            "line": line_num,
+                            "check": "unmatched_end_function",
+                            "text": stripped,
+                            "message": "END FUNCTION without matching FUNCTION",
+                        }
+                    )
 
         # Check 6: Unclosed FUNCTION blocks
         for fn_line in function_stack:
-            violations.append({
-                "line": fn_line,
-                "check": "unclosed_function",
-                "text": f"(FUNCTION opened at line {fn_line})",
-                "message": "FUNCTION without matching END FUNCTION",
-            })
+            violations.append(
+                {
+                    "line": fn_line,
+                    "check": "unclosed_function",
+                    "text": f"(FUNCTION opened at line {fn_line})",
+                    "message": "FUNCTION without matching END FUNCTION",
+                }
+            )
 
         # Check for unclosed pseudocode fence
         if block.get("unclosed"):
-            violations.append({
-                "line": block["start_line"],
-                "check": "unclosed_fence",
-                "text": "(pseudocode block)",
-                "message": "Pseudocode fence opened but never closed",
-            })
+            violations.append(
+                {
+                    "line": block["start_line"],
+                    "check": "unclosed_fence",
+                    "text": "(pseudocode block)",
+                    "message": "Pseudocode fence opened but never closed",
+                }
+            )
 
     return violations, advisories
 
@@ -279,10 +312,12 @@ def validate_pseudocode(content: str, impl_path: str) -> dict:
         return {
             "status": "warn",
             "impl_path": impl_path,
-            "warnings": [{
-                "check": "no_pseudocode",
-                "message": "No ```pseudocode blocks found in concrete spec",
-            }],
+            "warnings": [
+                {
+                    "check": "no_pseudocode",
+                    "message": "No ```pseudocode blocks found in concrete spec",
+                }
+            ],
         }
 
     violations, advisories = lint_pseudocode(blocks)
@@ -314,14 +349,26 @@ def main():
     try:
         content = file_path.read_text(encoding="utf-8")
     except FileNotFoundError:
-        print(json.dumps({"status": "fail", "impl_path": impl_path,
-                          "violations": [{"check": "file_not_found",
-                                          "message": f"File not found: {impl_path}"}]}))
+        print(
+            json.dumps(
+                {
+                    "status": "fail",
+                    "impl_path": impl_path,
+                    "violations": [{"check": "file_not_found", "message": f"File not found: {impl_path}"}],
+                }
+            )
+        )
         sys.exit(1)
     except (UnicodeDecodeError, OSError) as e:
-        print(json.dumps({"status": "fail", "impl_path": impl_path,
-                          "violations": [{"check": "read_error",
-                                          "message": f"Cannot read file: {e}"}]}))
+        print(
+            json.dumps(
+                {
+                    "status": "fail",
+                    "impl_path": impl_path,
+                    "violations": [{"check": "read_error", "message": f"Cannot read file: {e}"}],
+                }
+            )
+        )
         sys.exit(1)
 
     result = validate_pseudocode(content, impl_path)

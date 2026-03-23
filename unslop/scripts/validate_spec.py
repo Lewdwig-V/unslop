@@ -1,4 +1,5 @@
 """unslop validate-spec — deterministic structural validation for spec files."""
+
 from __future__ import annotations
 
 import json
@@ -7,10 +8,10 @@ import sys
 from pathlib import Path
 
 IMPLEMENTATION_PATTERNS = [
-    re.compile(r'^\s*(def |class |import |from .+ import |if |for |while |try:|except |return )'),
-    re.compile(r'^\s*(function |const |let |var |export (default |{)|async )'),
-    re.compile(r'^\s*(fn |pub |use |mod |impl |struct |enum )'),
-    re.compile(r'^\s*(func |package |type .+ struct)'),
+    re.compile(r"^\s*(def |class |import |from .+ import |if |for |while |try:|except |return )"),
+    re.compile(r"^\s*(function |const |let |var |export (default |{)|async )"),
+    re.compile(r"^\s*(fn |pub |use |mod |impl |struct |enum )"),
+    re.compile(r"^\s*(func |package |type .+ struct)"),
 ]
 
 
@@ -19,9 +20,11 @@ def validate_spec(content: str, spec_path: str) -> dict:
     warnings = []
 
     if not content.strip():
-        return {"status": "fail", "spec_path": spec_path,
-                "issues": [{"check": "empty_file",
-                            "message": "Spec file is empty or contains only whitespace"}]}
+        return {
+            "status": "fail",
+            "spec_path": spec_path,
+            "issues": [{"check": "empty_file", "message": "Spec file is empty or contains only whitespace"}],
+        }
 
     # Strip frontmatter
     body = content
@@ -33,22 +36,23 @@ def validate_spec(content: str, spec_path: str) -> dict:
                 end = i
                 break
         if end != -1:
-            body = "\n".join(lines[end + 1:])
+            body = "\n".join(lines[end + 1 :])
         if end == -1:
-            warnings.append({
-                "check": "malformed_frontmatter",
-                "message": "File starts with '---' but no closing '---' found. Frontmatter may be malformed."
-            })
+            warnings.append(
+                {
+                    "check": "malformed_frontmatter",
+                    "message": "File starts with '---' but no closing '---' found. Frontmatter may be malformed.",
+                }
+            )
 
     body_lines = body.split("\n")
     non_blank = [line for line in body_lines if line.strip()]
 
     # Check 1: Minimum length (>3 non-blank lines)
     if len(non_blank) <= 3:
-        issues.append({
-            "check": "minimum_length",
-            "message": f"Spec body has only {len(non_blank)} non-blank lines (minimum 4)"
-        })
+        issues.append(
+            {"check": "minimum_length", "message": f"Spec body has only {len(non_blank)} non-blank lines (minimum 4)"}
+        )
 
     # Check 2: Required sections — at least one ## heading with >1 non-blank
     # content lines anywhere below it (until the next ## heading).
@@ -57,7 +61,7 @@ def validate_spec(content: str, spec_path: str) -> dict:
     current_heading = None
     content_lines_under_heading = 0
     for line in body_lines:
-        if re.match(r'^## ', line):
+        if re.match(r"^## ", line):
             if current_heading and content_lines_under_heading > 1:
                 has_substantive_section = True
             current_heading = line
@@ -68,13 +72,14 @@ def validate_spec(content: str, spec_path: str) -> dict:
         has_substantive_section = True
 
     if not has_substantive_section:
-        issues.append({
-            "check": "required_sections",
-            "message": (
-                "No heading found with substantive content"
-                " (need at least one ## heading with >1 non-blank line below it)"
-            )
-        })
+        issues.append(
+            {
+                "check": "required_sections",
+                "message": (
+                    "No heading found with substantive content (need at least one ## heading with >1 non-blank line below it)"
+                ),
+            }
+        )
 
     # Check 3: Code fence misuse
     in_fence = False
@@ -87,18 +92,17 @@ def validate_spec(content: str, spec_path: str) -> dict:
                 fence_start = i
                 fence_lines_content = []
             else:
-                has_impl = any(
-                    pat.search(fl) for fl in fence_lines_content
-                    for pat in IMPLEMENTATION_PATTERNS
-                )
+                has_impl = any(pat.search(fl) for fl in fence_lines_content for pat in IMPLEMENTATION_PATTERNS)
                 if has_impl:
-                    warnings.append({
-                        "check": "code_fence_misuse",
-                        "message": (
-                            f"Code fence at line {fence_start + 1} may contain"
-                            " implementation code rather than a data example"
-                        )
-                    })
+                    warnings.append(
+                        {
+                            "check": "code_fence_misuse",
+                            "message": (
+                                f"Code fence at line {fence_start + 1} may contain"
+                                " implementation code rather than a data example"
+                            ),
+                        }
+                    )
                 in_fence = False
                 fence_lines_content = []
         elif in_fence:
@@ -106,38 +110,33 @@ def validate_spec(content: str, spec_path: str) -> dict:
 
     # Warn on unclosed fence
     if in_fence:
-        has_impl = any(
-            pat.search(fl) for fl in fence_lines_content
-            for pat in IMPLEMENTATION_PATTERNS
-        )
+        has_impl = any(pat.search(fl) for fl in fence_lines_content for pat in IMPLEMENTATION_PATTERNS)
         if has_impl:
-            warnings.append({
-                "check": "code_fence_misuse",
-                "message": f"Unclosed code fence at line {fence_start + 1} may contain implementation code"
-            })
+            warnings.append(
+                {
+                    "check": "code_fence_misuse",
+                    "message": f"Unclosed code fence at line {fence_start + 1} may contain implementation code",
+                }
+            )
         else:
-            warnings.append({
-                "check": "unclosed_code_fence",
-                "message": f"Code fence opened at line {fence_start + 1} is never closed"
-            })
+            warnings.append(
+                {"check": "unclosed_code_fence", "message": f"Code fence opened at line {fence_start + 1} is never closed"}
+            )
 
     # Check 4: Open Questions validity
     in_open_questions = False
     has_oq_items = False
     for line in body_lines:
-        if re.match(r'^## Open Questions', line):
+        if re.match(r"^## Open Questions", line):
             in_open_questions = True
             continue
         if in_open_questions:
-            if re.match(r'^## ', line):
+            if re.match(r"^## ", line):
                 break
-            if re.match(r'^\s*-\s+\S', line):
+            if re.match(r"^\s*-\s+\S", line):
                 has_oq_items = True
     if in_open_questions and not has_oq_items:
-        issues.append({
-            "check": "open_questions_empty",
-            "message": "## Open Questions section exists but has no list items"
-        })
+        issues.append({"check": "open_questions_empty", "message": "## Open Questions section exists but has no list items"})
 
     result = {"spec_path": spec_path}
     if issues:
@@ -166,38 +165,69 @@ def main():
         size = file_path.stat().st_size
         if size > MAX_SPEC_SIZE:
             msg = f"File is {size} bytes (max {MAX_SPEC_SIZE}). Spec files should be small text documents."
-            result = {"status": "fail", "spec_path": spec_path,
-                      "issues": [{"check": "file_too_large", "message": msg}]}
+            result = {"status": "fail", "spec_path": spec_path, "issues": [{"check": "file_too_large", "message": msg}]}
             print(json.dumps(result))
             sys.exit(1)
     except FileNotFoundError:
-        print(json.dumps({"status": "fail", "spec_path": spec_path,
-                          "issues": [{"check": "file_not_found",
-                                      "message": f"Spec file not found: {spec_path}"}]}))
+        print(
+            json.dumps(
+                {
+                    "status": "fail",
+                    "spec_path": spec_path,
+                    "issues": [{"check": "file_not_found", "message": f"Spec file not found: {spec_path}"}],
+                }
+            )
+        )
         sys.exit(1)
     except OSError as e:
-        print(json.dumps({"status": "fail", "spec_path": spec_path,
-                          "issues": [{"check": "read_error",
-                                      "message": f"Cannot read spec file: {e}"}]}))
+        print(
+            json.dumps(
+                {
+                    "status": "fail",
+                    "spec_path": spec_path,
+                    "issues": [{"check": "read_error", "message": f"Cannot read spec file: {e}"}],
+                }
+            )
+        )
         sys.exit(1)
 
     try:
         content = file_path.read_text(encoding="utf-8")
     except UnicodeDecodeError as e:
-        print(json.dumps({"status": "fail", "spec_path": spec_path,
-                          "issues": [{"check": "encoding_error",
-                                      "message": f"Cannot read spec file as text. Is this UTF-8? Detail: {e}"}]}))
+        print(
+            json.dumps(
+                {
+                    "status": "fail",
+                    "spec_path": spec_path,
+                    "issues": [
+                        {"check": "encoding_error", "message": f"Cannot read spec file as text. Is this UTF-8? Detail: {e}"}
+                    ],
+                }
+            )
+        )
         sys.exit(1)
     except OSError as e:
-        print(json.dumps({"status": "fail", "spec_path": spec_path,
-                          "issues": [{"check": "read_error",
-                                      "message": f"Cannot read spec file: {e}"}]}))
+        print(
+            json.dumps(
+                {
+                    "status": "fail",
+                    "spec_path": spec_path,
+                    "issues": [{"check": "read_error", "message": f"Cannot read spec file: {e}"}],
+                }
+            )
+        )
         sys.exit(1)
 
     if "\x00" in content:
-        print(json.dumps({"status": "fail", "spec_path": spec_path,
-                          "issues": [{"check": "binary_file",
-                                      "message": "File appears to be binary, not a text spec"}]}))
+        print(
+            json.dumps(
+                {
+                    "status": "fail",
+                    "spec_path": spec_path,
+                    "issues": [{"check": "binary_file", "message": "File appears to be binary, not a text spec"}],
+                }
+            )
+        )
         sys.exit(1)
 
     result = validate_spec(content, spec_path)

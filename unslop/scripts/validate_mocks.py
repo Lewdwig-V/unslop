@@ -8,6 +8,7 @@ Exit codes:
   0  — all mocks target allowed boundaries
   1  — violations found (details in JSON output)
 """
+
 from __future__ import annotations
 
 import ast
@@ -19,6 +20,7 @@ from pathlib import Path
 # ---------------------------------------------------------------------------
 # Boundary manifest loading
 # ---------------------------------------------------------------------------
+
 
 def load_boundaries(project_root: Path) -> list[str]:
     """Load allowed mock targets from .unslop/boundaries.json.
@@ -109,34 +111,40 @@ class MockTargetExtractor(ast.NodeVisitor):
             if node.args and isinstance(node.args[0], ast.Name):
                 obj_name = node.args[0].id
             target_label = f"{obj_name}.{attr_name}" if obj_name and attr_name else f"<patch.object at line {node.lineno}>"
-            self.targets.append({
-                "target": target_label,
-                "line": node.lineno,
-                "col": node.col_offset,
-                "kind": kind,
-                "internal": True,
-            })
+            self.targets.append(
+                {
+                    "target": target_label,
+                    "line": node.lineno,
+                    "col": node.col_offset,
+                    "kind": kind,
+                    "internal": True,
+                }
+            )
             return
 
         # For patch("target_string") — first positional arg is the target
         if node.args and isinstance(node.args[0], ast.Constant) and isinstance(node.args[0].value, str):
-            self.targets.append({
-                "target": node.args[0].value,
-                "line": node.args[0].lineno,
-                "col": node.args[0].col_offset,
-                "kind": kind,
-            })
+            self.targets.append(
+                {
+                    "target": node.args[0].value,
+                    "line": node.args[0].lineno,
+                    "col": node.args[0].col_offset,
+                    "kind": kind,
+                }
+            )
             return
 
         # For patch(target="target_string") — keyword arg
         for kw in node.keywords:
             if kw.arg == "target" and isinstance(kw.value, ast.Constant) and isinstance(kw.value.value, str):
-                self.targets.append({
-                    "target": kw.value.value,
-                    "line": kw.value.lineno,
-                    "col": kw.value.col_offset,
-                    "kind": kind,
-                })
+                self.targets.append(
+                    {
+                        "target": kw.value.value,
+                        "line": kw.value.lineno,
+                        "col": kw.value.col_offset,
+                        "kind": kind,
+                    }
+                )
                 return
 
     def visit_Call(self, node: ast.Call) -> None:
@@ -161,6 +169,7 @@ class MockTargetExtractor(ast.NodeVisitor):
 # Validation logic
 # ---------------------------------------------------------------------------
 
+
 def _module_root(target: str) -> str:
     """Extract the top-level module from a dotted path.
 
@@ -180,11 +189,29 @@ def _is_stdlib_or_boundary(target: str, boundaries: list[str]) -> bool:
     these are external boundaries by definition.
     """
     STDLIB_ALLOWLIST = {
-        "time", "os", "sys", "io", "tempfile", "subprocess",
-        "socket", "http", "urllib", "ssl", "email", "smtplib",
-        "logging", "random", "datetime", "json", "pathlib",
-        "builtins", "signal", "threading", "multiprocessing",
-        "asyncio", "unittest",
+        "time",
+        "os",
+        "sys",
+        "io",
+        "tempfile",
+        "subprocess",
+        "socket",
+        "http",
+        "urllib",
+        "ssl",
+        "email",
+        "smtplib",
+        "logging",
+        "random",
+        "datetime",
+        "json",
+        "pathlib",
+        "builtins",
+        "signal",
+        "threading",
+        "multiprocessing",
+        "asyncio",
+        "unittest",
     }
 
     parts = target.split(".")
@@ -240,18 +267,20 @@ def validate_test_file(source: str, file_path: str, boundaries: list[str]) -> di
         target = mock_info["target"]
         if mock_info.get("internal") or _is_internal_mock(target, boundaries):
             internal_count += 1
-            violations.append({
-                "check": "internal_mock",
-                "target": target,
-                "line": mock_info["line"],
-                "col": mock_info["col"],
-                "kind": mock_info["kind"],
-                "message": (
-                    f"Mock targets internal module '{target}'. "
-                    f"Only external boundaries may be mocked. "
-                    f"Add '{_module_root(target)}' to .unslop/boundaries.json if this is an external dependency."
-                ),
-            })
+            violations.append(
+                {
+                    "check": "internal_mock",
+                    "target": target,
+                    "line": mock_info["line"],
+                    "col": mock_info["col"],
+                    "kind": mock_info["kind"],
+                    "message": (
+                        f"Mock targets internal module '{target}'. "
+                        f"Only external boundaries may be mocked. "
+                        f"Add '{_module_root(target)}' to .unslop/boundaries.json if this is an external dependency."
+                    ),
+                }
+            )
         else:
             boundary_count += 1
 
@@ -268,6 +297,7 @@ def validate_test_file(source: str, file_path: str, boundaries: list[str]) -> di
 # ---------------------------------------------------------------------------
 # CLI entry point
 # ---------------------------------------------------------------------------
+
 
 def main() -> None:
     if len(sys.argv) < 2:
@@ -302,11 +332,16 @@ def main() -> None:
         try:
             source = tf.read_text(encoding="utf-8")
         except (OSError, UnicodeDecodeError) as e:
-            results.append({
-                "status": "fail", "file_path": str(tf),
-                "violations": [{"check": "read_error", "message": str(e), "line": 0}],
-                "mock_count": 0, "boundary_mocks": 0, "internal_mocks": 0,
-            })
+            results.append(
+                {
+                    "status": "fail",
+                    "file_path": str(tf),
+                    "violations": [{"check": "read_error", "message": str(e), "line": 0}],
+                    "mock_count": 0,
+                    "boundary_mocks": 0,
+                    "internal_mocks": 0,
+                }
+            )
             any_fail = True
             continue
         result = validate_test_file(source, str(tf), boundaries)

@@ -37,43 +37,44 @@ class TestLoadBoundaries:
 class TestMockTargetExtractor:
     def _extract(self, source: str) -> list[dict]:
         import ast
+
         tree = ast.parse(source)
         extractor = MockTargetExtractor()
         extractor.visit(tree)
         return extractor.targets
 
     def test_decorator_patch(self):
-        source = textwrap.dedent('''\
+        source = textwrap.dedent("""\
             from unittest.mock import patch
 
             @patch("src.retry.time.sleep")
             def test_foo(mock_sleep):
                 pass
-        ''')
+        """)
         targets = self._extract(source)
         assert len(targets) == 1
         assert targets[0]["target"] == "src.retry.time.sleep"
 
     def test_context_manager_patch(self):
-        source = textwrap.dedent('''\
+        source = textwrap.dedent("""\
             from unittest.mock import patch
 
             def test_bar():
                 with patch("os.environ") as mock_env:
                     pass
-        ''')
+        """)
         targets = self._extract(source)
         assert len(targets) == 1
         assert targets[0]["target"] == "os.environ"
 
     def test_patch_object(self):
-        source = textwrap.dedent('''\
+        source = textwrap.dedent("""\
             from unittest.mock import patch
 
             @patch.object(SomeClass, "method")
             def test_baz(mock_method):
                 pass
-        ''')
+        """)
         # patch.object is now tracked and flagged as internal (implementation-coupled)
         targets = self._extract(source)
         assert len(targets) == 1
@@ -82,59 +83,59 @@ class TestMockTargetExtractor:
         assert targets[0]["target"] == "SomeClass.method"
 
     def test_multiple_patches(self):
-        source = textwrap.dedent('''\
+        source = textwrap.dedent("""\
             from unittest.mock import patch
 
             @patch("time.sleep")
             @patch("requests.get")
             def test_multi(mock_get, mock_sleep):
                 pass
-        ''')
+        """)
         targets = self._extract(source)
         assert len(targets) == 2
         target_names = {t["target"] for t in targets}
         assert target_names == {"time.sleep", "requests.get"}
 
     def test_mocker_patch(self):
-        source = textwrap.dedent('''\
+        source = textwrap.dedent("""\
             def test_with_mocker(mocker):
                 mocker.patch("src.internal.helper")
-        ''')
+        """)
         targets = self._extract(source)
         assert len(targets) == 1
         assert targets[0]["target"] == "src.internal.helper"
 
     def test_no_mocks(self):
-        source = textwrap.dedent('''\
+        source = textwrap.dedent("""\
             def test_simple():
                 assert 1 + 1 == 2
-        ''')
+        """)
         targets = self._extract(source)
         assert len(targets) == 0
 
 
 class TestValidateTestFile:
     def test_clean_test_passes(self):
-        source = textwrap.dedent('''\
+        source = textwrap.dedent("""\
             from unittest.mock import patch
 
             @patch("time.sleep")
             def test_delay(mock_sleep):
                 pass
-        ''')
+        """)
         result = validate_test_file(source, "test_foo.py", [])
         assert result["status"] == "pass"
         assert result["boundary_mocks"] == 1
         assert result["internal_mocks"] == 0
 
     def test_internal_mock_fails(self):
-        source = textwrap.dedent('''\
+        source = textwrap.dedent("""\
             from unittest.mock import patch
 
             @patch("src.retry.time.sleep")
             def test_delay(mock_sleep):
                 pass
-        ''')
+        """)
         result = validate_test_file(source, "test_foo.py", [])
         assert result["status"] == "fail"
         assert result["internal_mocks"] == 1
@@ -142,26 +143,26 @@ class TestValidateTestFile:
         assert result["violations"][0]["check"] == "internal_mock"
 
     def test_boundary_mock_passes(self):
-        source = textwrap.dedent('''\
+        source = textwrap.dedent("""\
             from unittest.mock import patch
 
             @patch("requests.get")
             def test_api(mock_get):
                 pass
-        ''')
+        """)
         result = validate_test_file(source, "test_foo.py", ["requests"])
         assert result["status"] == "pass"
         assert result["boundary_mocks"] == 1
 
     def test_stdlib_mock_always_allowed(self):
-        source = textwrap.dedent('''\
+        source = textwrap.dedent("""\
             from unittest.mock import patch
 
             @patch("os.environ.get")
             @patch("datetime.datetime.now")
             def test_env(mock_now, mock_get):
                 pass
-        ''')
+        """)
         result = validate_test_file(source, "test_foo.py", [])
         assert result["status"] == "pass"
         assert result["boundary_mocks"] == 2
@@ -174,14 +175,14 @@ class TestValidateTestFile:
 
     def test_mixed_mocks(self):
         """One allowed, one internal — should fail."""
-        source = textwrap.dedent('''\
+        source = textwrap.dedent("""\
             from unittest.mock import patch
 
             @patch("time.sleep")
             @patch("src.db.connection.get_pool")
             def test_mixed(mock_pool, mock_sleep):
                 pass
-        ''')
+        """)
         result = validate_test_file(source, "test_foo.py", [])
         assert result["status"] == "fail"
         assert result["boundary_mocks"] == 1
@@ -213,7 +214,7 @@ class TestJitterStressTestCompliance:
     def test_jitter_test_demonstrates_correct_approach(self):
         """Show what a Mason-compliant test would look like:
         mock 'time.sleep' (stdlib) instead of 'src.retry.time.sleep' (internal)."""
-        source = textwrap.dedent('''\
+        source = textwrap.dedent("""\
             from unittest.mock import patch
 
             @patch("time.sleep")
@@ -228,7 +229,7 @@ class TestJitterStressTestCompliance:
                 for call in mock_sleep.call_args_list:
                     delay = call[0][0]
                     assert 0 <= delay <= config.max_delay
-        ''')
+        """)
         result = validate_test_file(source, "test_compliant.py", [])
         assert result["status"] == "pass"
         assert result["internal_mocks"] == 0

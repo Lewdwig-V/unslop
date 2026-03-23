@@ -11,7 +11,7 @@ from pathlib import Path
 
 
 # Sentinels stored in concrete-manifest when a transitive dep is missing/unreadable.
-MISSING_SENTINEL = "missing00000"   # 12 chars, not valid hex
+MISSING_SENTINEL = "missing00000"  # 12 chars, not valid hex
 UNREADABLE_SENTINEL = "unreadabl000"  # 12 chars, not valid hex
 
 _SENTINEL_HASHES = {MISSING_SENTINEL, UNREADABLE_SENTINEL}
@@ -91,7 +91,7 @@ def parse_header(content: str) -> dict | None:
                 last_colon = entry.rfind(":")
                 if last_colon > 0:
                     dep_path = entry[:last_colon]
-                    dep_hash = entry[last_colon + 1:]
+                    dep_hash = entry[last_colon + 1 :]
                     if re.match(r"^[0-9a-f]{12}$", dep_hash) or dep_hash in _SENTINEL_HASHES:
                         manifest[dep_path] = dep_hash
             if manifest:
@@ -289,9 +289,7 @@ def resolve_extends_chain(impl_path: str, project_root: str) -> list[str]:
         try:
             content = full_path.read_text(encoding="utf-8")
         except (OSError, UnicodeDecodeError) as e:
-            raise ValueError(
-                f"Cannot read concrete spec in extends chain: {full_path} ({e})"
-            )
+            raise ValueError(f"Cannot read concrete spec in extends chain: {full_path} ({e})")
 
         meta = parse_concrete_frontmatter(content)
         current = meta.get("extends")
@@ -650,15 +648,19 @@ def check_concrete_staleness(
                     source_content = source_full.read_text(encoding="utf-8")
                     source_hash = compute_hash(source_content)
                     # If upstream source spec changed, flag as stale
-                    stale_deps.append({
-                        "path": dep_path,
-                        "reason": f"upstream source-spec {upstream_source} changed ({source_hash[:8]})",
-                    })
+                    stale_deps.append(
+                        {
+                            "path": dep_path,
+                            "reason": f"upstream source-spec {upstream_source} changed ({source_hash[:8]})",
+                        }
+                    )
                 except (OSError, UnicodeDecodeError):
-                    stale_deps.append({
-                        "path": dep_path,
-                        "reason": f"upstream source-spec {upstream_source} unreadable",
-                    })
+                    stale_deps.append(
+                        {
+                            "path": dep_path,
+                            "reason": f"upstream source-spec {upstream_source} unreadable",
+                        }
+                    )
 
     if not stale_deps:
         return None
@@ -870,25 +872,29 @@ def diagnose_ghost_staleness(
     for dep_path, stored_hash in sorted(manifest.items()):
         dep_full = root / dep_path
         if not dep_full.exists():
-            diagnostics.append({
-                "dep": dep_path,
-                "stored_hash": stored_hash,
-                "current_hash": None,
-                "reason": "not found",
-                "chain": [dep_path],
-            })
+            diagnostics.append(
+                {
+                    "dep": dep_path,
+                    "stored_hash": stored_hash,
+                    "current_hash": None,
+                    "reason": "not found",
+                    "chain": [dep_path],
+                }
+            )
             continue
 
         try:
             dep_content = dep_full.read_text(encoding="utf-8")
         except (OSError, UnicodeDecodeError):
-            diagnostics.append({
-                "dep": dep_path,
-                "stored_hash": stored_hash,
-                "current_hash": None,
-                "reason": "unreadable",
-                "chain": [dep_path],
-            })
+            diagnostics.append(
+                {
+                    "dep": dep_path,
+                    "stored_hash": stored_hash,
+                    "current_hash": None,
+                    "reason": "unreadable",
+                    "chain": [dep_path],
+                }
+            )
             continue
 
         current_hash = compute_hash(dep_content)
@@ -897,13 +903,15 @@ def diagnose_ghost_staleness(
 
         # This dep changed — walk its upstream to find root cause
         chain = _trace_change_chain(dep_path, root)
-        diagnostics.append({
-            "dep": dep_path,
-            "stored_hash": stored_hash,
-            "current_hash": current_hash,
-            "reason": "changed",
-            "chain": chain,
-        })
+        diagnostics.append(
+            {
+                "dep": dep_path,
+                "stored_hash": stored_hash,
+                "current_hash": current_hash,
+                "reason": "changed",
+                "chain": chain,
+            }
+        )
 
     return diagnostics
 
@@ -1957,8 +1965,10 @@ def ripple_check(spec_paths: list[str], project_root: str) -> dict:
                 # Per-file spec
                 managed_name = re.sub(r"\.spec\.md$", "", spec_path.name)
                 managed_full = spec_path.parent / managed_name
-                managed_rel = str(managed_full.relative_to(root)) if managed_full.exists() else str(
-                    (spec_path.parent / managed_name).relative_to(root)
+                managed_rel = (
+                    str(managed_full.relative_to(root))
+                    if managed_full.exists()
+                    else str((spec_path.parent / managed_name).relative_to(root))
                 )
                 entry = {
                     "managed": managed_rel,
@@ -1975,9 +1985,7 @@ def ripple_check(spec_paths: list[str], project_root: str) -> dict:
 
     # Add concrete-only affected files (ghost staleness via concrete deps, not abstract deps)
     concrete_only_impls = affected_impls - {
-        str((root / impl).relative_to(root))
-        for spec in affected_specs
-        for impl in spec_to_impls.get(spec, [])
+        str((root / impl).relative_to(root)) for spec in affected_specs for impl in spec_to_impls.get(spec, [])
     }
     ghost_stale_managed: list[dict] = []
     for impl in sorted(concrete_only_impls):
@@ -1992,15 +2000,17 @@ def ripple_check(spec_paths: list[str], project_root: str) -> dict:
             for target in targets:
                 managed_rel = target.get("path", "")
                 managed_full = root / managed_rel
-                ghost_stale_managed.append({
-                    "managed": managed_rel,
-                    "spec": src,
-                    "concrete": impl,
-                    "exists": managed_full.exists(),
-                    "cause": "ghost-stale",
-                    "ghost_source": impl,
-                    "current_state": "ghost-stale",
-                })
+                ghost_stale_managed.append(
+                    {
+                        "managed": managed_rel,
+                        "spec": src,
+                        "concrete": impl,
+                        "exists": managed_full.exists(),
+                        "cause": "ghost-stale",
+                        "ghost_source": impl,
+                        "current_state": "ghost-stale",
+                    }
+                )
         elif src.endswith(".unit.spec.md"):
             # Unit spec: emit an entry for each file listed in ## Files
             spec_path = root / src
@@ -2011,33 +2021,37 @@ def ripple_check(spec_paths: list[str], project_root: str) -> dict:
                     for uf in unit_files:
                         managed_rel = str((spec_path.parent / uf).relative_to(root))
                         managed_full = root / managed_rel
-                        ghost_stale_managed.append({
-                            "managed": managed_rel,
-                            "spec": src,
-                            "concrete": impl,
-                            "exists": managed_full.exists(),
-                            "cause": "ghost-stale",
-                            "ghost_source": impl,
-                            "current_state": "ghost-stale",
-                        })
+                        ghost_stale_managed.append(
+                            {
+                                "managed": managed_rel,
+                                "spec": src,
+                                "concrete": impl,
+                                "exists": managed_full.exists(),
+                                "cause": "ghost-stale",
+                                "ghost_source": impl,
+                                "current_state": "ghost-stale",
+                            }
+                        )
                 except (OSError, UnicodeDecodeError):
                     pass
         else:
             # Per-file spec: derive managed path by stripping .spec.md
             managed_name = re.sub(r"\.spec\.md$", "", Path(src).name)
             managed_full = root / Path(src).parent / managed_name
-            managed_rel = str(managed_full.relative_to(root)) if managed_full.exists() else str(
-                (Path(src).parent / managed_name)
+            managed_rel = (
+                str(managed_full.relative_to(root)) if managed_full.exists() else str((Path(src).parent / managed_name))
             )
-            ghost_stale_managed.append({
-                "managed": managed_rel,
-                "spec": src,
-                "concrete": impl,
-                "exists": managed_full.exists(),
-                "cause": "ghost-stale",
-                "ghost_source": impl,
-                "current_state": "ghost-stale",
-            })
+            ghost_stale_managed.append(
+                {
+                    "managed": managed_rel,
+                    "spec": src,
+                    "concrete": impl,
+                    "exists": managed_full.exists(),
+                    "cause": "ghost-stale",
+                    "ghost_source": impl,
+                    "current_state": "ghost-stale",
+                }
+            )
 
     # Collect specs reachable only through concrete-dependency chains so they
     # appear in build_order alongside the abstract-layer specs.
@@ -2087,7 +2101,9 @@ def ripple_check(spec_paths: list[str], project_root: str) -> dict:
             },
         },
         "build_order": _compute_ripple_build_order(
-            affected_specs | ghost_stale_specs, all_specs, concrete_spec_edges,
+            affected_specs | ghost_stale_specs,
+            all_specs,
+            concrete_spec_edges,
         ),
     }
 
@@ -2126,7 +2142,10 @@ def _compute_ripple_build_order(
     except ValueError:
         # Cycle detected — fall back to alphabetical but warn via stderr
         import sys as _sys
-        print(json.dumps({"warning": "Cycle detected in dependency graph, falling back to alphabetical order"}), file=_sys.stderr)
+
+        print(
+            json.dumps({"warning": "Cycle detected in dependency graph, falling back to alphabetical order"}), file=_sys.stderr
+        )
         return sorted(affected_specs)
 
 
@@ -2224,11 +2243,7 @@ def _unified_topo_sort(
 
     if filter_specs is not None:
         # Restrict graph to only the specs in the filter set
-        graph = {
-            s: deps & filter_specs
-            for s, deps in full_graph.items()
-            if s in filter_specs
-        }
+        graph = {s: deps & filter_specs for s, deps in full_graph.items() if s in filter_specs}
     else:
         graph = full_graph
 
@@ -2240,6 +2255,7 @@ def _unified_topo_sort(
     except ValueError:
         # Cycle detected — fall back to sorted order but warn via stderr
         import sys as _sys
+
         print(json.dumps({"warning": "Cycle detected in unified DAG, falling back to alphabetical order"}), file=_sys.stderr)
         sorted_specs = sorted(graph.keys())
 
@@ -2300,7 +2316,7 @@ def _compute_parallel_batches(
 
         # Split wave into max_batch_size chunks
         for i in range(0, len(wave_entries), max_batch_size):
-            batches.append(wave_entries[i:i + max_batch_size])
+            batches.append(wave_entries[i : i + max_batch_size])
 
         # Decrement in-degrees for successors
         next_queue = []
@@ -2320,7 +2336,7 @@ def _compute_parallel_batches(
         for spec in remaining:
             wave_entries.extend(spec_to_entry.get(spec, []))
         for i in range(0, len(wave_entries), max_batch_size):
-            batches.append(wave_entries[i:i + max_batch_size])
+            batches.append(wave_entries[i : i + max_batch_size])
 
     return batches
 
@@ -2400,13 +2416,15 @@ def compute_deep_sync_plan(
         fresh_entry = state_map.get(managed)
         state = fresh_entry["state"] if fresh_entry else entry.get("current_state", "new")
 
-        all_affected.append({
-            "managed": managed,
-            "spec": entry["spec"],
-            "state": state,
-            "cause": entry["cause"],
-            "concrete": entry.get("concrete"),
-        })
+        all_affected.append(
+            {
+                "managed": managed,
+                "spec": entry["spec"],
+                "state": state,
+                "cause": entry["cause"],
+                "concrete": entry.get("concrete"),
+            }
+        )
 
     for entry in ripple["layers"]["code"]["ghost_stale"]:
         managed = entry["managed"]
@@ -2417,13 +2435,15 @@ def compute_deep_sync_plan(
         fresh_entry = state_map.get(managed)
         state = fresh_entry["state"] if fresh_entry else "ghost-stale"
 
-        all_affected.append({
-            "managed": managed,
-            "spec": entry["spec"],
-            "state": state,
-            "cause": entry["cause"],
-            "concrete": entry.get("concrete"),
-        })
+        all_affected.append(
+            {
+                "managed": managed,
+                "spec": entry["spec"],
+                "state": state,
+                "cause": entry["cause"],
+                "concrete": entry.get("concrete"),
+            }
+        )
 
     # Split into actionable plan vs skipped (needs confirmation)
     plan = []
@@ -2552,13 +2572,15 @@ def compute_bulk_sync_plan(
         seen_managed.add(managed)
         fresh_entry = state_map.get(managed)
         state = fresh_entry["state"] if fresh_entry else entry.get("current_state", "new")
-        all_affected.append({
-            "managed": managed,
-            "spec": entry["spec"],
-            "state": state,
-            "cause": entry["cause"],
-            "concrete": entry.get("concrete"),
-        })
+        all_affected.append(
+            {
+                "managed": managed,
+                "spec": entry["spec"],
+                "state": state,
+                "cause": entry["cause"],
+                "concrete": entry.get("concrete"),
+            }
+        )
 
     for entry in ripple["layers"]["code"]["ghost_stale"]:
         managed = entry["managed"]
@@ -2567,13 +2589,15 @@ def compute_bulk_sync_plan(
         seen_managed.add(managed)
         fresh_entry = state_map.get(managed)
         state = fresh_entry["state"] if fresh_entry else "ghost-stale"
-        all_affected.append({
-            "managed": managed,
-            "spec": entry["spec"],
-            "state": state,
-            "cause": entry["cause"],
-            "concrete": entry.get("concrete"),
-        })
+        all_affected.append(
+            {
+                "managed": managed,
+                "spec": entry["spec"],
+                "state": state,
+                "cause": entry["cause"],
+                "concrete": entry.get("concrete"),
+            }
+        )
 
     # 6. Split into actionable vs skipped
     plan_entries = []
@@ -2590,9 +2614,7 @@ def compute_bulk_sync_plan(
 
     # 7. Unified topo sort via single DAG (abstract + concrete edges)
     plan_specs = {e["spec"] for e in plan_entries}
-    sorted_specs, graph, _ = _unified_topo_sort(
-        root, filter_specs=plan_specs
-    )
+    sorted_specs, graph, _ = _unified_topo_sort(root, filter_specs=plan_specs)
     spec_order = {s: i for i, s in enumerate(sorted_specs)}
     plan_entries.sort(key=lambda e: spec_order.get(e["spec"], 999999))
     build_order = sorted_specs
@@ -2600,9 +2622,7 @@ def compute_bulk_sync_plan(
     # 8. Parallel-safe batching via Kahn's depth grouping.
     #    Nodes at the same topological depth share no dependency edges,
     #    so they can safely run in parallel within a single worktree.
-    batches = _compute_parallel_batches(
-        plan_entries, graph, max_batch_size=max_batch_size
-    )
+    batches = _compute_parallel_batches(plan_entries, graph, max_batch_size=max_batch_size)
 
     return {
         "batches": [
@@ -2774,15 +2794,11 @@ def compute_resume_plan(
 
     # 5. Sort and batch using unified DAG
     plan_specs = {e["spec"] for e in plan_entries}
-    sorted_specs, sub_graph, _ = _unified_topo_sort(
-        root, filter_specs=plan_specs
-    )
+    sorted_specs, sub_graph, _ = _unified_topo_sort(root, filter_specs=plan_specs)
     spec_order = {s: i for i, s in enumerate(sorted_specs)}
     plan_entries.sort(key=lambda e: spec_order.get(e["spec"], 999999))
 
-    batches = _compute_parallel_batches(
-        plan_entries, sub_graph, max_batch_size=max_batch_size
-    )
+    batches = _compute_parallel_batches(plan_entries, sub_graph, max_batch_size=max_batch_size)
 
     return {
         "batches": [
@@ -2957,14 +2973,11 @@ def render_dependency_graph(
     context_provider_impls: set[str] = set()  # impls kept only for causal context
 
     if stale_only:
-        stale_managed = {
-            path for path, state in state_map.items()
-            if state not in ("fresh",)
-        }
+        stale_managed = {path for path, state in state_map.items() if state not in ("fresh",)}
         if not stale_managed:
             # Nothing stale — return empty graph
             return {
-                "mermaid": "graph TD\n    empty[\"All files are fresh\"]",
+                "mermaid": 'graph TD\n    empty["All files are fresh"]',
                 "stats": {"abstract_specs": 0, "concrete_specs": 0, "managed_files": 0, "total_nodes": 0},
                 "nodes": [],
             }
@@ -3257,9 +3270,11 @@ def file_tree(directory: str) -> list[str]:
 def main():
     """CLI entry point."""
     if len(sys.argv) < 2:
-        cmds = ("discover|build-order|deps|check-freshness|concrete-order"
-                "|concrete-deps|ripple-check|deep-sync-plan|bulk-sync-plan"
-                "|resume-sync-plan|graph|file-tree")
+        cmds = (
+            "discover|build-order|deps|check-freshness|concrete-order"
+            "|concrete-deps|ripple-check|deep-sync-plan|bulk-sync-plan"
+            "|resume-sync-plan|graph|file-tree"
+        )
         print(f"Usage: orchestrator.py <{cmds}> [args]", file=sys.stderr)
         sys.exit(1)
 
@@ -3515,8 +3530,7 @@ def main():
                 i += 1
         if not failed:
             print(
-                "Usage: orchestrator.py resume-sync-plan "
-                "--failed f1,f2 --succeeded s1,s2 [--root <dir>]",
+                "Usage: orchestrator.py resume-sync-plan --failed f1,f2 --succeeded s1,s2 [--root <dir>]",
                 file=sys.stderr,
             )
             sys.exit(1)

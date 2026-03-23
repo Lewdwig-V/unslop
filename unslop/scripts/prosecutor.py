@@ -10,6 +10,7 @@ whether a surviving mutant is:
 Uses heuristic-first classification to minimize cost. LLM fallback is
 represented as a structured report for the calling agent to classify.
 """
+
 from __future__ import annotations
 
 import re
@@ -21,6 +22,7 @@ from pathlib import Path
 # ---------------------------------------------------------------------------
 # Heuristic equivalence patterns
 # ---------------------------------------------------------------------------
+
 
 class EquivalencePattern:
     """A pattern that identifies equivalent mutants heuristically."""
@@ -115,12 +117,12 @@ class StringLiteralEquivalence(EquivalencePattern):
         raise_pat = re.compile(r'raise\s+\w+\((["\'])')
         log_pat = re.compile(r'(logger?\.\w+|print)\((["\'])')
 
-        if (raise_pat.search(orig) and raise_pat.search(mut)) or \
-           (log_pat.search(orig) and log_pat.search(mut)):
+        if (raise_pat.search(orig) and raise_pat.search(mut)) or (log_pat.search(orig) and log_pat.search(mut)):
             # Check that only the string content differs
             # Strip string literals and compare structure
             def strip_strings(s):
                 return re.sub(r'(["\']).*?\1', '""', s)
+
             if strip_strings(orig) == strip_strings(mut):
                 return True
 
@@ -170,6 +172,7 @@ HEURISTIC_PATTERNS: list[EquivalencePattern] = [
 # Mutant classification
 # ---------------------------------------------------------------------------
 
+
 def classify_mutant(
     original_line: str,
     mutated_line: str,
@@ -191,7 +194,7 @@ def classify_mutant(
     context = {}
     if source_lines and line_number > 0:
         start = max(0, line_number - 5)
-        context["preceding_lines"] = source_lines[start:line_number - 1]
+        context["preceding_lines"] = source_lines[start : line_number - 1]
         if line_number - 1 < len(source_lines):
             context["mutated_line_raw"] = source_lines[line_number - 1]
 
@@ -242,6 +245,7 @@ def classify_mutant(
 # Batch classification
 # ---------------------------------------------------------------------------
 
+
 def classify_surviving_mutants(mutants: list[dict], source_path: str) -> dict:
     """Classify a batch of surviving mutants.
 
@@ -265,14 +269,16 @@ def classify_surviving_mutants(mutants: list[dict], source_path: str) -> dict:
     for i, mutant in enumerate(mutants):
         missing = required_keys - set(mutant.keys())
         if missing:
-            results["error"].append({
-                "original": mutant.get("original", ""),
-                "mutated": mutant.get("mutated", ""),
-                "line": mutant.get("line", 0),
-                "verdict": "error",
-                "pattern": None,
-                "reason": f"Mutant #{i} missing keys: {', '.join(sorted(missing))}",
-            })
+            results["error"].append(
+                {
+                    "original": mutant.get("original", ""),
+                    "mutated": mutant.get("mutated", ""),
+                    "line": mutant.get("line", 0),
+                    "verdict": "error",
+                    "pattern": None,
+                    "reason": f"Mutant #{i} missing keys: {', '.join(sorted(missing))}",
+                }
+            )
             continue
         classification = classify_mutant(
             original_line=mutant["original"],
@@ -303,6 +309,7 @@ def classify_surviving_mutants(mutants: list[dict], source_path: str) -> dict:
 # CLI
 # ---------------------------------------------------------------------------
 
+
 def main() -> None:
     """CLI for batch classification.
 
@@ -311,8 +318,7 @@ def main() -> None:
     """
     if len(sys.argv) < 2:
         print(
-            "Usage: prosecutor.py <source-file> [mutants.json]\n"
-            "  Reads mutants from stdin if no file argument given.",
+            "Usage: prosecutor.py <source-file> [mutants.json]\n  Reads mutants from stdin if no file argument given.",
             file=sys.stderr,
         )
         sys.exit(1)
