@@ -335,6 +335,67 @@ The `--dry-run` flag is read-only — no files are modified, no worktrees are sp
 
 Before generating any code, validate the spec. This section runs first — if validation fails, no code is written.
 
+### Phase 0a.0: Intent Lock (Stage A Only)
+
+Before any spec validation or mutation, the Architect must articulate the user's goal and receive explicit approval. This phase runs ONLY in Stage A (Architect) -- the Builder skips it entirely.
+
+**When Phase 0a.0 fires:**
+
+| Entry point | Trigger |
+|---|---|
+| `/unslop:change --tactical` | Always (before Architect drafts spec patch) |
+| `/unslop:takeover` | Always (after Discover, before Draft Spec) |
+| `/unslop:generate` or `/unslop:sync` with pending `*.change.md` | Once per file with pending changes (gates entry to Phase 0c) |
+
+**When Phase 0a.0 does NOT fire:**
+- `/unslop:spec` -- manual authoring; user is sovereign
+- `/unslop:generate` or `/unslop:sync` with no pending changes -- no Architect stage
+- Stage B (Builder) -- never touches specs
+- Non-interactive environments (CI) -- see CI Abort Protocol below
+
+**The protocol:**
+
+1. Read the change intent source (the `*.change.md` entries, the `--tactical` description, or the takeover target) and the current spec.
+2. Draft a one-sentence **Intent Statement** in product language (not implementation language).
+3. Present to the user and wait for explicit approval.
+4. **Approved** -- proceed to Phase 0a (structural validation).
+5. **Rejected** -- see Rejection Protocol below.
+
+**Intent Statement format:**
+
+Standard (tactical and pending changes):
+
+> "I understand you want to [abstract goal]. To achieve this, I'll update the [spec name] spec to [constraint-level description of the change]."
+
+Takeover variant (after reading existing code in Discover step):
+
+> "From the existing code, I understand this module's purpose is [extracted intent]. I'll draft a spec that captures [key behaviors]. Does this match your understanding of what this code should do?"
+
+**Language constraint:** The goal must be expressed in user/product language, not implementation language.
+
+- **Pass:** "Ensure token expiration is strictly enforced"
+- **Fail:** "Add a TTL check to the auth middleware"
+
+If the Architect cannot explain the change without referencing implementation details, it has not extracted the requirement. It must reformulate before presenting.
+
+**No force-approve.** There is no force-approve or auto-approve mechanism for Phase 0a.0. The double-gate (Intent Lock + spec approval) is mandatory for all Architect-mediated changes.
+
+**Batched pending changes (generate/sync path):** When processing a file with multiple pending `*.change.md` entries, fire the Intent Lock **once per file** with an aggregated intent statement. If entries contain contradictory requirements, surface the conflict:
+
+> "Pending changes for `[file]` contain conflicting intent: [Change A] requests [X], [Change B] requests [Y]. Which takes precedence?"
+
+Phase 0a.0 approval is a prerequisite for entering Phase 0c for that file. Phase 0c's per-entry rejection still applies after Phase 0a.0 approval -- the Intent Lock validates combined direction; Phase 0c validates individual spec mutations.
+
+**Rejection granularity:** Phase 0a.0 is all-or-nothing per file. Rejecting the aggregated intent retains all entries and skips the file. To remove a bad entry, edit `*.change.md` manually and re-run.
+
+**Rejection protocol:**
+
+- **Tactical (path a):** The entry remains in `*.change.md`. The Architect asks "Could you clarify the requirement?" and may reformulate in the same session. No limit on attempts.
+- **Takeover (path b):** No spec is created. The Architect reformulates in the same session. If the user abandons (exits), no artifacts are left behind.
+- **Pending changes (path c):** All entries retained. File skipped. Other files in the batch continue normally.
+
+**CI abort:** In non-interactive environments, Phase 0a.0 never fires because the Intent Lock requires a TTY. Interactive commands (`sync`, `generate`) will hang waiting for input -- the correct failure mode (timeout, not silent auto-approve). The `check-freshness` command surfaces pending changes as a distinct error class (see Phase 0a.0 CI integration below).
+
 ### Phase 0a: Structural Validation
 
 Call the structural validator script:
