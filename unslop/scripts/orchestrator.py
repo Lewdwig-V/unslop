@@ -746,13 +746,13 @@ def compute_concrete_deps_hash(impl_path: str, project_root: str) -> str | None:
 def compute_concrete_manifest(impl_path: str, project_root: str) -> dict[str, str] | None:
     """Compute a per-dependency manifest for surgical ghost-staleness detection.
 
-    Returns a dict of {dep_path: 12-char-hex-hash} for all direct strategy
-    providers (concrete-dependencies + extends parent). Returns None if no
-    strategy providers exist.
+    Returns a dict of {dep_path: 12-char-hex-hash} for all **transitive**
+    strategy providers (concrete-dependencies + extends parent, recursively).
+    Returns None if no strategy providers exist.
 
-    Unlike compute_concrete_deps_hash (which produces a single opaque hash
-    of all transitive deps), the manifest stores each direct dependency
-    individually so check_freshness() can pinpoint exactly which dep changed.
+    Unlike compute_concrete_deps_hash (which produces a single opaque hash),
+    the manifest stores each dependency individually so check_freshness() can
+    pinpoint exactly which dep changed — including deep transitive changes.
     """
     impl = Path(impl_path)
     if not impl.exists():
@@ -764,18 +764,33 @@ def compute_concrete_manifest(impl_path: str, project_root: str) -> dict[str, st
         return None
 
     meta = parse_concrete_frontmatter(content)
-    providers = get_all_strategy_providers(meta)
-    if not providers:
+    direct_providers = get_all_strategy_providers(meta)
+    if not direct_providers:
         return None
 
     root = Path(project_root).resolve()
     manifest = {}
-    for dep_path in sorted(providers):
+
+    # BFS through the full transitive provider tree
+    queue = list(direct_providers)
+    visited: set[str] = set()
+
+    while queue:
+        dep_path = queue.pop(0)
+        if dep_path in visited:
+            continue
+        visited.add(dep_path)
+
         dep_full = root / dep_path
         if dep_full.exists():
             try:
                 dep_content = dep_full.read_text(encoding="utf-8")
                 manifest[dep_path] = compute_hash(dep_content)
+                # Walk this dep's own providers (transitive)
+                dep_meta = parse_concrete_frontmatter(dep_content)
+                for upstream in get_all_strategy_providers(dep_meta):
+                    if upstream not in visited:
+                        queue.append(upstream)
             except (OSError, UnicodeDecodeError):
                 manifest[dep_path] = "unreadable000"
         else:
@@ -798,9 +813,14 @@ def diagnose_ghost_staleness(
 ) -> list[dict]:
     """Compare stored manifest against current state, returning surgical diagnostics.
 
-    For each changed dependency, walks its own upstream chain to find the
-    root cause. Returns a list of diagnostic dicts:
-      {dep: "path", stored_hash: "...", current_hash: "...", chain: ["path -> changed_upstream"]}
+    The manifest is expected to contain **transitive** deps (since v0.11.6).
+    Each entry is compared directly against the current file on disk.  For each
+    changed dependency, walks its upstream chain to find the root cause.
+
+    Returns a list of diagnostic dicts:
+      {dep: "path", stored_hash: "...", current_hash: "...",
+       reason: "changed"|"not found"|"unreadable",
+       chain: ["path -> changed_upstream"]}
     """
     root = Path(project_root).resolve()
     diagnostics = []

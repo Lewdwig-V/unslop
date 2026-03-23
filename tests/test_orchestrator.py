@@ -2836,3 +2836,231 @@ def test_graph_staleness_coloring(tmp_path):
     assert code_nodes[0]["state"] == "fresh"
     assert "class" in result["mermaid"]
     assert "fresh" in result["mermaid"]
+
+
+# --- deep ghost (transitive staleness via concrete-manifest) tests ---
+
+
+def _make_managed_with_manifest(tmp_path, name, spec_name, body, manifest_dict):
+    """Helper to create a managed file with a concrete-manifest header."""
+    spec_content = (tmp_path / spec_name).read_text()
+    sh = compute_hash(spec_content)
+    oh = compute_hash(body)
+    manifest_str = format_manifest_header(manifest_dict)
+    (tmp_path / name).write_text(
+        f"# @unslop-managed — do not edit directly. Edit {spec_name} instead.\n"
+        f"# spec-hash:{sh} output-hash:{oh} concrete-manifest:{manifest_str}"
+        f" generated:2026-03-23T00:00:00Z\n" + body
+    )
+
+
+def test_deep_ghost_manifest_3_layer_chain(tmp_path):
+    """api -> service -> utils chain: changing utils should stale api via manifest."""
+    # Create impl.md chain: api extends service extends utils
+    utils_text = (
+        "---\nephemeral: false\n---\n\n## Strategy\nUtils strategy v1.\n"
+    )
+    (tmp_path / "utils.impl.md").write_text(utils_text)
+
+    service_text = (
+        "---\nsource-spec: service.py.spec.md\nephemeral: false\n"
+        "extends: utils.impl.md\n---\n\n## Strategy\nService strategy.\n"
+    )
+    (tmp_path / "service.impl.md").write_text(service_text)
+
+    api_text = (
+        "---\nsource-spec: api.py.spec.md\nephemeral: false\n"
+        "extends: service.impl.md\n---\n\n## Strategy\nAPI strategy.\n"
+    )
+    (tmp_path / "api.impl.md").write_text(api_text)
+
+    # Spec files
+    (tmp_path / "service.py.spec.md").write_text("# Service\n")
+    (tmp_path / "api.py.spec.md").write_text("# API\n")
+
+    # Use compute_concrete_manifest to build transitive manifests
+    service_manifest = compute_concrete_manifest(str(tmp_path / "service.impl.md"), str(tmp_path))
+    assert service_manifest is not None
+    assert "utils.impl.md" in service_manifest
+    _make_managed_with_manifest(
+        tmp_path, "service.py", "service.py.spec.md",
+        "def service(): pass\n", service_manifest
+    )
+
+    api_manifest = compute_concrete_manifest(str(tmp_path / "api.impl.md"), str(tmp_path))
+    assert api_manifest is not None
+    # Transitive manifest should include both service AND utils
+    assert "service.impl.md" in api_manifest
+    assert "utils.impl.md" in api_manifest, (
+        "Transitive manifest should include grandparent utils.impl.md"
+    )
+    _make_managed_with_manifest(
+        tmp_path, "api.py", "api.py.spec.md",
+        "def api(): pass\n", api_manifest
+    )
+
+    # Verify both start fresh
+    result = check_freshness(str(tmp_path))
+    api_entry = [f for f in result["files"] if f["managed"] == "api.py"]
+    service_entry = [f for f in result["files"] if f["managed"] == "service.py"]
+    assert api_entry[0]["state"] == "fresh"
+    assert service_entry[0]["state"] == "fresh"
+
+    # Change utils (the deepest layer)
+    (tmp_path / "utils.impl.md").write_text(
+        "---\nephemeral: false\n---\n\n## Strategy\nUtils strategy v2 — CHANGED.\n"
+    )
+
+    # Both service and api should now be ghost-stale
+    result = check_freshness(str(tmp_path))
+    service_entry = [f for f in result["files"] if f["managed"] == "service.py"]
+    api_entry = [f for f in result["files"] if f["managed"] == "api.py"]
+
+    assert service_entry[0]["state"] == "ghost-stale", (
+        f"Expected ghost-stale for service after utils change, got: {service_entry[0]}"
+    )
+    assert api_entry[0]["state"] == "ghost-stale", (
+        f"Expected ghost-stale for api after utils change (transitive), got: {api_entry[0]}"
+    )
+
+
+def test_deep_ghost_transitive_manifest_includes_grandparent(tmp_path):
+    """compute_concrete_manifest should include transitive deps."""
+    utils_text = "---\nephemeral: false\n---\n\n## Strategy\nUtils v1.\n"
+    (tmp_path / "utils.impl.md").write_text(utils_text)
+
+    service_text = (
+        "---\nsource-spec: service.py.spec.md\nephemeral: false\n"
+        "extends: utils.impl.md\n---\n\n## Strategy\nService.\n"
+    )
+    (tmp_path / "service.impl.md").write_text(service_text)
+    (tmp_path / "service.py.spec.md").write_text("# Service\n")
+
+    api_text = (
+        "---\nsource-spec: api.py.spec.md\nephemeral: false\n"
+        "extends: service.impl.md\n---\n\n## Strategy\nAPI.\n"
+    )
+    (tmp_path / "api.impl.md").write_text(api_text)
+    (tmp_path / "api.py.spec.md").write_text("# API\n")
+
+    # Transitive manifest should include service AND utils
+    manifest = compute_concrete_manifest(str(tmp_path / "api.impl.md"), str(tmp_path))
+    assert manifest is not None
+    assert "service.impl.md" in manifest
+    assert "utils.impl.md" in manifest, "Grandparent should be in transitive manifest"
+
+    # Before change, should be clean
+    diagnostics = diagnose_ghost_staleness(manifest, str(tmp_path))
+    assert diagnostics == [], "Should be fresh before change"
+
+    # Change utils — now diagnose should catch it directly
+    (tmp_path / "utils.impl.md").write_text(
+        "---\nephemeral: false\n---\n\n## Strategy\nUtils v2.\n"
+    )
+
+    diagnostics = diagnose_ghost_staleness(manifest, str(tmp_path))
+    assert len(diagnostics) >= 1
+    assert diagnostics[0]["reason"] == "changed"
+    assert diagnostics[0]["dep"] == "utils.impl.md"
+
+
+def test_deep_ghost_manifest_4_layer_chain(tmp_path):
+    """4-deep chain: a -> b -> c -> d, changing d should stale a."""
+    d_text = "---\nephemeral: false\n---\n\n## Strategy\nD v1.\n"
+    (tmp_path / "d.impl.md").write_text(d_text)
+
+    c_text = "---\nephemeral: false\nextends: d.impl.md\n---\n\n## Strategy\nC.\n"
+    (tmp_path / "c.impl.md").write_text(c_text)
+
+    b_text = "---\nephemeral: false\nextends: c.impl.md\n---\n\n## Strategy\nB.\n"
+    (tmp_path / "b.impl.md").write_text(b_text)
+
+    a_text = "---\nephemeral: false\nextends: b.impl.md\n---\n\n## Strategy\nA.\n"
+    (tmp_path / "a.impl.md").write_text(a_text)
+
+    # Transitive manifest should include all 3 ancestors
+    a_manifest = compute_concrete_manifest(str(tmp_path / "a.impl.md"), str(tmp_path))
+    assert a_manifest is not None
+    assert "b.impl.md" in a_manifest
+    assert "c.impl.md" in a_manifest
+    assert "d.impl.md" in a_manifest
+
+    assert diagnose_ghost_staleness(a_manifest, str(tmp_path)) == []
+
+    # Change d (the deepest)
+    (tmp_path / "d.impl.md").write_text(
+        "---\nephemeral: false\n---\n\n## Strategy\nD v2.\n"
+    )
+
+    diagnostics = diagnose_ghost_staleness(a_manifest, str(tmp_path))
+    assert len(diagnostics) >= 1, "Should detect deep change through transitive manifest"
+    assert diagnostics[0]["dep"] == "d.impl.md"
+
+
+def test_deep_ghost_no_cycle_infinite_loop(tmp_path):
+    """Circular deps should not cause infinite loop in compute_concrete_manifest."""
+    a_text = "---\nephemeral: false\nconcrete-dependencies:\n  - b.impl.md\n---\n\n## Strategy\nA.\n"
+    (tmp_path / "a.impl.md").write_text(a_text)
+
+    b_text = "---\nephemeral: false\nconcrete-dependencies:\n  - a.impl.md\n---\n\n## Strategy\nB.\n"
+    (tmp_path / "b.impl.md").write_text(b_text)
+
+    # Should not hang — the BFS visited set prevents cycles
+    manifest = compute_concrete_manifest(str(tmp_path / "a.impl.md"), str(tmp_path))
+    assert manifest is not None
+    # Should include both a's dep (b) and b's dep (a) — but a is the source,
+    # so the manifest just has b
+    assert "b.impl.md" in manifest
+    # a.impl.md should also be included (b depends on it)
+    assert "a.impl.md" in manifest
+
+
+def test_deep_ghost_manifest_diamond_dependency(tmp_path):
+    """Diamond: a -> b, a -> c, b -> d, c -> d. Changing d stales a."""
+    d_text = "---\nephemeral: false\n---\n\n## Strategy\nD v1.\n"
+    (tmp_path / "d.impl.md").write_text(d_text)
+
+    b_text = "---\nephemeral: false\nextends: d.impl.md\n---\n\n## Strategy\nB.\n"
+    (tmp_path / "b.impl.md").write_text(b_text)
+
+    c_text = "---\nephemeral: false\nextends: d.impl.md\n---\n\n## Strategy\nC.\n"
+    (tmp_path / "c.impl.md").write_text(c_text)
+
+    a_text = (
+        "---\nephemeral: false\nconcrete-dependencies:\n  - b.impl.md\n  - c.impl.md\n"
+        "---\n\n## Strategy\nA.\n"
+    )
+    (tmp_path / "a.impl.md").write_text(a_text)
+
+    a_manifest = compute_concrete_manifest(str(tmp_path / "a.impl.md"), str(tmp_path))
+    assert a_manifest is not None
+    # Transitive manifest includes b, c, AND d (the shared grandparent)
+    assert "b.impl.md" in a_manifest
+    assert "c.impl.md" in a_manifest
+    assert "d.impl.md" in a_manifest
+
+    assert diagnose_ghost_staleness(a_manifest, str(tmp_path)) == []
+
+    # Change d
+    (tmp_path / "d.impl.md").write_text(
+        "---\nephemeral: false\n---\n\n## Strategy\nD v2.\n"
+    )
+
+    diagnostics = diagnose_ghost_staleness(a_manifest, str(tmp_path))
+    assert len(diagnostics) >= 1, "Diamond dep change should be detected"
+    assert diagnostics[0]["dep"] == "d.impl.md"
+
+
+def test_deep_ghost_format_message_with_chain(tmp_path):
+    """format_ghost_diagnostic should produce readable messages with chains."""
+    diagnostics = [{
+        "dep": "utils.impl.md",
+        "stored_hash": "aaa",
+        "current_hash": "bbb",
+        "reason": "changed",
+        "chain": ["utils.impl.md"],
+    }]
+    reasons = format_ghost_diagnostic(diagnostics)
+    assert len(reasons) == 1
+    assert "changed" in reasons[0]
+    assert "utils.impl.md" in reasons[0]
