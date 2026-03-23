@@ -5,7 +5,7 @@ import sys
 import os
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'unslop', 'scripts'))
 
-from orchestrator import compute_hash, parse_header, parse_frontmatter, topo_sort, discover_files, build_order_from_dir, resolve_deps, classify_file, check_freshness, parse_change_file, file_tree, parse_concrete_frontmatter, compute_concrete_deps_hash, build_concrete_order
+from orchestrator import compute_hash, parse_header, parse_frontmatter, topo_sort, discover_files, build_order_from_dir, resolve_deps, classify_file, check_freshness, parse_change_file, file_tree, parse_concrete_frontmatter, compute_concrete_deps_hash, build_concrete_order, resolve_extends_chain, resolve_inherited_sections
 
 
 def test_compute_hash_deterministic():
@@ -1150,3 +1150,146 @@ def test_check_freshness_detects_concrete_cycle(tmp_path):
     cycle_entries = [f for f in result["files"] if "cycle" in f.get("hint", "").lower()]
     assert len(cycle_entries) == 1
     assert cycle_entries[0]["state"] == "error"
+
+
+# --- strategy inheritance tests ---
+
+def test_parse_concrete_frontmatter_extends():
+    content = """---
+source-spec: src/handler.py.spec.md
+target-language: python
+extends: shared/fastapi-async.impl.md
+ephemeral: false
+---
+"""
+    result = parse_concrete_frontmatter(content)
+    assert result["extends"] == "shared/fastapi-async.impl.md"
+
+
+def test_resolve_extends_chain_single(tmp_path):
+    """No extends = chain of 1."""
+    (tmp_path / "child.impl.md").write_text(
+        "---\nsource-spec: child.spec.md\ntarget-language: python\n---\n"
+    )
+    chain = resolve_extends_chain("child.impl.md", str(tmp_path))
+    assert chain == ["child.impl.md"]
+
+
+def test_resolve_extends_chain_two_levels(tmp_path):
+    shared = tmp_path / "shared"
+    shared.mkdir()
+    (shared / "base.impl.md").write_text(
+        "---\ntarget-language: python\n---\n\n## Pattern\n\n- **Concurrency**: async\n"
+    )
+    (tmp_path / "child.impl.md").write_text(
+        "---\nsource-spec: child.spec.md\ntarget-language: python\n"
+        "extends: shared/base.impl.md\n---\n"
+    )
+    chain = resolve_extends_chain("child.impl.md", str(tmp_path))
+    assert chain == ["child.impl.md", "shared/base.impl.md"]
+
+
+def test_resolve_extends_chain_cycle_raises(tmp_path):
+    import pytest
+    (tmp_path / "a.impl.md").write_text(
+        "---\ntarget-language: python\nextends: b.impl.md\n---\n"
+    )
+    (tmp_path / "b.impl.md").write_text(
+        "---\ntarget-language: python\nextends: a.impl.md\n---\n"
+    )
+    with pytest.raises(ValueError, match="Cycle detected in extends chain"):
+        resolve_extends_chain("a.impl.md", str(tmp_path))
+
+
+def test_resolve_extends_chain_depth_limit(tmp_path):
+    import pytest
+    # Create a 4-level chain (exceeds MAX_EXTENDS_DEPTH=3)
+    (tmp_path / "d.impl.md").write_text("---\ntarget-language: python\n---\n")
+    (tmp_path / "c.impl.md").write_text("---\ntarget-language: python\nextends: d.impl.md\n---\n")
+    (tmp_path / "b.impl.md").write_text("---\ntarget-language: python\nextends: c.impl.md\n---\n")
+    (tmp_path / "a.impl.md").write_text("---\ntarget-language: python\nextends: b.impl.md\n---\n")
+    with pytest.raises(ValueError, match="exceeds maximum depth"):
+        resolve_extends_chain("a.impl.md", str(tmp_path))
+
+
+def test_resolve_inherited_sections_lowering_notes(tmp_path):
+    """Child should inherit parent's Lowering Notes and override by language."""
+    shared = tmp_path / "shared"
+    shared.mkdir()
+    (shared / "base.impl.md").write_text(
+        "---\ntarget-language: python\n---\n\n"
+        "## Lowering Notes\n\n### Python\n- Use asyncio\n- Use Annotated DI\n\n"
+        "### Go\n- Use goroutines\n"
+    )
+    (tmp_path / "child.impl.md").write_text(
+        "---\nsource-spec: child.spec.md\ntarget-language: python\n"
+        "extends: shared/base.impl.md\n---\n\n"
+        "## Strategy\n\nSome strategy here.\n\n"
+        "## Lowering Notes\n\n### Python\n- Use asyncio\n- Custom override for child\n"
+    )
+    sections = resolve_inherited_sections("child.impl.md", str(tmp_path))
+    assert "Lowering Notes" in sections
+    # Python should be overridden by child
+    assert "Custom override for child" in sections["Lowering Notes"]
+    # Go should be inherited from parent
+    assert "goroutines" in sections["Lowering Notes"]
+
+
+def test_resolve_inherited_sections_pattern_merge(tmp_path):
+    """Child pattern keys should override parent, non-conflicting preserved."""
+    shared = tmp_path / "shared"
+    shared.mkdir()
+    (shared / "base.impl.md").write_text(
+        "---\ntarget-language: python\n---\n\n"
+        "## Pattern\n\n"
+        "- **Concurrency model**: async cooperative\n"
+        "- **DI pattern**: Annotated depends\n"
+    )
+    (tmp_path / "child.impl.md").write_text(
+        "---\nsource-spec: child.spec.md\ntarget-language: python\n"
+        "extends: shared/base.impl.md\n---\n\n"
+        "## Strategy\n\nChild strategy.\n\n"
+        "## Pattern\n\n"
+        "- **Concurrency model**: threaded pool\n"
+    )
+    sections = resolve_inherited_sections("child.impl.md", str(tmp_path))
+    assert "Pattern" in sections
+    # Child overrides Concurrency model
+    assert "threaded pool" in sections["Pattern"]
+    # Parent's DI pattern is preserved
+    assert "Annotated depends" in sections["Pattern"]
+
+
+def test_resolve_inherited_sections_strategy_not_inherited(tmp_path):
+    """Strategy should always come from child, never inherited."""
+    shared = tmp_path / "shared"
+    shared.mkdir()
+    (shared / "base.impl.md").write_text(
+        "---\ntarget-language: python\n---\n\n"
+        "## Strategy\n\nParent strategy — should NOT appear.\n\n"
+        "## Pattern\n\n- **Concurrency**: async\n"
+    )
+    (tmp_path / "child.impl.md").write_text(
+        "---\nsource-spec: child.spec.md\ntarget-language: python\n"
+        "extends: shared/base.impl.md\n---\n\n"
+        "## Strategy\n\nChild strategy — should WIN.\n"
+    )
+    sections = resolve_inherited_sections("child.impl.md", str(tmp_path))
+    assert "Child strategy" in sections["Strategy"]
+    assert "Parent strategy" not in sections["Strategy"]
+
+
+def test_build_concrete_order_includes_extends(tmp_path):
+    """extends should be treated as an implicit dependency in build order."""
+    shared = tmp_path / "shared"
+    shared.mkdir()
+    (shared / "base.impl.md").write_text(
+        "---\ntarget-language: python\n---\n"
+    )
+    (tmp_path / "child.impl.md").write_text(
+        "---\ntarget-language: python\nextends: shared/base.impl.md\n---\n"
+    )
+    result = build_concrete_order(str(tmp_path))
+    base_idx = result.index("shared/base.impl.md")
+    child_idx = result.index("child.impl.md")
+    assert base_idx < child_idx  # Parent must come before child

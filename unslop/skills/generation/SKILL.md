@@ -69,6 +69,10 @@ After the Architect finalizes the Abstract Spec (Stage A.1) and before dispatchi
 - `## Type Sketch` — structural type signatures (language-agnostic)
 - `## Lowering Notes` — language-specific considerations (optional, only for permanent specs)
 
+**Strategy Inheritance:** If the concrete spec has `extends: <base.impl.md>` in its frontmatter, the Strategist resolves the inheritance chain before presenting the concrete spec to the Builder. The Builder receives the **resolved** concrete spec — it never sees the raw `extends` directive. Resolution rules: `## Strategy` and `## Type Sketch` come from the child only; `## Pattern` merges (child overrides by key); `## Lowering Notes` inherits with child overrides by language heading. See the `unslop/concrete-spec` skill for full resolution semantics.
+
+The Strategist should use `extends` when generating concrete specs for modules that share architectural patterns (e.g., multiple FastAPI endpoints inheriting from `shared/fastapi-async.impl.md`). This reduces token cost and ensures consistency across related modules.
+
 **User approval:** Stage A.2 does NOT require user approval for ephemeral concrete specs. The user approved the Abstract Spec in Stage A.1 — the Concrete Spec is a derivation, not a new requirement. For permanent concrete specs, present a summary:
 
 > "Implementation strategy: [pattern name] using [algorithm]. Promoting to permanent. Review?"

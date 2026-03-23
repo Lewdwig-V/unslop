@@ -160,6 +160,8 @@ def parse_concrete_frontmatter(content: str) -> dict:
             result["ephemeral"] = val == "true"
         elif stripped.startswith("complexity:"):
             result["complexity"] = stripped.split(":", 1)[1].strip()
+        elif stripped.startswith("extends:"):
+            result["extends"] = stripped.split(":", 1)[1].strip()
         elif stripped == "concrete-dependencies:":
             in_concrete_deps = True
             continue
@@ -175,6 +177,198 @@ def parse_concrete_frontmatter(content: str) -> dict:
         result["concrete_dependencies"] = concrete_deps
 
     return result
+
+
+MAX_EXTENDS_DEPTH = 3
+
+
+def resolve_extends_chain(impl_path: str, project_root: str) -> list[str]:
+    """Resolve the extends chain for a concrete spec.
+
+    Returns list of impl paths in resolution order (most general first,
+    most specific last). The input impl_path is always the last element.
+
+    Raises ValueError on:
+    - Cycle in extends chain
+    - Chain depth exceeding MAX_EXTENDS_DEPTH
+    - Missing parent file
+    """
+    root = Path(project_root).resolve()
+    chain = []
+    visited = set()
+    current = impl_path
+
+    while current:
+        resolved = str((root / current).resolve())
+        if resolved in visited:
+            chain_str = " → ".join(chain + [current])
+            raise ValueError(f"Cycle detected in extends chain: {chain_str}")
+
+        chain.append(current)
+        visited.add(resolved)
+
+        if len(chain) > MAX_EXTENDS_DEPTH:
+            raise ValueError(
+                f"Extends chain exceeds maximum depth of {MAX_EXTENDS_DEPTH}: "
+                f"{' → '.join(chain)}. Flatten the hierarchy."
+            )
+
+        full_path = root / current
+        if not full_path.exists():
+            if len(chain) == 1:
+                # The impl itself doesn't exist — not an error, just no chain
+                return chain
+            raise ValueError(f"Missing parent concrete spec in extends chain: {current}")
+
+        try:
+            content = full_path.read_text(encoding="utf-8")
+        except (OSError, UnicodeDecodeError):
+            break
+
+        meta = parse_concrete_frontmatter(content)
+        current = meta.get("extends")
+
+    return chain
+
+
+def resolve_inherited_sections(impl_path: str, project_root: str) -> dict[str, str]:
+    """Resolve all inherited sections for a concrete spec.
+
+    Returns a dict of section_name -> resolved_content with inheritance applied.
+    Child sections override parent sections per the resolution rules.
+    """
+    root = Path(project_root).resolve()
+    chain = resolve_extends_chain(impl_path, project_root)
+
+    # Read sections from each level (most general first)
+    # chain is [child, parent, grandparent] — reverse to get [grandparent, parent, child]
+    sections_stack = []
+    for path in reversed(chain):
+        full = root / path
+        if not full.exists():
+            continue
+        try:
+            content = full.read_text(encoding="utf-8")
+        except (OSError, UnicodeDecodeError):
+            continue
+
+        sections = _extract_sections(content)
+        sections_stack.append(sections)
+
+    if not sections_stack:
+        return {}
+
+    # Merge: start from the most general, overlay with more specific
+    resolved = {}
+    for sections in sections_stack:
+        for name, content in sections.items():
+            if name == "Strategy":
+                # Strategy is never inherited — always use the most specific
+                resolved[name] = content
+            elif name == "Type Sketch":
+                # Type Sketch is never inherited — always use the most specific
+                resolved[name] = content
+            elif name == "Pattern":
+                # Pattern merges — child entries override by key
+                if name not in resolved:
+                    resolved[name] = content
+                else:
+                    resolved[name] = _merge_pattern_sections(resolved[name], content)
+            elif name == "Lowering Notes":
+                # Lowering Notes inherit + override by language heading
+                if name not in resolved:
+                    resolved[name] = content
+                else:
+                    resolved[name] = _merge_lowering_notes(resolved[name], content)
+            else:
+                # Unknown sections: child wins
+                resolved[name] = content
+
+    return resolved
+
+
+def _extract_sections(content: str) -> dict[str, str]:
+    """Extract ## sections from a markdown file into a dict."""
+    sections = {}
+    current_name = None
+    current_lines = []
+
+    # Strip frontmatter
+    lines = content.split("\n")
+    body_start = 0
+    if lines and lines[0].strip() == "---":
+        for i in range(1, len(lines)):
+            if lines[i].strip() == "---":
+                body_start = i + 1
+                break
+
+    for line in lines[body_start:]:
+        match = re.match(r"^## (.+)$", line)
+        if match:
+            if current_name:
+                sections[current_name] = "\n".join(current_lines).strip()
+            current_name = match.group(1).strip()
+            current_lines = []
+        elif current_name is not None:
+            current_lines.append(line)
+
+    if current_name:
+        sections[current_name] = "\n".join(current_lines).strip()
+
+    return sections
+
+
+def _merge_pattern_sections(parent: str, child: str) -> str:
+    """Merge Pattern sections. Child entries override parent entries by key."""
+    parent_patterns = _parse_pattern_entries(parent)
+    child_patterns = _parse_pattern_entries(child)
+    # Child overrides parent
+    merged = {**parent_patterns, **child_patterns}
+    return "\n".join(f"- **{k}**: {v}" for k, v in merged.items())
+
+
+def _parse_pattern_entries(content: str) -> dict[str, str]:
+    """Parse '- **Key**: Value' pattern entries into a dict."""
+    entries = {}
+    for line in content.split("\n"):
+        match = re.match(r"^\s*-\s+\*\*(.+?)\*\*:\s*(.+)$", line)
+        if match:
+            entries[match.group(1).strip()] = match.group(2).strip()
+    return entries
+
+
+def _merge_lowering_notes(parent: str, child: str) -> str:
+    """Merge Lowering Notes by language heading. Child overrides matching headings."""
+    parent_langs = _parse_language_blocks(parent)
+    child_langs = _parse_language_blocks(child)
+    merged = {**parent_langs, **child_langs}
+    parts = []
+    for lang, content in merged.items():
+        parts.append(f"### {lang}")
+        parts.append(content)
+    return "\n\n".join(parts)
+
+
+def _parse_language_blocks(content: str) -> dict[str, str]:
+    """Parse ### Language blocks from Lowering Notes into a dict."""
+    blocks = {}
+    current_lang = None
+    current_lines = []
+
+    for line in content.split("\n"):
+        match = re.match(r"^### (.+)$", line)
+        if match:
+            if current_lang:
+                blocks[current_lang] = "\n".join(current_lines).strip()
+            current_lang = match.group(1).strip()
+            current_lines = []
+        elif current_lang is not None:
+            current_lines.append(line)
+
+    if current_lang:
+        blocks[current_lang] = "\n".join(current_lines).strip()
+
+    return blocks
 
 
 def build_concrete_order(directory: str) -> list[str]:
@@ -197,7 +391,10 @@ def build_concrete_order(directory: str) -> list[str]:
             graph[name] = []
             continue
         meta = parse_concrete_frontmatter(content)
-        deps = meta.get("concrete_dependencies", [])
+        deps = list(meta.get("concrete_dependencies", []))
+        # extends is an implicit dependency — parent must be processed before child
+        if "extends" in meta:
+            deps.append(meta["extends"])
         graph[name] = deps
 
     # Add missing nodes (deps that don't have their own .impl.md)

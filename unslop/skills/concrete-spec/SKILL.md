@@ -41,6 +41,7 @@ source-spec: src/retry.py.spec.md
 target-language: python
 ephemeral: true
 complexity: standard
+extends: shared/fastapi-async.impl.md
 concrete-dependencies:
   - src/core/connection_pool.py.impl.md
 ---
@@ -52,6 +53,7 @@ concrete-dependencies:
 | `target-language` | yes | Target language/platform for lowering |
 | `ephemeral` | no | Default `true`. Set `false` when promoted via `/unslop:promote` or when complexity meets the project's `promote-threshold` |
 | `complexity` | no | `low`, `medium`, or `high`. Compared against the project's `promote-threshold` for auto-promotion |
+| `extends` | no | Path to a base `*.impl.md` whose sections are inherited. Child sections override parent sections. See Strategy Inheritance |
 | `concrete-dependencies` | no | Paths to upstream `*.impl.md` files whose strategy choices affect this spec's lowering. Changes in upstream concrete specs trigger ghost staleness |
 
 ### Concrete Dependencies
@@ -99,6 +101,129 @@ Ghost staleness is invisible to the standard staleness check (which only tracks 
 **In `/unslop:status`:** Ghost-stale files appear as a distinct state:
 
 > `src/api/handler.py` — **ghost-stale** (upstream concrete spec changed: `src/core/connection_pool.py.impl.md`)
+
+### Strategy Inheritance
+
+Concrete specs can **extend** a base concrete spec to inherit shared sections. This eliminates duplication of `## Lowering Notes` and `## Pattern` across modules that share the same architectural approach.
+
+#### Inheritance Model
+
+```yaml
+---
+source-spec: src/api/users.py.spec.md
+target-language: python
+extends: shared/fastapi-async.impl.md
+---
+```
+
+The `extends` field points to a **base concrete spec** — a `.impl.md` file that defines shared patterns and lowering conventions. The child inherits all sections from the parent, then overrides with its own.
+
+#### Resolution Order (Child Wins)
+
+| Section | Behavior |
+|---|---|
+| `## Strategy` | **Child only** — never inherited. Each module's algorithm is unique. If the child omits `## Strategy`, it is an error. |
+| `## Pattern` | **Merge** — child patterns are appended to parent patterns. If the child redefines a pattern key (e.g., "Concurrency model"), the child's value wins. |
+| `## Type Sketch` | **Child only** — types are module-specific. The parent's type sketch is available as reference but not merged. |
+| `## Lowering Notes` | **Inherit + Override** — the child inherits all parent lowering notes. If the child defines its own `## Lowering Notes`, the child's entries override matching parent entries (keyed by language heading). Non-conflicting parent entries are preserved. |
+
+#### Example: FastAPI Async Base
+
+**Base spec (`shared/fastapi-async.impl.md`):**
+
+```markdown
+---
+target-language: python
+ephemeral: false
+---
+
+# FastAPI Async Base Strategy
+
+## Pattern
+
+- **Concurrency model**: Single-threaded async with cooperative yielding
+- **DI pattern**: Annotated[T, Depends()] for all injected dependencies
+- **Response model**: Pydantic BaseModel subclass, separate from ORM models
+- **Error propagation**: HTTPException with structured detail payload
+
+## Lowering Notes
+
+### Python
+- All route handlers are `async def`
+- Use `asyncio.sleep()` not `time.sleep()`
+- DB sessions via `async with` context manager
+- `Annotated[T, Depends(provider)]` — never legacy `param = Depends()`
+- Response schemas are Pydantic v2 `BaseModel` with `model_config`
+```
+
+**Child spec (`src/api/users.py.impl.md`):**
+
+```markdown
+---
+source-spec: src/api/users.py.spec.md
+target-language: python
+extends: shared/fastapi-async.impl.md
+ephemeral: false
+complexity: medium
+---
+
+# users.py — Concrete Spec
+
+## Strategy
+
+### Core Algorithm
+
+` ``pseudocode
+FUNCTION list_users(filters, pagination, db_session)
+    SET query ← BUILD base query FROM User model
+    SET query ← APPLY filters TO query
+    SET total ← COUNT query
+    SET results ← EXECUTE query WITH pagination.offset, pagination.limit
+    RETURN PaginatedResponse(items: results, total: total)
+END FUNCTION
+` ``
+
+## Type Sketch
+
+` ``
+ListUsersFilters {
+    name_contains: string? (optional)
+    role: enum<admin, user, guest>? (optional)
+    created_after: datetime? (optional)
+}
+
+PaginatedResponse<T> {
+    items: list<T>
+    total: int (>= 0)
+}
+` ``
+```
+
+**Resolved concrete spec** (what the Builder sees):
+- `## Strategy` — from child (list_users algorithm)
+- `## Pattern` — merged: child has no overrides, so all 4 parent patterns apply
+- `## Type Sketch` — from child (ListUsersFilters, PaginatedResponse)
+- `## Lowering Notes` — inherited from parent (async def, asyncio, Annotated DI, Pydantic v2)
+
+The child spec is **38 lines** instead of the **70+** it would be without inheritance. Multiply by 5 endpoints and you've eliminated 160 lines of duplicated lowering notes.
+
+#### Base Spec Rules
+
+Base concrete specs (`shared/*.impl.md`) have special properties:
+
+- They **do not require `source-spec`** — they are not tied to a specific abstract spec
+- They **do not generate code** — they exist only to be inherited
+- They are **always permanent** (`ephemeral: false` implied) — they are shared infrastructure
+- They **appear in `/unslop:status`** under a `Base strategies:` section
+- Changes to a base spec make all children **ghost-stale** (tracked via `extends` as an implicit concrete dependency)
+
+#### Inheritance Chains
+
+Concrete specs can form multi-level inheritance chains: `child extends parent extends grandparent`. Resolution applies bottom-up — the most specific (child) wins.
+
+**Cycle detection:** The `extends` chain is validated by the same cycle detection used for `concrete-dependencies`. A cycle in `extends` (A extends B extends A) raises `CIRCULAR_DEPENDENCY_ERROR` during Phase 0a.1.
+
+**Maximum depth:** 3 levels (grandparent → parent → child). Deeper chains indicate over-abstraction. If the Strategist needs more than 3 levels, it should flatten the hierarchy.
 
 ### Required Sections
 
