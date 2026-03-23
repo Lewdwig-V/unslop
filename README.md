@@ -1,6 +1,6 @@
 # unslop
 
-> Spec-driven development for Claude Code. Write what you mean. Generate what you need.
+> If you can't prompt your way to correctness, build a system where correctness is the easiest option.
 
 `unslop` is a Claude Code plugin that implements spec-driven development (SDD) -- a workflow where spec files are the source of truth and generated code is a disposable output. You maintain specs; `unslop` maintains code. The name is deliberately provocative: it started as a tool for rescuing vibe-coded prototypes, but it's grown into a full-featured SDD harness that works equally well for greenfield projects.
 
