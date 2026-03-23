@@ -4,9 +4,9 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from dependencies.unified_dag import _compute_parallel_batches, _unified_topo_sort
-from freshness.checker import check_freshness
-from planning.ripple import ripple_check
+from ..dependencies.unified_dag import _compute_parallel_batches, _unified_topo_sort
+from ..freshness.checker import check_freshness
+from .ripple import ripple_check
 
 
 def compute_bulk_sync_plan(

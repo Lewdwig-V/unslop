@@ -7,10 +7,10 @@ import re
 import sys
 from pathlib import Path
 
-from core.frontmatter import parse_concrete_frontmatter, parse_frontmatter
-from core.spec_discovery import parse_unit_spec_files
-from dependencies.graph import topo_sort
-from freshness.checker import classify_file
+from ..core.frontmatter import parse_concrete_frontmatter, parse_frontmatter
+from ..core.spec_discovery import parse_unit_spec_files
+from ..dependencies.graph import topo_sort
+from ..freshness.checker import classify_file
 
 
 def ripple_check(spec_paths: list[str], project_root: str) -> dict:

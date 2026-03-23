@@ -4,9 +4,9 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from core.frontmatter import parse_concrete_frontmatter
-from core.hashing import MISSING_SENTINEL, UNREADABLE_SENTINEL, compute_hash
-from dependencies.concrete_graph import get_all_strategy_providers
+from ..core.frontmatter import parse_concrete_frontmatter
+from ..core.hashing import MISSING_SENTINEL, UNREADABLE_SENTINEL, compute_hash
+from ..dependencies.concrete_graph import get_all_strategy_providers
 
 
 def _gather_recursive_providers(

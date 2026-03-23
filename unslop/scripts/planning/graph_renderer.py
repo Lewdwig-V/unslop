@@ -5,9 +5,9 @@ from __future__ import annotations
 import re
 from pathlib import Path
 
-from core.frontmatter import parse_concrete_frontmatter, parse_frontmatter
-from core.spec_discovery import parse_unit_spec_files
-from freshness.checker import check_freshness
+from ..core.frontmatter import parse_concrete_frontmatter, parse_frontmatter
+from ..core.spec_discovery import parse_unit_spec_files
+from ..freshness.checker import check_freshness
 
 
 def render_dependency_graph(

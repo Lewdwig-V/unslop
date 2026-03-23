@@ -4,13 +4,13 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from core.hashing import parse_header
-from dependencies.unified_dag import (
+from ..core.hashing import parse_header
+from ..dependencies.unified_dag import (
     _build_unified_dag,
     _compute_parallel_batches,
     _unified_topo_sort,
 )
-from freshness.checker import check_freshness
+from ..freshness.checker import check_freshness
 
 
 def compute_resume_plan(

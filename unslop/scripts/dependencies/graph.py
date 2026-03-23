@@ -6,7 +6,7 @@ import json
 import sys
 from pathlib import Path
 
-from core.frontmatter import parse_frontmatter
+from ..core.frontmatter import parse_frontmatter
 
 
 def topo_sort(graph: dict[str, list[str]]) -> list[str]:

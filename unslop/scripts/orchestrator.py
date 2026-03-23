@@ -2,9 +2,26 @@
 
 This module is the CLI entry point and backward-compatible re-export facade.
 All logic lives in submodules: core/, dependencies/, freshness/, planning/.
+
+Can be invoked three ways:
+  1. python -m unslop.scripts.orchestrator <cmd>  (package import)
+  2. python orchestrator.py <cmd>                  (direct execution, vendored CI)
+  3. from unslop.scripts.orchestrator import ...    (library import)
 """
 
 from __future__ import annotations
+
+# When run directly (python orchestrator.py), __package__ is None and relative
+# imports fail. Bootstrap the package context so the rest of the module works.
+if __name__ == "__main__" and not __package__:
+    import os
+    import sys
+
+    _scripts_dir = os.path.dirname(os.path.abspath(__file__))
+    _parent_dir = os.path.dirname(_scripts_dir)
+    if _parent_dir not in sys.path:
+        sys.path.insert(0, _parent_dir)
+    __package__ = "scripts"
 
 import json
 import sys
@@ -14,15 +31,15 @@ from pathlib import Path
 # Tests and vendored CI scripts import directly from this module.
 
 # core
-from core.frontmatter import parse_concrete_frontmatter, parse_frontmatter
-from core.hashing import (
+from .core.frontmatter import parse_concrete_frontmatter, parse_frontmatter
+from .core.hashing import (
     MISSING_SENTINEL,
     UNREADABLE_SENTINEL,
     compute_hash,
     get_body_below_header,
     parse_header,
 )
-from core.spec_discovery import (
+from .core.spec_discovery import (
     EXCLUDED_DIRS,
     TEST_DIR_NAMES,
     TEST_FILE_PATTERNS,
@@ -33,7 +50,7 @@ from core.spec_discovery import (
 )
 
 # dependencies
-from dependencies.concrete_graph import (
+from .dependencies.concrete_graph import (
     MAX_EXTENDS_DEPTH,
     STRICT_CHILD_ONLY,
     build_concrete_order,
@@ -43,33 +60,33 @@ from dependencies.concrete_graph import (
     resolve_extends_chain,
     resolve_inherited_sections,
 )
-from dependencies.graph import build_order_from_dir, resolve_deps, topo_sort
-from dependencies.unified_dag import (
+from .dependencies.graph import build_order_from_dir, resolve_deps, topo_sort
+from .dependencies.unified_dag import (
     _build_unified_dag,
     _compute_parallel_batches,
     _unified_topo_sort,
 )
 
 # freshness
-from freshness.checker import (
+from .freshness.checker import (
     check_freshness,
     classify_file,
     diagnose_ghost_staleness,
     format_ghost_diagnostic,
     parse_change_file,
 )
-from freshness.manifest import (
+from .freshness.manifest import (
     compute_concrete_deps_hash,
     compute_concrete_manifest,
     format_manifest_header,
 )
 
 # planning
-from planning.bulk_sync import compute_bulk_sync_plan
-from planning.deep_sync import compute_deep_sync_plan
-from planning.graph_renderer import render_dependency_graph
-from planning.resume import compute_resume_plan
-from planning.ripple import ripple_check
+from .planning.bulk_sync import compute_bulk_sync_plan
+from .planning.deep_sync import compute_deep_sync_plan
+from .planning.graph_renderer import render_dependency_graph
+from .planning.resume import compute_resume_plan
+from .planning.ripple import ripple_check
 
 # _sentinel_hashes is used internally but re-exported for completeness
 _SENTINEL_HASHES = {MISSING_SENTINEL, UNREADABLE_SENTINEL}

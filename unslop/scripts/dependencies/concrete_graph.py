@@ -7,9 +7,9 @@ import re
 import sys
 from pathlib import Path
 
-from core.frontmatter import parse_concrete_frontmatter
-from core.hashing import compute_hash
-from dependencies.graph import topo_sort
+from ..core.frontmatter import parse_concrete_frontmatter
+from ..core.hashing import compute_hash
+from .graph import topo_sort
 
 
 MAX_EXTENDS_DEPTH = 3

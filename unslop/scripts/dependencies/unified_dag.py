@@ -6,8 +6,8 @@ import json
 import sys
 from pathlib import Path
 
-from core.frontmatter import parse_concrete_frontmatter, parse_frontmatter
-from dependencies.graph import topo_sort
+from ..core.frontmatter import parse_concrete_frontmatter, parse_frontmatter
+from .graph import topo_sort
 
 
 def _build_unified_dag(

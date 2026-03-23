@@ -4,10 +4,10 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from core.hashing import parse_header
-from dependencies.unified_dag import _unified_topo_sort
-from freshness.checker import check_freshness
-from planning.ripple import ripple_check
+from ..core.hashing import parse_header
+from ..dependencies.unified_dag import _unified_topo_sort
+from ..freshness.checker import check_freshness
+from .ripple import ripple_check
 
 
 def compute_deep_sync_plan(

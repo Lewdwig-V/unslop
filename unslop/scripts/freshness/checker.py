@@ -8,14 +8,14 @@ import sys
 from collections import Counter
 from pathlib import Path
 
-from core.frontmatter import parse_concrete_frontmatter
-from core.hashing import compute_hash, get_body_below_header, parse_header
-from core.spec_discovery import get_registry_key_for_spec, parse_unit_spec_files
-from dependencies.concrete_graph import (
+from ..core.frontmatter import parse_concrete_frontmatter
+from ..core.hashing import compute_hash, get_body_below_header, parse_header
+from ..core.spec_discovery import get_registry_key_for_spec, parse_unit_spec_files
+from ..dependencies.concrete_graph import (
     build_concrete_order,
     get_all_strategy_providers,
 )
-from freshness.manifest import compute_concrete_deps_hash
+from .manifest import compute_concrete_deps_hash
 
 
 def classify_file(managed_path: str, spec_path: str, project_root: str | None = None) -> dict:
