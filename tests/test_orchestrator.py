@@ -3012,6 +3012,35 @@ def test_graph_no_code_flag(tmp_path):
     assert "generates" not in without_code["mermaid"]
 
 
+def test_graph_unit_spec_code_nodes(tmp_path):
+    """Unit spec's ## Files entries should appear as code nodes in the graph."""
+    (tmp_path / ".unslop").mkdir()
+    (tmp_path / "pkg").mkdir()
+    (tmp_path / "pkg" / "mod.unit.spec.md").write_text(
+        "# Module unit spec\n\n## Files\n\n- `a.py`\n- `b.py`\n"
+    )
+    # Create the managed files so they show up
+    (tmp_path / "pkg" / "a.py").write_text("# a\n")
+    (tmp_path / "pkg" / "b.py").write_text("# b\n")
+
+    result = render_dependency_graph(str(tmp_path))
+    assert result["stats"]["managed_files"] == 2
+    code_paths = {n["path"] for n in result["nodes"] if n["layer"] == "code"}
+    assert "pkg/a.py" in code_paths
+    assert "pkg/b.py" in code_paths
+    # Each file should have a generates edge from the unit spec
+    assert result["mermaid"].count("generates") == 2
+
+
+def test_graph_unit_spec_no_files_section(tmp_path):
+    """Unit spec without ## Files section should produce no code nodes."""
+    (tmp_path / ".unslop").mkdir()
+    (tmp_path / "bare.unit.spec.md").write_text("# Bare unit spec\n\n## Strategy\n\nNothing.\n")
+
+    result = render_dependency_graph(str(tmp_path))
+    assert result["stats"]["managed_files"] == 0
+
+
 def test_graph_scope_filter(tmp_path):
     """Scoped graph should only include related specs."""
     (tmp_path / ".unslop").mkdir()

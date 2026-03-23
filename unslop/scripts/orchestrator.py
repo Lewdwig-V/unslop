@@ -3066,10 +3066,37 @@ def render_dependency_graph(
                             nodes_info.append({"id": nid, "path": managed, "layer": "code", "state": state})
                     continue
 
-            # Single target
+            # Unit specs list their managed files in a ## Files section
             if spec.endswith(".unit.spec.md"):
-                continue  # Unit specs handled separately
+                try:
+                    spec_content = (root / spec).read_text(encoding="utf-8")
+                except (OSError, UnicodeDecodeError):
+                    continue
+                spec_dir = str(Path(spec).parent)
+                in_files = False
+                for sline in spec_content.split("\n"):
+                    if re.match(r"^## Files", sline):
+                        in_files = True
+                        continue
+                    if in_files:
+                        if re.match(r"^## ", sline):
+                            break
+                        fm = re.match(r"^\s*-\s+`([^`]+)`", sline)
+                        if fm:
+                            managed = str(Path(spec_dir) / fm.group(1))
+                            if managed not in code_nodes:
+                                code_nodes.add(managed)
+                                nid = _node_id(managed)
+                                label = _short(managed)
+                                state = state_map.get(managed, "new")
+                                lines.append(f'    {nid}(["{label}"])')
+                                css = _state_to_class(state)
+                                lines.append(f"    class {nid} {css}")
+                                lines.append(f"    {_node_id(spec)} -->|generates| {nid}")
+                                nodes_info.append({"id": nid, "path": managed, "layer": "code", "state": state})
+                continue
 
+            # Single target
             managed = re.sub(r"\.spec\.md$", "", spec)
             if managed not in code_nodes:
                 code_nodes.add(managed)
