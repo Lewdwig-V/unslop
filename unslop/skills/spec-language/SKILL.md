@@ -195,7 +195,10 @@ These rules ensure unambiguous parsing by both humans and the Builder:
 
 3. **Indentation-based hierarchy.** Mandatory indentation (2 or 4 spaces, consistent within a block) to show scope and nesting. No braces, no `end` keywords for control flow (scope is implicit from indentation, like Python but without the colon).
 
-4. **Assignment uses `←`** (or `:=` as fallback). Never `=` (ambiguous with equality) or `==` (language-specific). Equality comparison uses `=`.
+4. **Operator discipline is context-sensitive.** The linter enforces different rules depending on the statement type:
+   - **Assignment contexts** (`SET`, `FOR`, `INCREMENT`, `DECREMENT`): MUST use `←` (or `:=` as fallback). Never bare `=`. These statements initialize or mutate state — `FOR i ← 0 TO 9`, not `FOR i = 0 TO 9`.
+   - **Comparison contexts** (`IF`, `ELSE IF`, `WHILE`, `UNTIL`, `WHEN`, `ASSERT`): bare `=` is allowed as equality comparison. `UNTIL status = DONE` is correct — it's a boolean test, not an assignment.
+   - **All other lines**: bare `=` is flagged as a violation (use `SET ... ←` to make intent explicit).
 
 5. **Descriptive names, not abbreviations.** `delay`, `attempts`, `upper_bound` — not `d`, `a`, `ub`. Named constants for magic numbers: `MAX_RETRY_ATTEMPTS` not `5`.
 
@@ -253,6 +256,7 @@ END FUNCTION
 | Language-specific keyword | `def retry(...)` | `FUNCTION retry(...)` |
 | Library call | `time.sleep(delay)` | `WAIT delay` |
 | Bare assignment | `delay = x` | `SET delay ← x` |
+| FOR with bare `=` | `FOR i = 0 TO 9` | `FOR i ← 0 TO 9` |
 | Abbreviated names | `d`, `cfg`, `e` | `delay`, `config`, `error` |
 | Missing edge case | No error branch | Add `CATCH` / `IF error` |
 | Magic number | `if attempts > 5` | `IF attempts > MAX_RETRY_ATTEMPTS` |

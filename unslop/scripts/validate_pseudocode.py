@@ -32,9 +32,17 @@ LIBRARY_CALL = re.compile(r'\b[a-z_]\w*\.[a-z_]\w*\s*\(')
 # Must not match ←, :=, or comparison operators
 BARE_ASSIGNMENT = re.compile(r'(?<![<>!=:])=(?!=)')
 
-# Lines where = is a comparison, not assignment (conditional / loop context)
+# Lines where = is a pure boolean comparison, not assignment.
+# FOR is deliberately excluded — FOR headers initialize an iterator
+# and MUST use ← or :=, not bare =.
 COMPARISON_CONTEXT = re.compile(
-    r'^\s*(?:IF|ELSE\s+IF|WHILE|UNTIL|CASE|WHEN|FOR)\b', re.IGNORECASE
+    r'^\s*(?:IF|ELSE\s+IF|WHILE|UNTIL|CASE|WHEN|ASSERT)\b', re.IGNORECASE
+)
+
+# Lines where = MUST be an assignment operator (← or :=), never a comparison.
+# FOR initializes an iterator, SET/INCREMENT/DECREMENT mutate state.
+ASSIGNMENT_REQUIRED = re.compile(
+    r'^\s*(?:FOR|SET|INCREMENT|DECREMENT)\b', re.IGNORECASE
 )
 
 # Multi-statement lines (semicolons as separators, not inside strings)
@@ -100,16 +108,26 @@ def lint_pseudocode(blocks: list[dict]) -> tuple[list[dict], list[dict]]:
                 continue
 
             # Check 1: Bare assignment (= instead of ← or :=)
-            # Exclude lines that already use ← or :=, and lines in
-            # conditional/loop context where = is a comparison.
+            # Context-sensitive: FOR/SET/INCREMENT/DECREMENT require ←/:=,
+            # IF/WHILE/UNTIL/WHEN/ASSERT allow = as comparison.
             if "←" not in line and ":=" not in line:
                 # Remove string literals and comments before checking
                 code_part = re.sub(r'"[^"]*"', '', stripped)
                 code_part = re.sub(r'//.*$', '', code_part)
                 if BARE_ASSIGNMENT.search(code_part):
-                    # Allow = as equality in IF, WHILE, UNTIL, CASE, WHEN, FOR
-                    if COMPARISON_CONTEXT.match(stripped):
-                        pass  # = is a comparison here, not assignment
+                    if ASSIGNMENT_REQUIRED.match(stripped):
+                        # FOR/SET/INCREMENT/DECREMENT headers MUST use ← or :=
+                        violations.append({
+                            "line": line_num,
+                            "check": "bare_assignment",
+                            "text": stripped,
+                            "message": (
+                                "Assignment context requires `←` or `:=`, not bare `=` — "
+                                "FOR/SET/INCREMENT headers initialize or mutate state"
+                            ),
+                        })
+                    elif COMPARISON_CONTEXT.match(stripped):
+                        pass  # = is a comparison here (IF, WHILE, UNTIL, etc.)
                     elif not re.search(r'[<>!]=', code_part):
                         violations.append({
                             "line": line_num,

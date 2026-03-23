@@ -228,6 +228,51 @@ class TestNoBlocks:
         assert any(w["check"] == "no_pseudocode" for w in result["warnings"])
 
 
+class TestLoopAwareOperators:
+    """Loop-aware operator linting: FOR must use ←, UNTIL may use =."""
+
+    def test_for_with_bare_equals_is_violation(self):
+        """FOR i = 1 TO 10 must be flagged — FOR initializes an iterator."""
+        content = "```pseudocode\nFUNCTION loop()\n    FOR i = 0 TO 9\n        CALL process(i)\nEND FUNCTION\n```\n"
+        result = validate_pseudocode(content, "test.impl.md")
+        assert result["status"] == "fail"
+        violations = [v for v in result["violations"] if v["check"] == "bare_assignment"]
+        assert len(violations) == 1
+        assert "FOR" in violations[0]["message"] or "Assignment context" in violations[0]["message"]
+
+    def test_for_with_arrow_is_valid(self):
+        """FOR i ← 0 TO 9 is correct pseudocode."""
+        content = "```pseudocode\nFUNCTION loop()\n    FOR i ← 0 TO 9\n        CALL process(i)\nEND FUNCTION\n```\n"
+        result = validate_pseudocode(content, "test.impl.md")
+        assert result["status"] == "pass"
+
+    def test_for_with_walrus_is_valid(self):
+        """FOR i := 0 TO 9 is also acceptable."""
+        content = "```pseudocode\nFUNCTION loop()\n    FOR i := 0 TO 9\n        CALL process(i)\nEND FUNCTION\n```\n"
+        result = validate_pseudocode(content, "test.impl.md")
+        assert result["status"] == "pass"
+
+    def test_until_with_equals_is_valid(self):
+        """UNTIL status = DONE is a comparison, not assignment."""
+        content = "```pseudocode\nFUNCTION poll()\n    REPEAT\n        CALL check()\n    UNTIL status = DONE\nEND FUNCTION\n```\n"
+        result = validate_pseudocode(content, "test.impl.md")
+        assert result["status"] == "pass"
+
+    def test_while_with_equals_is_valid(self):
+        """WHILE state = RUNNING is a comparison."""
+        content = "```pseudocode\nFUNCTION run()\n    WHILE state = RUNNING\n        CALL tick()\nEND FUNCTION\n```\n"
+        result = validate_pseudocode(content, "test.impl.md")
+        assert result["status"] == "pass"
+
+    def test_set_with_bare_equals_is_violation(self):
+        """SET x = 1 must be flagged — SET mutates state."""
+        content = "```pseudocode\nSET x = 1\n```\n"
+        result = validate_pseudocode(content, "test.impl.md")
+        assert result["status"] == "fail"
+        violations = [v for v in result["violations"] if v["check"] == "bare_assignment"]
+        assert len(violations) >= 1
+
+
 class TestCompliantPseudocode:
     def test_full_jitter_example_passes(self):
         content = """```pseudocode
