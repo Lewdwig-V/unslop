@@ -1,5 +1,5 @@
 # @unslop-managed — do not edit directly. Edit src/retry.py.spec.md instead.
-# spec-hash:9bfe684a839c output-hash:b5a0566bacf0 generated:2026-03-23T00:00:00Z
+# spec-hash:7fd42ca49056 output-hash:b5a0566bacf0 generated:2026-03-23T00:00:00Z
 
 import random
 import time

@@ -1,10 +1,9 @@
 """Tests for validate_pseudocode.py — pseudocode linting for concrete specs."""
-import pytest
 import sys
 import os
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'unslop', 'scripts'))
-from validate_pseudocode import validate_pseudocode, extract_pseudocode_blocks, lint_pseudocode
+from validate_pseudocode import validate_pseudocode, extract_pseudocode_blocks
 
 
 class TestExtractBlocks:
@@ -45,7 +44,7 @@ class TestBareAssignment:
 
     def test_allows_equality_comparison(self):
         content = "```pseudocode\nIF x = 1\n    RETURN true\n```\n"
-        result = validate_pseudocode(content, "test.impl.md")
+        validate_pseudocode(content, "test.impl.md")
         # Should not flag x = 1 as bare assignment when it's inside IF
         # Note: this is a known limitation — the linter may flag it.
         # The key test is that ← is always accepted.

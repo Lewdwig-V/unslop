@@ -494,13 +494,7 @@ def check_concrete_staleness(
             source_full = root / upstream_source
             if source_full.exists():
                 try:
-                    source_content = source_full.read_text(encoding="utf-8")
-                    source_hash = compute_hash(source_content)
-                    # We can't check against a stored hash without a tracking file,
-                    # so we compare the upstream impl's strategy sections against
-                    # what the downstream expects. For now, we track via a
-                    # concrete-deps-hash approach: hash all upstream .impl.md
-                    # contents and compare against stored value.
+                    source_full.read_text(encoding="utf-8")
                 except (OSError, UnicodeDecodeError):
                     pass
 
@@ -1122,7 +1116,8 @@ def file_tree(directory: str) -> list[str]:
 def main():
     """CLI entry point."""
     if len(sys.argv) < 2:
-        print("Usage: orchestrator.py <discover|build-order|deps|check-freshness|concrete-deps|file-tree> [args]", file=sys.stderr)
+        cmds = "discover|build-order|deps|check-freshness|concrete-order|concrete-deps|file-tree"
+        print(f"Usage: orchestrator.py <{cmds}> [args]", file=sys.stderr)
         sys.exit(1)
 
     command = sys.argv[1]

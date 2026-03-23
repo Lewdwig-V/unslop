@@ -98,7 +98,7 @@ def lint_pseudocode(blocks: list[dict]) -> tuple[list[dict], list[dict]]:
                             "line": line_num,
                             "check": "bare_assignment",
                             "text": stripped,
-                            "message": f"Bare assignment `=` — use `SET ... ←` or `... := ...`",
+                            "message": "Bare assignment `=` — use `SET ... ←` or `... := ...`",
                         })
 
             # Check 2: Language-specific keywords
@@ -108,7 +108,10 @@ def lint_pseudocode(blocks: list[dict]) -> tuple[list[dict], list[dict]]:
                     "line": line_num,
                     "check": "language_keyword",
                     "text": stripped,
-                    "message": f"Language-specific keyword `{match.group()}` — use capitalized pseudocode keywords (FUNCTION, SET, IF, etc.)",
+                    "message": (
+                        f"Language-specific keyword `{match.group()}` — "
+                        "use capitalized pseudocode keywords (FUNCTION, SET, IF, etc.)"
+                    ),
                 })
 
             # Check 3: Multi-statement lines
@@ -129,7 +132,10 @@ def lint_pseudocode(blocks: list[dict]) -> tuple[list[dict], list[dict]]:
                     "line": line_num,
                     "check": "library_call",
                     "text": stripped,
-                    "message": f"Potential library call `{match.group().strip()}` — use a generic operation name instead (e.g., `WAIT` not `time.sleep()`)",
+                    "message": (
+                        f"Potential library call `{match.group().strip()}` — "
+                        "use a generic operation name instead (e.g., `WAIT` not `time.sleep()`)"
+                    ),
                 })
 
             # Check 5: Single-character variable names
