@@ -2019,6 +2019,57 @@ def _compute_ripple_build_order(affected_specs: set[str], all_specs: dict[str, l
         return sorted(affected_specs)
 
 
+def _build_unified_spec_order(
+    project_root: Path,
+    abstract_build_order: list[str],
+) -> callable:
+    """Build a sort key that merges abstract and concrete topo orders.
+
+    The abstract build_order from ripple_check only captures depends-on
+    edges between specs.  The concrete layer's extends/concrete-dependencies
+    chain is separate.  This function merges both: for each spec, the sort
+    key is max(abstract_index, concrete_index), ensuring that if spec A
+    must precede B in *either* graph, A sorts first.
+
+    Returns a callable: spec_path -> int (sort key).
+    """
+    root = project_root
+
+    # Get concrete topo order — captures extends chains
+    try:
+        concrete_order = build_concrete_order(str(root))
+    except (ValueError, OSError):
+        concrete_order = []
+
+    # Build impl -> source-spec mapping
+    impl_to_spec: dict[str, str] = {}
+    for impl_path in root.rglob("*.impl.md"):
+        try:
+            content = impl_path.read_text(encoding="utf-8")
+        except (OSError, UnicodeDecodeError):
+            continue
+        meta = parse_concrete_frontmatter(content)
+        src = meta.get("source_spec")
+        if src:
+            impl_to_spec[str(impl_path.relative_to(root))] = src
+
+    spec_order_abstract = {s: i for i, s in enumerate(abstract_build_order)}
+    spec_order_concrete: dict[str, int] = {}
+    for i, impl_name in enumerate(concrete_order):
+        src_spec = impl_to_spec.get(impl_name)
+        if src_spec:
+            spec_order_concrete[src_spec] = max(
+                spec_order_concrete.get(src_spec, i), i
+            )
+
+    def combined_order(spec: str) -> int:
+        a = spec_order_abstract.get(spec, 0)
+        c = spec_order_concrete.get(spec, 0)
+        return max(a, c)
+
+    return combined_order, impl_to_spec
+
+
 def compute_deep_sync_plan(
     file_path: str,
     project_root: str,
@@ -2132,11 +2183,11 @@ def compute_deep_sync_plan(
         else:
             plan.append(entry)
 
-    # Order the plan by the build order from ripple_check
+    # Order the plan using unified abstract+concrete topo sort
     build_order = ripple.get("build_order", [])
-    spec_order = {spec: i for i, spec in enumerate(build_order)}
+    combined_order, _ = _build_unified_spec_order(root, build_order)
 
-    plan.sort(key=lambda e: spec_order.get(e["spec"], 999999))
+    plan.sort(key=lambda e: combined_order(e["spec"]))
 
     return {
         "trigger": trigger_spec,
@@ -2280,48 +2331,11 @@ def compute_bulk_sync_plan(
         else:
             plan_entries.append(entry)
 
-    # 7. Build a combined ordering from both abstract spec deps AND concrete
-    #    (extends/concrete-dependencies).  The abstract build_order from
-    #    ripple_check only captures depends-on edges between specs; the
-    #    concrete layer's extends/concrete-dependencies chain is separate.
+    # 7. Unified abstract+concrete topo sort
     build_order = ripple.get("build_order", [])
-
-    # Get concrete topo order — this captures extends chains
-    try:
-        concrete_order = build_concrete_order(str(root))
-    except (ValueError, OSError):
-        concrete_order = []
-
-    # Build a mapping from impl -> source-spec so we can translate
-    # concrete order into spec order
-    impl_to_spec: dict[str, str] = {}
-    for impl_path in root.rglob("*.impl.md"):
-        try:
-            content = impl_path.read_text(encoding="utf-8")
-        except (OSError, UnicodeDecodeError):
-            continue
-        meta = parse_concrete_frontmatter(content)
-        src = meta.get("source_spec")
-        if src:
-            impl_to_spec[str(impl_path.relative_to(root))] = src
-
-    # Merge: use the maximum index from either ordering as the sort key.
-    # This ensures that if spec A must precede B in *either* the abstract
-    # or concrete graph, A sorts first.
-    spec_order_abstract = {s: i for i, s in enumerate(build_order)}
-    spec_order_concrete: dict[str, int] = {}
-    for i, impl_name in enumerate(concrete_order):
-        src_spec = impl_to_spec.get(impl_name)
-        if src_spec:
-            # Take the maximum index if already present (conservative)
-            spec_order_concrete[src_spec] = max(
-                spec_order_concrete.get(src_spec, i), i
-            )
-
-    def combined_order(spec: str) -> int:
-        a = spec_order_abstract.get(spec, 0)
-        c = spec_order_concrete.get(spec, 0)
-        return max(a, c)
+    combined_order, impl_to_spec = _build_unified_spec_order(
+        root, build_order
+    )
 
     plan_entries.sort(key=lambda e: combined_order(e["spec"]))
 

@@ -3281,6 +3281,265 @@ def test_deep_sync_plan_accepts_spec_path(tmp_path):
     assert result["trigger"] == "service.py.spec.md"
 
 
+def test_deep_sync_plan_concrete_ordering(tmp_path):
+    """Deep sync should order by concrete extends chain, not just abstract deps."""
+    (tmp_path / ".unslop").mkdir()
+
+    # Chain: z extends b extends a (concrete only, no abstract depends-on)
+    (tmp_path / "a.impl.md").write_text(
+        "---\nsource-spec: a.py.spec.md\nephemeral: false\n---\n\n## Strategy\nA.\n"
+    )
+    (tmp_path / "b.impl.md").write_text(
+        "---\nsource-spec: b.py.spec.md\nephemeral: false\n"
+        "extends: a.impl.md\n---\n\n## Strategy\nB.\n"
+    )
+    (tmp_path / "z.impl.md").write_text(
+        "---\nsource-spec: z.py.spec.md\nephemeral: false\n"
+        "extends: b.impl.md\n---\n\n## Strategy\nZ.\n"
+    )
+
+    (tmp_path / "a.py.spec.md").write_text("# A\n")
+    (tmp_path / "b.py.spec.md").write_text("# B\n")
+    (tmp_path / "z.py.spec.md").write_text("# Z\n")
+
+    # Create managed files with manifests
+    for name, spec, impl in [
+        ("a.py", "a.py.spec.md", "a.impl.md"),
+        ("b.py", "b.py.spec.md", "b.impl.md"),
+        ("z.py", "z.py.spec.md", "z.impl.md"),
+    ]:
+        manifest = compute_concrete_manifest(str(tmp_path / impl), str(tmp_path))
+        body = f"def {name.replace('.py', '')}(): pass\n"
+        sh = compute_hash((tmp_path / spec).read_text())
+        oh = compute_hash(body)
+        mh = format_manifest_header(manifest) if manifest else ""
+        manifest_part = f" concrete-manifest:{mh}" if mh else ""
+        (tmp_path / name).write_text(
+            f"# @unslop-managed — do not edit directly. Edit {spec} instead.\n"
+            f"# spec-hash:{sh} output-hash:{oh}{manifest_part}"
+            f" generated:2026-03-23T00:00:00Z\n" + body
+        )
+
+    # Change a.py.spec.md to trigger staleness down the chain
+    (tmp_path / "a.py.spec.md").write_text("# A v2\n")
+
+    result = compute_deep_sync_plan("z.py", str(tmp_path))
+    assert "error" not in result, f"Got error: {result}"
+    managed = [e["managed"] for e in result["plan"]]
+
+    # a.py must come before b.py, b.py before z.py
+    if "a.py" in managed and "b.py" in managed:
+        assert managed.index("a.py") < managed.index("b.py"), (
+            f"a.py should come before b.py, got: {managed}"
+        )
+    if "b.py" in managed and "z.py" in managed:
+        assert managed.index("b.py") < managed.index("z.py"), (
+            f"b.py should come before z.py, got: {managed}"
+        )
+
+
+def test_deep_sync_plan_concrete_deps_ordering(tmp_path):
+    """concrete-dependencies (not just extends) should affect plan order."""
+    (tmp_path / ".unslop").mkdir()
+
+    # utils has no deps, service depends on utils via concrete-dependencies
+    (tmp_path / "utils.impl.md").write_text(
+        "---\nsource-spec: utils.py.spec.md\nephemeral: false\n---\n\n## Strategy\nUtils.\n"
+    )
+    (tmp_path / "service.impl.md").write_text(
+        "---\nsource-spec: service.py.spec.md\nephemeral: false\n"
+        "concrete-dependencies:\n  - utils.impl.md\n---\n\n## Strategy\nService.\n"
+    )
+
+    (tmp_path / "utils.py.spec.md").write_text("# Utils\n")
+    (tmp_path / "service.py.spec.md").write_text("# Service\n")
+
+    for name, spec, impl in [
+        ("utils.py", "utils.py.spec.md", "utils.impl.md"),
+        ("service.py", "service.py.spec.md", "service.impl.md"),
+    ]:
+        manifest = compute_concrete_manifest(
+            str(tmp_path / impl), str(tmp_path)
+        )
+        body = f"def {name.replace('.py', '')}(): pass\n"
+        sh = compute_hash((tmp_path / spec).read_text())
+        oh = compute_hash(body)
+        mh = format_manifest_header(manifest) if manifest else ""
+        manifest_part = f" concrete-manifest:{mh}" if mh else ""
+        (tmp_path / name).write_text(
+            f"# @unslop-managed — do not edit directly. Edit {spec} instead.\n"
+            f"# spec-hash:{sh} output-hash:{oh}{manifest_part}"
+            f" generated:2026-03-23T00:00:00Z\n" + body
+        )
+
+    # Change utils to trigger staleness
+    (tmp_path / "utils.py.spec.md").write_text("# Utils v2\n")
+
+    result = compute_deep_sync_plan("service.py", str(tmp_path))
+    assert "error" not in result
+    managed = [e["managed"] for e in result["plan"]]
+
+    if "utils.py" in managed and "service.py" in managed:
+        assert managed.index("utils.py") < managed.index("service.py"), (
+            f"utils.py should come before service.py, got: {managed}"
+        )
+
+
+def test_deep_sync_plan_diamond_dependency(tmp_path):
+    """Diamond: d extends both b and c, both extend a. Order: a, b, c, d."""
+    (tmp_path / ".unslop").mkdir()
+
+    (tmp_path / "a.impl.md").write_text(
+        "---\nsource-spec: a.py.spec.md\nephemeral: false\n---\n\n## Strategy\nA.\n"
+    )
+    (tmp_path / "b.impl.md").write_text(
+        "---\nsource-spec: b.py.spec.md\nephemeral: false\n"
+        "extends: a.impl.md\n---\n\n## Strategy\nB.\n"
+    )
+    (tmp_path / "c.impl.md").write_text(
+        "---\nsource-spec: c.py.spec.md\nephemeral: false\n"
+        "extends: a.impl.md\n---\n\n## Strategy\nC.\n"
+    )
+    (tmp_path / "d.impl.md").write_text(
+        "---\nsource-spec: d.py.spec.md\nephemeral: false\n"
+        "concrete-dependencies:\n  - b.impl.md\n  - c.impl.md\n---\n\n## Strategy\nD.\n"
+    )
+
+    for letter in "abcd":
+        (tmp_path / f"{letter}.py.spec.md").write_text(f"# {letter.upper()}\n")
+
+    for letter in "abcd":
+        name = f"{letter}.py"
+        spec = f"{letter}.py.spec.md"
+        impl = f"{letter}.impl.md"
+        manifest = compute_concrete_manifest(
+            str(tmp_path / impl), str(tmp_path)
+        )
+        body = f"def {letter}(): pass\n"
+        sh = compute_hash((tmp_path / spec).read_text())
+        oh = compute_hash(body)
+        mh = format_manifest_header(manifest) if manifest else ""
+        manifest_part = f" concrete-manifest:{mh}" if mh else ""
+        (tmp_path / name).write_text(
+            f"# @unslop-managed — do not edit directly. Edit {spec} instead.\n"
+            f"# spec-hash:{sh} output-hash:{oh}{manifest_part}"
+            f" generated:2026-03-23T00:00:00Z\n" + body
+        )
+
+    # Change a to trigger staleness through diamond
+    (tmp_path / "a.py.spec.md").write_text("# A v2\n")
+
+    result = compute_deep_sync_plan("d.py", str(tmp_path))
+    assert "error" not in result
+    managed = [e["managed"] for e in result["plan"]]
+
+    # a must come before b and c; b and c must come before d
+    if "a.py" in managed and "d.py" in managed:
+        assert managed.index("a.py") < managed.index("d.py"), (
+            f"a.py should come before d.py, got: {managed}"
+        )
+    if "b.py" in managed and "d.py" in managed:
+        assert managed.index("b.py") < managed.index("d.py"), (
+            f"b.py should come before d.py, got: {managed}"
+        )
+    if "c.py" in managed and "d.py" in managed:
+        assert managed.index("c.py") < managed.index("d.py"), (
+            f"c.py should come before d.py, got: {managed}"
+        )
+
+
+def test_deep_sync_plan_one_pass_convergence(tmp_path):
+    """After processing the plan in order, no file should be ghost-stale."""
+    _setup_deep_sync_chain(tmp_path)
+
+    # Change utils
+    (tmp_path / "utils.impl.md").write_text(
+        "---\nephemeral: false\n---\n\n## Strategy\nUtils v2.\n"
+    )
+
+    result = compute_deep_sync_plan("service.py", str(tmp_path))
+    managed = [e["managed"] for e in result["plan"]]
+
+    # service must come before api in the plan
+    if "service.py" in managed and "api.py" in managed:
+        assert managed.index("service.py") < managed.index("api.py"), (
+            f"service.py must precede api.py for one-pass convergence, "
+            f"got: {managed}"
+        )
+
+
+def test_deep_sync_plan_mixed_abstract_and_concrete_deps(tmp_path):
+    """Both abstract depends-on and concrete extends should be respected."""
+    (tmp_path / ".unslop").mkdir()
+
+    # Abstract dep: handler depends-on auth
+    (tmp_path / "auth.py.spec.md").write_text("# Auth\n")
+    (tmp_path / "handler.py.spec.md").write_text(
+        "---\ndepends-on:\n  - auth.py.spec.md\n---\n# Handler\n"
+    )
+
+    # Concrete dep: handler.impl extends base.impl
+    (tmp_path / "base.impl.md").write_text(
+        "---\nephemeral: false\n---\n\n## Strategy\nBase patterns.\n"
+    )
+    (tmp_path / "auth.impl.md").write_text(
+        "---\nsource-spec: auth.py.spec.md\nephemeral: false\n---\n\n## Strategy\nAuth.\n"
+    )
+    (tmp_path / "handler.impl.md").write_text(
+        "---\nsource-spec: handler.py.spec.md\nephemeral: false\n"
+        "extends: base.impl.md\n---\n\n## Strategy\nHandler.\n"
+    )
+
+    for name, spec, impl in [
+        ("auth.py", "auth.py.spec.md", "auth.impl.md"),
+        ("handler.py", "handler.py.spec.md", "handler.impl.md"),
+    ]:
+        manifest = compute_concrete_manifest(
+            str(tmp_path / impl), str(tmp_path)
+        )
+        body = f"def {name.replace('.py', '')}(): pass\n"
+        sh = compute_hash((tmp_path / spec).read_text())
+        oh = compute_hash(body)
+        mh = format_manifest_header(manifest) if manifest else ""
+        manifest_part = f" concrete-manifest:{mh}" if mh else ""
+        (tmp_path / name).write_text(
+            f"# @unslop-managed — do not edit directly. Edit {spec} instead.\n"
+            f"# spec-hash:{sh} output-hash:{oh}{manifest_part}"
+            f" generated:2026-03-23T00:00:00Z\n" + body
+        )
+
+    # Change auth spec (triggers abstract dep staleness)
+    (tmp_path / "auth.py.spec.md").write_text("# Auth v2\n")
+
+    result = compute_deep_sync_plan("handler.py", str(tmp_path))
+    assert "error" not in result
+    managed = [e["managed"] for e in result["plan"]]
+
+    # auth.py must come before handler.py (abstract depends-on)
+    if "auth.py" in managed and "handler.py" in managed:
+        assert managed.index("auth.py") < managed.index("handler.py"), (
+            f"auth.py should precede handler.py, got: {managed}"
+        )
+
+
+def test_deep_sync_plan_uses_existing_chain_setup(tmp_path):
+    """Verify the existing chain setup respects concrete topo order."""
+    _setup_deep_sync_chain(tmp_path)
+
+    (tmp_path / "utils.impl.md").write_text(
+        "---\nephemeral: false\n---\n\n## Strategy\nUtils v2.\n"
+    )
+
+    result = compute_deep_sync_plan("api.py", str(tmp_path))
+    managed = [e["managed"] for e in result["plan"]]
+
+    # Both should be in plan, service before api
+    if "service.py" in managed and "api.py" in managed:
+        assert managed.index("service.py") < managed.index("api.py"), (
+            f"service.py must come before api.py, got: {managed}"
+        )
+
+
 def test_deep_sync_plan_missing_spec(tmp_path):
     """Should return error for nonexistent spec."""
     (tmp_path / ".unslop").mkdir()
