@@ -267,16 +267,54 @@ extends: shared/fastapi-async.impl.md
 ---
 ```
 
-The `extends` field points to a **base concrete spec** — a `.impl.md` file that defines shared patterns and lowering conventions. The child inherits all sections from the parent, then overrides with its own.
+The `extends` field points to a **base concrete spec** — a `.impl.md` file that defines shared patterns and lowering conventions. The child inherits **context** (metadata and lowering notes) from the parent, but never the **core algorithm**. A child's `## Strategy` and `## Type Sketch` are always its own — a silent fallback to the parent's algorithm is a bug, not a feature.
 
-#### Resolution Order (Child Wins)
+#### Section-Specific Inheritance Policies
 
-| Section | Behavior |
-|---|---|
-| `## Strategy` | **Child only** — never inherited. Each module's algorithm is unique. If the child omits `## Strategy`, it is an error. |
-| `## Pattern` | **Merge** — child patterns are appended to parent patterns. If the child redefines a pattern key (e.g., "Concurrency model"), the child's value wins. |
-| `## Type Sketch` | **Child only** — types are module-specific. The parent's type sketch is available as reference but not merged. |
-| `## Lowering Notes` | **Inherit + Override** — the child inherits all parent lowering notes. If the child defines its own `## Lowering Notes`, the child's entries override matching parent entries (keyed by language heading). Non-conflicting parent entries are preserved. |
+Each section follows one of three inheritance behaviors:
+
+| Policy | Sections | Behavior |
+|---|---|---|
+| **Strict Child-Only** | `## Strategy`, `## Type Sketch` | Parent section is **purged** during resolution. If the child omits it, the resolved spec has no such section — and Phase 0a.1 validation fails. The parent's version is never silently inherited. |
+| **Additive** | `## Lowering Notes` | Parent and child are **merged**. Child entries override matching parent entries (keyed by language heading). Non-conflicting parent entries are preserved. |
+| **Overridable** | `## Pattern` | Child replaces parent if present. If the child omits `## Pattern`, the parent's version persists. |
+
+#### Resolution Algorithm: `resolve_inherited_sections()`
+
+```pseudocode
+FUNCTION resolve_inherited_sections(parent_sections, child_sections)
+    SET STRICT_CHILD_ONLY ← {"Strategy", "Type Sketch"}
+
+    // 1. Start with parent sections
+    SET resolved ← COPY(parent_sections)
+
+    // 2. Purge strict child-only sections from the parent copy
+    FOR EACH section IN STRICT_CHILD_ONLY
+        REMOVE section FROM resolved
+
+    // 3. Apply child overrides/additions
+    FOR EACH (title, content) IN child_sections
+        IF title = "Lowering Notes" AND title EXISTS IN parent_sections
+            SET resolved[title] ← parent_sections[title] + "\n" + content
+        ELSE
+            SET resolved[title] ← content
+
+    RETURN resolved
+END FUNCTION
+```
+
+**Key invariant:** After resolution, `## Strategy` and `## Type Sketch` can only contain content the child explicitly defined. If the child omitted them, they are absent — and the existing Phase 0a.1 linter catches the missing mandatory `## Strategy` section.
+
+#### The "Forgetful Child" Failure Mode
+
+This is the scenario the strict policy prevents:
+
+1. **Parent** (`base_api.impl.md`) defines a generic fetch strategy
+2. **Child** (`user_api.impl.md`) extends `base_api` but omits its own `## Strategy`
+3. **Resolution:** `resolve_inherited_sections()` purges the parent's generic fetch. The resolved spec has no `## Strategy`
+4. **Validation:** Phase 0a.1 aborts with: `FATAL: user_api.impl.md is missing mandatory ## Strategy section`
+
+Without the strict policy, the child would silently inherit the parent's generic fetch algorithm — violating Implementation Invariance and producing code that "works" but doesn't match the child module's actual requirements.
 
 #### Example: FastAPI Async Base
 
@@ -350,11 +388,11 @@ PaginatedResponse<T> {
 ` ``
 ```
 
-**Resolved concrete spec** (what the Builder sees):
-- `## Strategy` — from child (list_users algorithm)
-- `## Pattern` — merged: child has no overrides, so all 4 parent patterns apply
-- `## Type Sketch` — from child (ListUsersFilters, PaginatedResponse)
-- `## Lowering Notes` — inherited from parent (async def, asyncio, Annotated DI, Pydantic v2)
+**Resolved concrete spec** (what the Builder sees after `resolve_inherited_sections()`):
+- `## Strategy` — from child only (list_users algorithm). Parent's strategy was **purged** — strict child-only policy
+- `## Pattern` — from parent (child has no overrides, so all 4 parent patterns persist — overridable policy)
+- `## Type Sketch` — from child only (ListUsersFilters, PaginatedResponse). Parent's type sketch was **purged** — strict child-only policy
+- `## Lowering Notes` — inherited from parent (async def, asyncio, Annotated DI, Pydantic v2) — additive policy, child had none to merge
 
 The child spec is **38 lines** instead of the **70+** it would be without inheritance. Multiply by 5 endpoints and you've eliminated 160 lines of duplicated lowering notes.
 
@@ -370,7 +408,7 @@ Base concrete specs (`shared/*.impl.md`) have special properties:
 
 #### Inheritance Chains
 
-Concrete specs can form multi-level inheritance chains: `child extends parent extends grandparent`. Resolution applies bottom-up — the most specific (child) wins.
+Concrete specs can form multi-level inheritance chains: `child extends parent extends grandparent`. Resolution applies bottom-up via `resolve_inherited_sections()` at each level. The strict child-only policy applies at every level — a grandparent's `## Strategy` can never leak through to a grandchild, even transitively.
 
 **Cycle detection:** The `extends` chain is validated by the same cycle detection used for `concrete-dependencies`. A cycle in `extends` (A extends B extends A) raises `CIRCULAR_DEPENDENCY_ERROR` during Phase 0a.1.
 
