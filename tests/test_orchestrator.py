@@ -34,6 +34,8 @@ from orchestrator import (
     render_dependency_graph,
     compute_deep_sync_plan,
     compute_bulk_sync_plan,
+    _build_unified_dag,
+    _compute_parallel_batches,
     STRICT_CHILD_ONLY,
 )
 
@@ -4250,3 +4252,312 @@ def test_bulk_sync_plan_build_order_returned(tmp_path):
     result = compute_bulk_sync_plan(str(tmp_path))
     assert "build_order" in result
     assert isinstance(result["build_order"], list)
+
+
+# ── Unified DAG & Parallel Batch Isolation (v0.11.11) ────────────────────────
+
+def test_unified_dag_contains_both_edge_types(tmp_path):
+    """DAG should have edges from both abstract depends-on and concrete extends."""
+    (tmp_path / ".unslop").mkdir()
+
+    # Abstract: handler depends-on auth
+    (tmp_path / "auth.py.spec.md").write_text("# Auth\n")
+    (tmp_path / "handler.py.spec.md").write_text(
+        "---\ndepends-on:\n  - auth.py.spec.md\n---\n# Handler\n"
+    )
+
+    # Concrete: handler extends base
+    (tmp_path / "base.impl.md").write_text(
+        "---\nephemeral: false\n---\n\n## Strategy\nBase.\n"
+    )
+    (tmp_path / "handler.impl.md").write_text(
+        "---\nsource-spec: handler.py.spec.md\nephemeral: false\n"
+        "extends: base.impl.md\n---\n\n## Strategy\nHandler.\n"
+    )
+    (tmp_path / "auth.impl.md").write_text(
+        "---\nsource-spec: auth.py.spec.md\nephemeral: false\n---\n\n## Strategy\nAuth.\n"
+    )
+
+    from pathlib import Path
+    graph, impl_to_spec = _build_unified_dag(Path(tmp_path).resolve())
+
+    # handler.py.spec.md should depend on auth.py.spec.md (abstract)
+    assert "auth.py.spec.md" in graph.get("handler.py.spec.md", set()), (
+        f"Missing abstract edge: {graph.get('handler.py.spec.md')}"
+    )
+
+
+def test_parallel_batches_never_contain_dependent_specs(tmp_path):
+    """If a depends on b, they must never be in the same batch."""
+    (tmp_path / ".unslop").mkdir()
+
+    # Chain: c extends b extends a
+    (tmp_path / "a.impl.md").write_text(
+        "---\nsource-spec: a.py.spec.md\nephemeral: false\n---\n\n## Strategy\nA.\n"
+    )
+    (tmp_path / "b.impl.md").write_text(
+        "---\nsource-spec: b.py.spec.md\nephemeral: false\n"
+        "extends: a.impl.md\n---\n\n## Strategy\nB.\n"
+    )
+    (tmp_path / "c.impl.md").write_text(
+        "---\nsource-spec: c.py.spec.md\nephemeral: false\n"
+        "extends: b.impl.md\n---\n\n## Strategy\nC.\n"
+    )
+
+    for letter in "abc":
+        (tmp_path / f"{letter}.py.spec.md").write_text(f"# {letter.upper()}\n")
+
+    for letter in "abc":
+        name = f"{letter}.py"
+        spec = f"{letter}.py.spec.md"
+        impl = f"{letter}.impl.md"
+        manifest = compute_concrete_manifest(
+            str(tmp_path / impl), str(tmp_path)
+        )
+        body = f"def {letter}(): pass\n"
+        sh = compute_hash((tmp_path / spec).read_text())
+        oh = compute_hash(body)
+        mh = format_manifest_header(manifest) if manifest else ""
+        mp = f" concrete-manifest:{mh}" if mh else ""
+        (tmp_path / name).write_text(
+            f"# @unslop-managed — do not edit directly. Edit {spec} instead.\n"
+            f"# spec-hash:{sh} output-hash:{oh}{mp}"
+            f" generated:2026-03-23T00:00:00Z\n" + body
+        )
+
+    # Make all stale
+    for letter in "abc":
+        (tmp_path / f"{letter}.py.spec.md").write_text(
+            f"# {letter.upper()} v2\n"
+        )
+
+    result = compute_bulk_sync_plan(str(tmp_path))
+
+    # Verify: no batch contains both a spec and its dependency
+    from pathlib import Path as P
+    graph, _ = _build_unified_dag(P(tmp_path).resolve())
+
+    for batch in result["batches"]:
+        specs_in_batch = {f["spec"] for f in batch["files"]}
+        for spec in specs_in_batch:
+            deps = graph.get(spec, set())
+            overlap = deps & specs_in_batch
+            assert not overlap, (
+                f"Batch {batch['batch_index']} contains {spec} and its "
+                f"dependency {overlap} — parallel race condition!"
+            )
+
+
+def test_parallel_batches_independent_specs_same_batch(tmp_path):
+    """Independent specs at the same depth should share a batch."""
+    (tmp_path / ".unslop").mkdir()
+
+    # b and c both extend a, but are independent of each other
+    (tmp_path / "a.impl.md").write_text(
+        "---\nsource-spec: a.py.spec.md\nephemeral: false\n---\n\n## Strategy\nA.\n"
+    )
+    (tmp_path / "b.impl.md").write_text(
+        "---\nsource-spec: b.py.spec.md\nephemeral: false\n"
+        "extends: a.impl.md\n---\n\n## Strategy\nB.\n"
+    )
+    (tmp_path / "c.impl.md").write_text(
+        "---\nsource-spec: c.py.spec.md\nephemeral: false\n"
+        "extends: a.impl.md\n---\n\n## Strategy\nC.\n"
+    )
+
+    for letter in "abc":
+        (tmp_path / f"{letter}.py.spec.md").write_text(f"# {letter.upper()}\n")
+
+    for letter in "abc":
+        name = f"{letter}.py"
+        spec = f"{letter}.py.spec.md"
+        impl = f"{letter}.impl.md"
+        manifest = compute_concrete_manifest(
+            str(tmp_path / impl), str(tmp_path)
+        )
+        body = f"def {letter}(): pass\n"
+        sh = compute_hash((tmp_path / spec).read_text())
+        oh = compute_hash(body)
+        mh = format_manifest_header(manifest) if manifest else ""
+        mp = f" concrete-manifest:{mh}" if mh else ""
+        (tmp_path / name).write_text(
+            f"# @unslop-managed — do not edit directly. Edit {spec} instead.\n"
+            f"# spec-hash:{sh} output-hash:{oh}{mp}"
+            f" generated:2026-03-23T00:00:00Z\n" + body
+        )
+
+    # Make all stale
+    for letter in "abc":
+        (tmp_path / f"{letter}.py.spec.md").write_text(
+            f"# {letter.upper()} v2\n"
+        )
+
+    result = compute_bulk_sync_plan(str(tmp_path))
+
+    # Find which batch b and c are in
+    b_batch = c_batch = None
+    for batch in result["batches"]:
+        for f in batch["files"]:
+            if f["managed"] == "b.py":
+                b_batch = batch["batch_index"]
+            if f["managed"] == "c.py":
+                c_batch = batch["batch_index"]
+
+    assert b_batch is not None and c_batch is not None
+    assert b_batch == c_batch, (
+        f"b.py (batch {b_batch}) and c.py (batch {c_batch}) are independent "
+        "and should be in the same batch"
+    )
+
+
+def test_parallel_batches_diamond_safe(tmp_path):
+    """Diamond: d depends on b+c, both depend on a. Three depth levels."""
+    (tmp_path / ".unslop").mkdir()
+
+    (tmp_path / "a.impl.md").write_text(
+        "---\nsource-spec: a.py.spec.md\nephemeral: false\n---\n\n## Strategy\nA.\n"
+    )
+    (tmp_path / "b.impl.md").write_text(
+        "---\nsource-spec: b.py.spec.md\nephemeral: false\n"
+        "extends: a.impl.md\n---\n\n## Strategy\nB.\n"
+    )
+    (tmp_path / "c.impl.md").write_text(
+        "---\nsource-spec: c.py.spec.md\nephemeral: false\n"
+        "extends: a.impl.md\n---\n\n## Strategy\nC.\n"
+    )
+    (tmp_path / "d.impl.md").write_text(
+        "---\nsource-spec: d.py.spec.md\nephemeral: false\n"
+        "concrete-dependencies:\n  - b.impl.md\n  - c.impl.md\n---\n\n## Strategy\nD.\n"
+    )
+
+    for letter in "abcd":
+        (tmp_path / f"{letter}.py.spec.md").write_text(f"# {letter.upper()}\n")
+
+    for letter in "abcd":
+        name = f"{letter}.py"
+        spec = f"{letter}.py.spec.md"
+        impl = f"{letter}.impl.md"
+        manifest = compute_concrete_manifest(
+            str(tmp_path / impl), str(tmp_path)
+        )
+        body = f"def {letter}(): pass\n"
+        sh = compute_hash((tmp_path / spec).read_text())
+        oh = compute_hash(body)
+        mh = format_manifest_header(manifest) if manifest else ""
+        mp = f" concrete-manifest:{mh}" if mh else ""
+        (tmp_path / name).write_text(
+            f"# @unslop-managed — do not edit directly. Edit {spec} instead.\n"
+            f"# spec-hash:{sh} output-hash:{oh}{mp}"
+            f" generated:2026-03-23T00:00:00Z\n" + body
+        )
+
+    # Make all stale
+    for letter in "abcd":
+        (tmp_path / f"{letter}.py.spec.md").write_text(
+            f"# {letter.upper()} v2\n"
+        )
+
+    result = compute_bulk_sync_plan(str(tmp_path))
+
+    # Find batch indices
+    batch_map = {}
+    for batch in result["batches"]:
+        for f in batch["files"]:
+            batch_map[f["managed"]] = batch["batch_index"]
+
+    # a must be in earliest batch
+    assert batch_map.get("a.py", 999) < batch_map.get("b.py", 999)
+    assert batch_map.get("a.py", 999) < batch_map.get("c.py", 999)
+    # b and c should be same batch (both depth 1)
+    assert batch_map.get("b.py") == batch_map.get("c.py"), (
+        f"b.py (batch {batch_map.get('b.py')}) and c.py "
+        f"(batch {batch_map.get('c.py')}) should be same batch"
+    )
+    # d must come after b and c
+    assert batch_map.get("d.py", 999) > batch_map.get("b.py", 0)
+
+
+def test_parallel_batches_respect_abstract_deps(tmp_path):
+    """Abstract depends-on edges must also prevent co-batching."""
+    (tmp_path / ".unslop").mkdir()
+
+    # auth has no deps, handler depends-on auth (abstract only)
+    (tmp_path / "auth.py.spec.md").write_text("# Auth\n")
+    (tmp_path / "handler.py.spec.md").write_text(
+        "---\ndepends-on:\n  - auth.py.spec.md\n---\n# Handler\n"
+    )
+
+    for name, spec in [("auth.py", "auth.py.spec.md"),
+                        ("handler.py", "handler.py.spec.md")]:
+        body = f"def {name.replace('.py', '')}(): pass\n"
+        sh = compute_hash((tmp_path / spec).read_text())
+        oh = compute_hash(body)
+        (tmp_path / name).write_text(
+            f"# @unslop-managed — do not edit directly. Edit {spec} instead.\n"
+            f"# spec-hash:{sh} output-hash:{oh}"
+            f" generated:2026-03-23T00:00:00Z\n" + body
+        )
+
+    # Make both stale
+    (tmp_path / "auth.py.spec.md").write_text("# Auth v2\n")
+    (tmp_path / "handler.py.spec.md").write_text(
+        "---\ndepends-on:\n  - auth.py.spec.md\n---\n# Handler v2\n"
+    )
+
+    result = compute_bulk_sync_plan(str(tmp_path))
+
+    batch_map = {}
+    for batch in result["batches"]:
+        for f in batch["files"]:
+            batch_map[f["managed"]] = batch["batch_index"]
+
+    assert batch_map.get("auth.py", 999) < batch_map.get("handler.py", 0), (
+        f"auth.py (batch {batch_map.get('auth.py')}) must come before "
+        f"handler.py (batch {batch_map.get('handler.py')})"
+    )
+
+
+def test_deep_sync_unified_dag_ordering(tmp_path):
+    """Deep sync should use the unified DAG, not just abstract order."""
+    _setup_deep_sync_chain(tmp_path)
+
+    # Change utils — triggers ghost-staleness through concrete chain
+    (tmp_path / "utils.impl.md").write_text(
+        "---\nephemeral: false\n---\n\n## Strategy\nUtils v2.\n"
+    )
+
+    result = compute_deep_sync_plan("api.py", str(tmp_path))
+    managed = [e["managed"] for e in result["plan"]]
+
+    # service must precede api (concrete extends, no abstract edge)
+    if "service.py" in managed and "api.py" in managed:
+        assert managed.index("service.py") < managed.index("api.py")
+
+
+def test_compute_parallel_batches_empty():
+    """Empty input should return empty batches."""
+    batches = _compute_parallel_batches([], {})
+    assert batches == []
+
+
+def test_compute_parallel_batches_single_entry():
+    """Single entry should produce one batch."""
+    entries = [{"managed": "a.py", "spec": "a.py.spec.md"}]
+    graph = {"a.py.spec.md": set()}
+    batches = _compute_parallel_batches(entries, graph)
+    assert len(batches) == 1
+    assert len(batches[0]) == 1
+
+
+def test_compute_parallel_batches_max_batch_splits_wave():
+    """A wave larger than max_batch_size should be split."""
+    entries = [
+        {"managed": f"f{i}.py", "spec": f"f{i}.py.spec.md"}
+        for i in range(5)
+    ]
+    graph = {f"f{i}.py.spec.md": set() for i in range(5)}
+    batches = _compute_parallel_batches(entries, graph, max_batch_size=2)
+    for batch in batches:
+        assert len(batch) <= 2
+    total = sum(len(b) for b in batches)
+    assert total == 5

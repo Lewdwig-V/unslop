@@ -2019,55 +2019,186 @@ def _compute_ripple_build_order(affected_specs: set[str], all_specs: dict[str, l
         return sorted(affected_specs)
 
 
-def _build_unified_spec_order(
+def _build_unified_dag(
     project_root: Path,
-    abstract_build_order: list[str],
-) -> callable:
-    """Build a sort key that merges abstract and concrete topo orders.
+) -> tuple[dict[str, set[str]], dict[str, str]]:
+    """Build a single dependency graph from both abstract and concrete edges.
 
-    The abstract build_order from ripple_check only captures depends-on
-    edges between specs.  The concrete layer's extends/concrete-dependencies
-    chain is separate.  This function merges both: for each spec, the sort
-    key is max(abstract_index, concrete_index), ensuring that if spec A
-    must precede B in *either* graph, A sorts first.
+    An edge (u, v) exists if spec v depends on spec u at either layer:
+      - Abstract: v's spec has ``depends-on: [u]``
+      - Concrete: v's impl has ``extends: u_impl`` or
+        ``concrete-dependencies: [u_impl]``
 
-    Returns a callable: spec_path -> int (sort key).
+    Returns:
+        (graph, impl_to_spec) where graph maps spec -> set of dependency
+        specs (edges point to deps, same convention as topo_sort).
     """
     root = project_root
 
-    # Get concrete topo order — captures extends chains
-    try:
-        concrete_order = build_concrete_order(str(root))
-    except (ValueError, OSError):
-        concrete_order = []
-
     # Build impl -> source-spec mapping
     impl_to_spec: dict[str, str] = {}
+    impl_meta: dict[str, dict] = {}
     for impl_path in root.rglob("*.impl.md"):
         try:
             content = impl_path.read_text(encoding="utf-8")
         except (OSError, UnicodeDecodeError):
             continue
         meta = parse_concrete_frontmatter(content)
+        rel = str(impl_path.relative_to(root))
+        impl_meta[rel] = meta
         src = meta.get("source_spec")
         if src:
-            impl_to_spec[str(impl_path.relative_to(root))] = src
+            impl_to_spec[rel] = src
 
-    spec_order_abstract = {s: i for i, s in enumerate(abstract_build_order)}
-    spec_order_concrete: dict[str, int] = {}
-    for i, impl_name in enumerate(concrete_order):
+    # Collect all specs
+    all_specs: set[str] = set()
+    spec_abstract_deps: dict[str, list[str]] = {}
+    for spec_path in root.rglob("*.spec.md"):
+        try:
+            content = spec_path.read_text(encoding="utf-8")
+        except (OSError, UnicodeDecodeError):
+            continue
+        rel = str(spec_path.relative_to(root))
+        all_specs.add(rel)
+        spec_abstract_deps[rel] = parse_frontmatter(content)
+
+    # Also add specs referenced by impls but maybe not on disk
+    for src_spec in impl_to_spec.values():
+        all_specs.add(src_spec)
+
+    # Build unified adjacency list: spec -> set of specs it depends on
+    graph: dict[str, set[str]] = {s: set() for s in all_specs}
+
+    # Abstract edges: depends-on
+    for spec, deps in spec_abstract_deps.items():
+        for dep in deps:
+            if dep in all_specs:
+                graph.setdefault(spec, set()).add(dep)
+
+    # Concrete edges: extends + concrete-dependencies, projected to spec space
+    for impl_name, meta in impl_meta.items():
         src_spec = impl_to_spec.get(impl_name)
-        if src_spec:
-            spec_order_concrete[src_spec] = max(
-                spec_order_concrete.get(src_spec, i), i
-            )
+        if not src_spec:
+            continue
 
-    def combined_order(spec: str) -> int:
-        a = spec_order_abstract.get(spec, 0)
-        c = spec_order_concrete.get(spec, 0)
-        return max(a, c)
+        upstream_impls = list(meta.get("concrete_dependencies", []))
+        extends = meta.get("extends")
+        if extends:
+            upstream_impls.append(extends)
 
-    return combined_order, impl_to_spec
+        for dep_impl in upstream_impls:
+            dep_spec = impl_to_spec.get(dep_impl)
+            if dep_spec and dep_spec in all_specs:
+                graph.setdefault(src_spec, set()).add(dep_spec)
+
+    return graph, impl_to_spec
+
+
+def _unified_topo_sort(
+    project_root: Path,
+    filter_specs: set[str] | None = None,
+) -> tuple[list[str], dict[str, set[str]], dict[str, str]]:
+    """Topological sort over the unified abstract+concrete DAG.
+
+    Args:
+        project_root: Project root directory.
+        filter_specs: If provided, only include these specs in the sort
+                      (plus their transitive deps that are also in the set).
+
+    Returns:
+        (sorted_specs, graph, impl_to_spec) where sorted_specs is in
+        dependency order (leaves first).
+    """
+    full_graph, impl_to_spec = _build_unified_dag(project_root)
+
+    if filter_specs is not None:
+        # Restrict graph to only the specs in the filter set
+        graph = {
+            s: deps & filter_specs
+            for s, deps in full_graph.items()
+            if s in filter_specs
+        }
+    else:
+        graph = full_graph
+
+    # Convert set-valued graph to list-valued for topo_sort
+    list_graph = {s: sorted(deps) for s, deps in graph.items()}
+
+    try:
+        sorted_specs = topo_sort(list_graph)
+    except ValueError:
+        # Cycle — fall back to sorted order
+        sorted_specs = sorted(graph.keys())
+
+    return sorted_specs, graph, impl_to_spec
+
+
+def _compute_parallel_batches(
+    sorted_entries: list[dict],
+    graph: dict[str, set[str]],
+    max_batch_size: int = 8,
+) -> list[list[dict]]:
+    """Partition sorted plan entries into parallel-safe batches via Kahn's.
+
+    Two entries are in the same batch iff neither's spec is an ancestor of
+    the other's in the unified DAG.  This is computed by running Kahn's
+    algorithm and grouping nodes by topological depth.
+
+    Args:
+        sorted_entries: Plan entries already sorted in topo order.
+        graph: spec -> set of dependency specs (edges point to deps).
+        max_batch_size: Maximum files per batch.
+
+    Returns:
+        List of batches (each batch is a list of plan entry dicts).
+    """
+    if not sorted_entries:
+        return []
+
+    # Build the subgraph restricted to specs in the plan
+    plan_specs = {e["spec"] for e in sorted_entries}
+    sub_graph: dict[str, set[str]] = {}
+    for spec in plan_specs:
+        sub_graph[spec] = graph.get(spec, set()) & plan_specs
+
+    # Compute in-degrees
+    in_degree: dict[str, int] = {s: 0 for s in plan_specs}
+    # Build forward edges (successors) for Kahn's
+    successors: dict[str, set[str]] = {s: set() for s in plan_specs}
+    for spec, deps in sub_graph.items():
+        in_degree[spec] = len(deps)
+        for dep in deps:
+            successors.setdefault(dep, set()).add(spec)
+
+    # Kahn's with depth tracking: each "wave" of zero-in-degree nodes
+    # forms one parallel batch
+    spec_to_entry: dict[str, list[dict]] = {}
+    for entry in sorted_entries:
+        spec_to_entry.setdefault(entry["spec"], []).append(entry)
+
+    batches: list[list[dict]] = []
+    queue = sorted(s for s in plan_specs if in_degree[s] == 0)
+
+    while queue:
+        # All nodes in queue can run in parallel
+        wave_entries: list[dict] = []
+        for spec in queue:
+            wave_entries.extend(spec_to_entry.get(spec, []))
+
+        # Split wave into max_batch_size chunks
+        for i in range(0, len(wave_entries), max_batch_size):
+            batches.append(wave_entries[i:i + max_batch_size])
+
+        # Decrement in-degrees for successors
+        next_queue = []
+        for spec in queue:
+            for succ in successors.get(spec, set()):
+                in_degree[succ] -= 1
+                if in_degree[succ] == 0:
+                    next_queue.append(succ)
+        queue = sorted(next_queue)
+
+    return batches
 
 
 def compute_deep_sync_plan(
@@ -2183,11 +2314,13 @@ def compute_deep_sync_plan(
         else:
             plan.append(entry)
 
-    # Order the plan using unified abstract+concrete topo sort
-    build_order = ripple.get("build_order", [])
-    combined_order, _ = _build_unified_spec_order(root, build_order)
+    # Order the plan using unified abstract+concrete DAG
+    plan_specs = {e["spec"] for e in plan}
+    sorted_specs, _, _ = _unified_topo_sort(root, filter_specs=plan_specs)
+    spec_order = {s: i for i, s in enumerate(sorted_specs)}
 
-    plan.sort(key=lambda e: combined_order(e["spec"]))
+    plan.sort(key=lambda e: spec_order.get(e["spec"], 999999))
+    build_order = sorted_specs
 
     return {
         "trigger": trigger_spec,
@@ -2331,84 +2464,21 @@ def compute_bulk_sync_plan(
         else:
             plan_entries.append(entry)
 
-    # 7. Unified abstract+concrete topo sort
-    build_order = ripple.get("build_order", [])
-    combined_order, impl_to_spec = _build_unified_spec_order(
-        root, build_order
+    # 7. Unified topo sort via single DAG (abstract + concrete edges)
+    plan_specs = {e["spec"] for e in plan_entries}
+    sorted_specs, graph, _ = _unified_topo_sort(
+        root, filter_specs=plan_specs
     )
+    spec_order = {s: i for i, s in enumerate(sorted_specs)}
+    plan_entries.sort(key=lambda e: spec_order.get(e["spec"], 999999))
+    build_order = sorted_specs
 
-    plan_entries.sort(key=lambda e: combined_order(e["spec"]))
-
-    # 8. Partition into batches: files at the same topological depth can share
-    #    a worktree.  Two files are in the same batch iff neither's spec has a
-    #    dependency on the other's (abstract OR concrete).
-    #
-    #    Simple greedy algorithm: walk plan entries in combined topo order.
-    #    For each entry, check if its spec is downstream of any spec already
-    #    in the current batch.  If so, start a new batch.
-
-    # Build a set of downstream specs for each spec (both abstract + concrete)
-    spec_dependents: dict[str, set[str]] = {}
-    # From abstract layer: specs that depend-on other specs
-    for impl_name, src_spec in impl_to_spec.items():
-        try:
-            impl_content = (root / impl_name).read_text(encoding="utf-8")
-        except (OSError, UnicodeDecodeError):
-            continue
-        meta = parse_concrete_frontmatter(impl_content)
-        deps = list(meta.get("concrete_dependencies", []))
-        if "extends" in meta:
-            deps.append(meta["extends"])
-        for dep_impl in deps:
-            dep_spec = impl_to_spec.get(dep_impl)
-            if dep_spec:
-                spec_dependents.setdefault(dep_spec, set()).add(src_spec)
-
-    # Also add abstract depends-on edges
-    for spec_file in root.rglob("*.spec.md"):
-        try:
-            content = spec_file.read_text(encoding="utf-8")
-        except (OSError, UnicodeDecodeError):
-            continue
-        deps_list = parse_frontmatter(content)  # returns list[str]
-        rel = str(spec_file.relative_to(root))
-        for dep in deps_list:
-            spec_dependents.setdefault(dep, set()).add(rel)
-
-    # Transitively expand dependents
-    def get_all_downstream(spec: str, visited: set[str] | None = None) -> set[str]:
-        if visited is None:
-            visited = set()
-        for dep in spec_dependents.get(spec, set()):
-            if dep not in visited:
-                visited.add(dep)
-                get_all_downstream(dep, visited)
-        return visited
-
-    batches: list[list[dict]] = []
-    current_batch: list[dict] = []
-    current_batch_specs: set[str] = set()
-    # Set of all specs downstream of any spec in the current batch
-    current_batch_downstream: set[str] = set()
-
-    for entry in plan_entries:
-        spec = entry["spec"]
-
-        conflicts_with_batch = spec in current_batch_downstream
-
-        if conflicts_with_batch or len(current_batch) >= max_batch_size:
-            if current_batch:
-                batches.append(current_batch)
-            current_batch = [entry]
-            current_batch_specs = {spec}
-            current_batch_downstream = get_all_downstream(spec)
-        else:
-            current_batch.append(entry)
-            current_batch_specs.add(spec)
-            current_batch_downstream.update(get_all_downstream(spec))
-
-    if current_batch:
-        batches.append(current_batch)
+    # 8. Parallel-safe batching via Kahn's depth grouping.
+    #    Nodes at the same topological depth share no dependency edges,
+    #    so they can safely run in parallel within a single worktree.
+    batches = _compute_parallel_batches(
+        plan_entries, graph, max_batch_size=max_batch_size
+    )
 
     return {
         "batches": [
