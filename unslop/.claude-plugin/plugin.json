@@ -1,11 +1,11 @@
 {
   "name": "unslop",
-  "version": "0.10.2",
-  "description": "Spec-driven development harness for Claude Code -- worktree-isolated generation, cross-spec coherence, and triage routing",
+  "version": "0.12.0",
+  "description": "Spec-driven development harness for Claude Code -- worktree-isolated generation, adversarial quality pipeline, cross-spec coherence, and triage routing",
   "author": {
     "name": "lewdwig"
   },
   "repository": "https://github.com/Lewdwig-V/unslop",
   "license": "MPL-2.0",
-  "keywords": ["spec-driven", "codegen", "takeover", "vibe-coding", "code-management"]
+  "keywords": ["spec-driven", "codegen", "takeover", "vibe-coding", "code-management", "adversarial-testing", "mutation-testing"]
 }
