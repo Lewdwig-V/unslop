@@ -1,7 +1,7 @@
 ---
 name: adversarial
 description: "Adversarial Quality framework — three-agent pipeline (Archaeologist → Mason → Saboteur) for mutation-gated test generation"
-version: "0.12.0"
+version: "0.14.0"
 ---
 
 # Adversarial Quality Skill
@@ -172,3 +172,36 @@ The adversarial pipeline is optional and enabled per-project via `.unslop/config
   "mutation_tool": "mutmut"
 }
 ```
+
+## Takeover Mode
+
+When invoked from the testless takeover pipeline (not directly by the user), the adversarial skill operates with these differences:
+
+1. **The Architect writes the behaviour.yaml, not the Archaeologist.** During testless takeover, the Architect already reads the code and drafts the spec -- it produces the behaviour.yaml in the same pass (takeover Step 2c). The Archaeologist is reserved for post-takeover use (e.g., `/unslop:cover`).
+
+2. **The Mason receives the behaviour.yaml from the takeover pipeline.** It does not extract its own. The Chinese Wall is still enforced -- the Mason sees only the behaviour.yaml, never the source code.
+
+3. **Convergence crosses three stages.** In normal adversarial runs, only the Mason retries. In takeover mode, the Architect may enrich the behaviour.yaml and the Builder may re-generate code, creating a three-way convergence loop managed by the takeover skill (Step 7).
+
+## Integration Pass (Takeover Mode)
+
+During testless takeover, the Mason may encounter internal dependencies. The mock budget normally rejects these, but:
+
+- **Managed dependencies** (files with `@unslop-managed` header) may be used directly in tests without mocking. Their behaviour is contractual -- the spec guarantees their interface.
+- **Unmanaged dependencies** trigger a cascade recommendation: "Take over `{dep}` first, then retry."
+- **User escape hatch:** Add the blocking module to `boundaries.json` as an explicit internal boundary. This is a conscious trade-off, not an automatic bypass.
+
+## Entropy Threshold (Takeover Mode)
+
+Each Saboteur iteration tracks the mutation kill rate. If the improvement between iterations drops below the project's `entropy_threshold` (default 0.05 = 5%), convergence has stalled.
+
+**Success exemption:** If kill rate is already 100%, skip the entropy check -- there's nothing left to improve.
+
+**On stall:** The takeover skill triggers **Radical Spec Hardening** -- a one-shot rewrite of the behaviour.yaml using the Prosecutor's surviving mutant summary as guidance:
+
+1. Prosecutor summarizes ALL surviving mutants as a batch
+2. Architect rewrites behaviour.yaml from scratch using: original abstract spec + Prosecutor's summary + previous behaviour.yaml as reference (not template)
+3. Mason generates tests from the rewritten behaviour.yaml
+4. If this also stalls: DONE_WITH_CONCERNS -- report surviving mutants, commit with partial coverage
+
+The entropy threshold is configurable in `.unslop/config.json` as `entropy_threshold`. Set to 0 to disable.

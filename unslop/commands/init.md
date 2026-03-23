@@ -42,7 +42,15 @@ If multiple indicators are found, or none are found, ask the user which test com
   "exclude_patterns": [],
   "exclude_patterns_note": "Additional directory patterns to exclude from discovery, beyond defaults",
   "promote-threshold": "high",
-  "promote-threshold_note": "Complexity level at which concrete specs (.impl.md) are auto-promoted to permanent. Options: low, medium, high"
+  "promote-threshold_note": "Complexity level at which concrete specs (.impl.md) are auto-promoted to permanent. Options: low, medium, high",
+  "adversarial": true,
+  "adversarial_note": "Enable adversarial quality pipeline for testless takeover and quality validation. Disable with false or use --skip-adversarial per-file.",
+  "adversarial_max_iterations": 3,
+  "adversarial_max_iterations_note": "Maximum convergence iterations before requiring manual review",
+  "mutation_tool": "builtin",
+  "mutation_tool_note": "Mutation engine: 'mutmut' for full mutation testing, 'builtin' for lightweight AST mutator",
+  "entropy_threshold": 0.05,
+  "entropy_threshold_note": "Minimum mutation kill rate improvement per iteration. Below this, convergence stalls and triggers radical spec hardening. Set to 0 to disable."
 }
 ```
 
