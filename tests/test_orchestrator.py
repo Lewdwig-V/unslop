@@ -5,7 +5,7 @@ import sys
 import os
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'unslop', 'scripts'))
 
-from orchestrator import compute_hash, parse_header, parse_frontmatter, topo_sort, discover_files, build_order_from_dir, resolve_deps, classify_file, check_freshness, parse_change_file, file_tree, parse_concrete_frontmatter, compute_concrete_deps_hash, build_concrete_order, resolve_extends_chain, resolve_inherited_sections, get_all_strategy_providers
+from orchestrator import compute_hash, parse_header, parse_frontmatter, topo_sort, discover_files, build_order_from_dir, resolve_deps, classify_file, check_freshness, parse_change_file, file_tree, parse_concrete_frontmatter, compute_concrete_deps_hash, build_concrete_order, resolve_extends_chain, resolve_inherited_sections, get_all_strategy_providers, get_registry_key_for_spec
 
 
 def test_compute_hash_deterministic():
@@ -1699,4 +1699,89 @@ def test_check_freshness_ghost_stale_via_extends(tmp_path):
     assert len(child_entry) == 1
     assert child_entry[0]["state"] == "ghost-stale", (
         f"Expected ghost-stale after parent change, got: {child_entry[0]}"
+    )
+
+
+# --- Unit Spec Registry Key Tests ---
+
+def test_get_registry_key_per_file_spec():
+    assert get_registry_key_for_spec("handler.py.spec.md") == "handler.py"
+
+
+def test_get_registry_key_per_file_spec_nested():
+    assert get_registry_key_for_spec("src/api/handler.py.spec.md") == "src/api/handler.py"
+
+
+def test_get_registry_key_unit_spec():
+    """Unit spec registry key is the parent directory."""
+    assert get_registry_key_for_spec("pkg/mod.unit.spec.md") == "pkg"
+
+
+def test_get_registry_key_unit_spec_nested():
+    assert get_registry_key_for_spec("src/utils/helpers.unit.spec.md") == "src/utils"
+
+
+def test_get_registry_key_plain_string():
+    """Non-spec path is returned unchanged."""
+    assert get_registry_key_for_spec("handler.py") == "handler.py"
+
+
+def test_check_freshness_ghost_stale_unit_spec(tmp_path):
+    """Ghost-staleness should fire for unit specs via correct registry key."""
+    # Create upstream concrete spec that will change
+    (tmp_path / "base_math.impl.md").write_text(
+        "---\nsource-spec: base_math.spec.md\ntarget-language: python\nephemeral: false\n---\n\n"
+        "## Strategy\nMath utils v1.\n"
+    )
+
+    # Create the unit spec
+    pkg = tmp_path / "pkg"
+    pkg.mkdir()
+    unit_spec_content = "# Pkg Module\n\n## Behavior\nPackage utilities.\nDetails.\n\n## Files\n- `calc.py`\n- `utils.py`\n"
+    (pkg / "mod.unit.spec.md").write_text(unit_spec_content)
+
+    # Create unit impl that depends on base_math
+    (pkg / "mod.unit.impl.md").write_text(
+        "---\nsource-spec: pkg/mod.unit.spec.md\ntarget-language: python\nephemeral: false\n"
+        "concrete-dependencies:\n  - base_math.impl.md\n---\n\n## Strategy\nUses base math.\n"
+    )
+
+    # Compute hashes at "generation time"
+    calc_body = "def calc(): pass\n"
+    utils_body = "def utils(): pass\n"
+    sh = compute_hash(unit_spec_content)
+    calc_oh = compute_hash(calc_body)
+    utils_oh = compute_hash(utils_body)
+    cdh = compute_concrete_deps_hash(str(pkg / "mod.unit.impl.md"), str(tmp_path))
+
+    # Write managed files with headers
+    (pkg / "calc.py").write_text(
+        f"# @unslop-managed — do not edit directly. Edit pkg/mod.unit.spec.md instead.\n"
+        f"# spec-hash:{sh} output-hash:{calc_oh} concrete-deps-hash:{cdh}"
+        f" generated:2026-03-23T00:00:00Z\n" + calc_body
+    )
+    (pkg / "utils.py").write_text(
+        f"# @unslop-managed — do not edit directly. Edit pkg/mod.unit.spec.md instead.\n"
+        f"# spec-hash:{sh} output-hash:{utils_oh} concrete-deps-hash:{cdh}"
+        f" generated:2026-03-23T00:00:00Z\n" + utils_body
+    )
+
+    # Verify fresh before upstream change
+    result = check_freshness(str(tmp_path))
+    pkg_entry = [f for f in result["files"] if f["managed"] == "pkg"]
+    assert len(pkg_entry) == 1, f"Expected pkg entry, got: {[f['managed'] for f in result['files']]}"
+    assert pkg_entry[0]["state"] == "fresh", f"Expected fresh, got: {pkg_entry[0]}"
+
+    # Change upstream concrete spec
+    (tmp_path / "base_math.impl.md").write_text(
+        "---\nsource-spec: base_math.spec.md\ntarget-language: python\nephemeral: false\n---\n\n"
+        "## Strategy\nMath utils v2 with overflow protection.\n"
+    )
+
+    # Unit spec should now be ghost-stale
+    result = check_freshness(str(tmp_path))
+    pkg_entry = [f for f in result["files"] if f["managed"] == "pkg"]
+    assert len(pkg_entry) == 1
+    assert pkg_entry[0]["state"] == "ghost-stale", (
+        f"Expected ghost-stale after upstream change, got: {pkg_entry[0]}"
     )

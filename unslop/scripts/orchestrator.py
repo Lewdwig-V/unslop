@@ -528,6 +528,20 @@ def get_all_strategy_providers(meta: dict) -> list[str]:
     return sorted(deps)
 
 
+def get_registry_key_for_spec(source_spec: str) -> str:
+    """Map an impl.md's source-spec to the managed-file registry key.
+
+    Unit specs (*.unit.spec.md) use the parent directory as the registry key,
+    matching how check_freshness() registers them.  Per-file specs strip
+    .spec.md to get the managed filename.
+    """
+    if source_spec.endswith(".unit.spec.md"):
+        parent = str(Path(source_spec).parent)
+        # Top-level unit spec: parent is ".", registry key is "."
+        return parent
+    return re.sub(r"\.spec\.md$", "", source_spec)
+
+
 def compute_concrete_deps_hash(impl_path: str, project_root: str) -> str | None:
     """Compute a combined hash of all strategy providers (deps + parents).
 
@@ -1078,27 +1092,60 @@ def check_freshness(directory: str) -> dict:
             else:
                 source_spec = meta.get("source_spec", "")
                 if source_spec:
-                    target_paths_for_hash = [re.sub(r"\.spec\.md$", "", source_spec)]
+                    target_paths_for_hash = [get_registry_key_for_spec(source_spec)]
 
             for managed_rel in target_paths_for_hash:
                 managed_full = root / managed_rel
-                if not managed_full.exists():
+
+                # Collect candidate files to check for concrete-deps-hash.
+                # For unit specs the registry key is a directory; we need to
+                # check the headers of the individual managed files inside it.
+                candidates = []
+                if managed_full.is_dir():
+                    # Unit spec: find managed files inside the directory
+                    source_spec = meta.get("source_spec", "")
+                    if source_spec:
+                        spec_full = root / source_spec
+                        if spec_full.exists():
+                            try:
+                                spec_content = spec_full.read_text(encoding="utf-8")
+                            except (OSError, UnicodeDecodeError):
+                                spec_content = ""
+                            in_files = False
+                            for sline in spec_content.split("\n"):
+                                if re.match(r"^## Files", sline):
+                                    in_files = True
+                                    continue
+                                if in_files:
+                                    if re.match(r"^## ", sline):
+                                        break
+                                    fm = re.match(r"^\s*-\s+`([^`]+)`", sline)
+                                    if fm:
+                                        candidates.append(managed_full / fm.group(1))
+                elif managed_full.is_file():
+                    candidates = [managed_full]
+                else:
                     continue
-                try:
-                    managed_content = managed_full.read_text(encoding="utf-8")
-                except (OSError, UnicodeDecodeError):
-                    continue
-                header = parse_header(managed_content)
-                if header is None:
-                    continue
-                stored_cdeps = header.get("concrete_deps_hash")
-                if stored_cdeps is not None and stored_cdeps != current_cdeps_hash:
-                    # Identify which specific deps changed
-                    changed = _identify_changed_deps(
-                        all_providers, stored_cdeps, str(root),
-                    )
-                    for reason in changed:
-                        stale_reasons.append(reason)
+
+                for candidate in candidates:
+                    if not candidate.exists():
+                        continue
+                    try:
+                        managed_content = candidate.read_text(encoding="utf-8")
+                    except (OSError, UnicodeDecodeError):
+                        continue
+                    header = parse_header(managed_content)
+                    if header is None:
+                        continue
+                    stored_cdeps = header.get("concrete_deps_hash")
+                    if stored_cdeps is not None and stored_cdeps != current_cdeps_hash:
+                        # Identify which specific deps changed
+                        changed = _identify_changed_deps(
+                            all_providers, stored_cdeps, str(root),
+                        )
+                        for reason in changed:
+                            stale_reasons.append(reason)
+                        break  # One mismatch is enough to trigger staleness
 
         if stale_reasons:
             # Determine which managed files this impl.md affects
@@ -1111,7 +1158,7 @@ def check_freshness(directory: str) -> dict:
                 # Single-target: derive from source-spec
                 source_spec = meta.get("source_spec", "")
                 if source_spec:
-                    target_paths = [re.sub(r"\.spec\.md$", "", source_spec)]
+                    target_paths = [get_registry_key_for_spec(source_spec)]
 
             for managed_rel in target_paths:
                 for f in files:
