@@ -5,7 +5,7 @@ import sys
 import os
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'unslop', 'scripts'))
 
-from orchestrator import compute_hash, parse_header, parse_frontmatter, topo_sort, discover_files, build_order_from_dir, resolve_deps, classify_file, check_freshness, parse_change_file, file_tree, parse_concrete_frontmatter, compute_concrete_deps_hash, build_concrete_order, resolve_extends_chain, resolve_inherited_sections, get_all_strategy_providers, get_registry_key_for_spec
+from orchestrator import compute_hash, parse_header, parse_frontmatter, topo_sort, discover_files, build_order_from_dir, resolve_deps, classify_file, check_freshness, parse_change_file, file_tree, parse_concrete_frontmatter, compute_concrete_deps_hash, build_concrete_order, resolve_extends_chain, resolve_inherited_sections, get_all_strategy_providers, get_registry_key_for_spec, flatten_inheritance_chain
 
 
 def test_compute_hash_deterministic():
@@ -1874,3 +1874,130 @@ def test_no_suppression_without_impl(tmp_path):
 
     utils = [f for f in result["files"] if f["managed"] == "utils.py"]
     assert utils[0]["state"] == "fresh"
+
+
+# --- Flatten Inheritance Chain Tests ---
+
+def test_flatten_single_level(tmp_path):
+    """Single impl with no extends produces a chain of 1."""
+    (tmp_path / "handler.py.impl.md").write_text(
+        "---\nsource-spec: handler.py.spec.md\nephemeral: false\n---\n\n"
+        "## Strategy\nDirect handler.\n\n"
+        "## Lowering Notes\n\n### Python\n- Use dataclass.\n"
+    )
+
+    result = flatten_inheritance_chain(
+        str(tmp_path / "handler.py.impl.md"), str(tmp_path),
+    )
+    assert result["chain"] == ["handler.py.impl.md"]
+    assert len(result["levels"]) == 1
+    assert result["levels"][0]["impl"] == "handler.py.impl.md"
+    assert "Strategy" in result["resolved"]
+    assert "Lowering Notes" in result["resolved"]
+    assert result["attribution"]["Strategy"] == "handler.py.impl.md"
+    assert result["attribution"]["Lowering Notes"] == {"Python": "handler.py.impl.md"}
+
+
+def test_flatten_two_level_inheritance(tmp_path):
+    """Two-level chain shows which sections come from which level."""
+    # Parent: base pattern with Python + Go lowering notes
+    (tmp_path / "base.impl.md").write_text(
+        "---\nsource-spec: base.spec.md\nephemeral: false\n---\n\n"
+        "## Strategy\nBase strategy.\n\n"
+        "## Lowering Notes\n\n"
+        "### Python\n- Use threading.\n\n"
+        "### Go\n- Use goroutines.\n"
+    )
+
+    # Child: extends base, overrides Python lowering notes
+    (tmp_path / "child.py.impl.md").write_text(
+        "---\nsource-spec: child.py.spec.md\nephemeral: false\n"
+        "extends: base.impl.md\n---\n\n"
+        "## Strategy\nChild strategy.\n\n"
+        "## Lowering Notes\n\n"
+        "### Python\n- Use asyncio instead of threading.\n"
+    )
+
+    result = flatten_inheritance_chain(
+        str(tmp_path / "child.py.impl.md"), str(tmp_path),
+    )
+
+    # Chain: most general first
+    assert result["chain"] == ["base.impl.md", "child.py.impl.md"]
+    assert len(result["levels"]) == 2
+
+    # Strategy: child wins (never inherited)
+    assert "Child strategy." in result["resolved"]["Strategy"]
+    assert result["attribution"]["Strategy"] == "child.py.impl.md"
+
+    # Lowering Notes: Python from child, Go inherited from parent
+    ln = result["attribution"]["Lowering Notes"]
+    assert ln["Python"] == "child.py.impl.md"
+    assert ln["Go"] == "base.impl.md"
+
+    # Resolved content has both languages
+    assert "asyncio" in result["resolved"]["Lowering Notes"]
+    assert "goroutines" in result["resolved"]["Lowering Notes"]
+
+
+def test_flatten_pattern_attribution(tmp_path):
+    """Pattern section merging shows per-key attribution."""
+    (tmp_path / "base.impl.md").write_text(
+        "---\nsource-spec: base.spec.md\nephemeral: false\n---\n\n"
+        "## Pattern\n- **Concurrency**: async cooperative\n"
+        "- **DI pattern**: Annotated depends\n"
+    )
+
+    (tmp_path / "child.impl.md").write_text(
+        "---\nsource-spec: child.spec.md\nephemeral: false\n"
+        "extends: base.impl.md\n---\n\n"
+        "## Pattern\n- **Concurrency**: threaded pool\n"
+    )
+
+    result = flatten_inheritance_chain(
+        str(tmp_path / "child.impl.md"), str(tmp_path),
+    )
+
+    pat_attr = result["attribution"]["Pattern"]
+    assert pat_attr["Concurrency"] == "child.impl.md"
+    assert pat_attr["DI pattern"] == "base.impl.md"
+
+
+def test_flatten_cli_output(tmp_path):
+    """The --flatten flag in CLI output includes the flattened key."""
+    (tmp_path / "simple.py.impl.md").write_text(
+        "---\nsource-spec: simple.py.spec.md\nephemeral: false\n---\n\n"
+        "## Strategy\nSimple.\n"
+    )
+
+    import subprocess
+    result = subprocess.run(
+        [sys.executable, "-m", "orchestrator", "concrete-deps",
+         str(tmp_path / "simple.py.impl.md"), "--root", str(tmp_path), "--flatten"],
+        capture_output=True, text=True,
+        cwd=os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "unslop", "scripts"),
+    )
+    assert result.returncode == 0
+    data = json.loads(result.stdout)
+    assert "flattened" in data
+    assert data["flattened"]["chain"] == ["simple.py.impl.md"]
+    assert "Strategy" in data["flattened"]["resolved"]
+
+
+def test_flatten_cli_without_flag(tmp_path):
+    """Without --flatten, no flattened key in output."""
+    (tmp_path / "simple.py.impl.md").write_text(
+        "---\nsource-spec: simple.py.spec.md\nephemeral: false\n---\n\n"
+        "## Strategy\nSimple.\n"
+    )
+
+    import subprocess
+    result = subprocess.run(
+        [sys.executable, "-m", "orchestrator", "concrete-deps",
+         str(tmp_path / "simple.py.impl.md"), "--root", str(tmp_path)],
+        capture_output=True, text=True,
+        cwd=os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "unslop", "scripts"),
+    )
+    assert result.returncode == 0
+    data = json.loads(result.stdout)
+    assert "flattened" not in data

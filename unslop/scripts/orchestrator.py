@@ -405,6 +405,83 @@ def _parse_language_blocks(content: str) -> dict[str, str]:
     return blocks
 
 
+def flatten_inheritance_chain(impl_path: str, project_root: str) -> dict:
+    """Produce a flattened view of the inheritance chain for a concrete spec.
+
+    Returns a dict with:
+      - chain: list of impl paths (most general first)
+      - levels: per-level section snapshots with attribution
+      - resolved: the final merged sections after inheritance
+    """
+    root = Path(project_root).resolve()
+    chain = resolve_extends_chain(impl_path, project_root)
+
+    # Normalize chain entries to be relative to project root
+    normalized = []
+    for p in chain:
+        pp = Path(p)
+        if pp.is_absolute():
+            try:
+                p = str(pp.relative_to(root))
+            except ValueError:
+                pass
+        normalized.append(p)
+    chain = normalized
+
+    levels = []
+    for path in reversed(chain):
+        full = root / path
+        sections = {}
+        if full.exists():
+            try:
+                content = full.read_text(encoding="utf-8")
+            except (OSError, UnicodeDecodeError):
+                content = ""
+            sections = _extract_sections(content)
+        levels.append({"impl": path, "sections": sections})
+
+    resolved = resolve_inherited_sections(impl_path, project_root)
+
+    # Build attribution: for each resolved section, record which level provided it
+    attribution = {}
+    for section_name, resolved_content in resolved.items():
+        if section_name == "Lowering Notes":
+            # Attribute by language block
+            resolved_langs = _parse_language_blocks(resolved_content)
+            lang_sources = {}
+            # Walk levels child-first to find the most specific provider
+            for level in reversed(levels):
+                raw = level["sections"].get("Lowering Notes", "")
+                if raw:
+                    for lang in _parse_language_blocks(raw):
+                        if lang not in lang_sources:
+                            lang_sources[lang] = level["impl"]
+            attribution[section_name] = lang_sources
+        elif section_name == "Pattern":
+            resolved_patterns = _parse_pattern_entries(resolved_content)
+            pattern_sources = {}
+            for level in reversed(levels):
+                raw = level["sections"].get("Pattern", "")
+                if raw:
+                    for key in _parse_pattern_entries(raw):
+                        if key not in pattern_sources:
+                            pattern_sources[key] = level["impl"]
+            attribution[section_name] = pattern_sources
+        else:
+            # Non-merging sections: find the most specific level that defines it
+            for level in reversed(levels):
+                if section_name in level["sections"]:
+                    attribution[section_name] = level["impl"]
+                    break
+
+    return {
+        "chain": list(reversed(chain)),
+        "levels": levels,
+        "resolved": resolved,
+        "attribution": attribution,
+    }
+
+
 def build_concrete_order(directory: str) -> list[str]:
     """Read all *.impl.md files in directory, parse concrete-dependencies, return topo-sorted list.
 
@@ -1455,16 +1532,17 @@ def main():
 
     elif command == "concrete-deps":
         if len(sys.argv) < 3:
-            print("Usage: orchestrator.py concrete-deps <impl-path> [--root <project-root>]", file=sys.stderr)
+            print("Usage: orchestrator.py concrete-deps <impl-path> [--root <project-root>] [--flatten]", file=sys.stderr)
             sys.exit(1)
         impl_path = sys.argv[2]
         project_root = "."
         if "--root" in sys.argv:
             root_idx = sys.argv.index("--root")
             if root_idx + 1 >= len(sys.argv):
-                print("Usage: orchestrator.py concrete-deps <impl-path> [--root <project-root>]", file=sys.stderr)
+                print("Usage: orchestrator.py concrete-deps <impl-path> [--root <project-root>] [--flatten]", file=sys.stderr)
                 sys.exit(1)
             project_root = sys.argv[root_idx + 1]
+        flatten = "--flatten" in sys.argv
         try:
             impl = Path(impl_path)
             if not impl.exists():
@@ -1482,6 +1560,8 @@ def main():
                 "complexity": meta.get("complexity"),
                 "ephemeral": meta.get("ephemeral", True),
             }
+            if flatten:
+                result["flattened"] = flatten_inheritance_chain(str(impl), project_root)
             print(json.dumps(result, indent=2))
         except (OSError, UnicodeDecodeError) as e:
             print(json.dumps({"error": str(e)}), file=sys.stderr)
