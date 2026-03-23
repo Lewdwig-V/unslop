@@ -192,24 +192,34 @@ Architect (Stage A)
     ↓
 Strategist (Stage A.2) — single concrete spec
     ↓
-┌─────────────────────────────────────────────┐
-│  Parallel Builder Dispatch                  │
-│                                             │
-│  Worktree 1 (python)    Worktree 2 (ts)     │
-│  ┌─────────────┐        ┌─────────────┐    │
-│  │ Read spec   │        │ Read spec   │    │
-│  │ Read impl   │        │ Read impl   │    │
-│  │ Filter LN   │        │ Filter LN   │    │
-│  │ Generate .py│        │ Generate .ts│    │
-│  │ Run pytest  │        │ Run jest    │    │
-│  │ DONE ✓      │        │ DONE ✓      │    │
-│  └─────────────┘        └─────────────┘    │
-└─────────────────────────────────────────────┘
+┌─────────────────────────────────────────────────┐
+│  Parallel Builder Dispatch + Status Board       │
+│                                                 │
+│  [1/2] auth.py   (python)     building...       │
+│  [2/2] auth.ts   (typescript) building...       │
+│                                                 │
+│  Worktree 1 (python)    Worktree 2 (ts)         │
+│  ┌─────────────┐        ┌─────────────┐        │
+│  │ Read spec   │        │ Read spec   │        │
+│  │ Read impl   │        │ Read impl   │        │
+│  │ Filter LN   │        │ Filter LN   │        │
+│  │ Generate .py│        │ Generate .ts│        │
+│  │ Run pytest  │        │ Run vitest  │        │
+│  │ DONE ✓      │        │ DONE ✓      │        │
+│  └─────────────┘        └─────────────┘        │
+│                                                 │
+│  [1/2] auth.py   (python)     DONE (14t, 3.2s) │
+│  [2/2] auth.ts   (typescript) DONE (8t, 1.7s)  │
+└─────────────────────────────────────────────────┘
+    ↓
+Cross-Target Consistency Check
     ↓
 Atomic Merge (all or nothing)
     ↓
 Single Commit: spec + auth.py + auth.ts
 ```
+
+The status board provides real-time visibility into parallel Builder execution. See the `unslop/generation` skill for the full status board specification.
 
 #### Cross-Target Contract Consistency
 

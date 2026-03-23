@@ -89,6 +89,64 @@ The Builder generates code from the specs. It runs as a fresh Agent in an isolat
 
 **Atomic merge for multi-target:** The controlling session waits for ALL parallel Builders to complete. If all report DONE with green tests: merge all worktrees and commit atomically. If any Builder fails: discard ALL worktrees and revert ALL staged spec updates. This all-or-nothing semantics prevents partial updates across language boundaries.
 
+**Multi-target status board:** When dispatching parallel Builders, the controlling session displays a live status board that updates as each Builder reports back. This replaces a generic spinner with actionable visibility into parallel execution.
+
+**Initial display** (immediately after dispatch):
+
+```
+Multi-target build: auth_logic.impl.md (2 targets)
+  [1/2] src/api/auth.py        (python)     building...
+  [2/2] frontend/src/api/auth.ts (typescript) building...
+```
+
+**As Builders complete**, update each line in place:
+
+```
+Multi-target build: auth_logic.impl.md (2 targets)
+  [1/2] src/api/auth.py        (python)     DONE  (14 tests, 3.2s)
+  [2/2] frontend/src/api/auth.ts (typescript) building...
+```
+
+**On completion** (all pass):
+
+```
+Multi-target build: auth_logic.impl.md (2 targets)
+  [1/2] src/api/auth.py        (python)     DONE  (14 tests, 3.2s)
+  [2/2] frontend/src/api/auth.ts (typescript) DONE  (8 tests, 1.7s)
+
+All targets passed. Merging atomically.
+```
+
+**On failure** (any target fails):
+
+```
+Multi-target build: auth_logic.impl.md (2 targets)
+  [1/2] src/api/auth.py        (python)     DONE  (14 tests, 3.2s)
+  [2/2] frontend/src/api/auth.ts (typescript) BLOCKED — 2 test failures
+
+Atomic merge aborted. All worktrees discarded.
+Failure in target [2/2]: frontend/src/api/auth.ts
+  See Builder failure report for details.
+```
+
+**Status states per target:**
+
+| State | Display | Meaning |
+|---|---|---|
+| `building...` | Yellow/neutral | Builder is running in its worktree |
+| `DONE` | Green | Builder succeeded, tests passed |
+| `DONE_WITH_CONCERNS` | Amber | Builder succeeded but flagged concerns |
+| `BLOCKED` | Red | Builder failed or tests failed |
+
+**On DONE_WITH_CONCERNS for any target**, surface concerns after the atomic merge:
+
+```
+All targets passed. Merging atomically.
+  Concerns flagged on 1 target — run /unslop:harden or ask to review.
+```
+
+**Single-target builds** (standard `target-language`) do NOT show the status board — the existing single-line progress reporting is sufficient.
+
 **Dispatch:**
 
 ```python
