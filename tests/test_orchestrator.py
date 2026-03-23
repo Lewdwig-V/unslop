@@ -770,6 +770,22 @@ def test_parse_header_without_principles_hash():
     result = parse_header("\n".join(lines))
     assert result["principles_hash"] is None
 
+def test_parse_header_with_concrete_deps_hash():
+    lines = [
+        "# @unslop-managed -- do not edit directly. Edit src/handler.py.spec.md instead.",
+        "# spec-hash:a3f8c2e9b7d1 output-hash:4e2f1a8c9b03 concrete-deps-hash:9c04b8e7f2a1 generated:2026-03-22T14:32:00Z",
+    ]
+    result = parse_header("\n".join(lines))
+    assert result["concrete_deps_hash"] == "9c04b8e7f2a1"
+
+def test_parse_header_without_concrete_deps_hash():
+    lines = [
+        "# @unslop-managed -- do not edit directly. Edit src/handler.py.spec.md instead.",
+        "# spec-hash:a3f8c2e9b7d1 output-hash:4e2f1a8c9b03 generated:2026-03-22T14:32:00Z",
+    ]
+    result = parse_header("\n".join(lines))
+    assert result["concrete_deps_hash"] is None
+
 def test_classify_principles_stale(tmp_path):
     spec = "# spec\n\n## Behavior\nDoes stuff.\nMore detail.\n"
     body = "def thing(): pass\n"
@@ -1043,33 +1059,83 @@ def test_check_freshness_ghost_stale(tmp_path):
     sh = compute_hash(spec)
     oh = compute_hash(body)
 
-    # Write the managed file (fresh by abstract spec standards)
-    (tmp_path / "handler.py.spec.md").write_text(spec)
-    (tmp_path / "handler.py").write_text(
-        f"# @unslop-managed — do not edit directly. Edit handler.py.spec.md instead.\n"
-        f"# spec-hash:{sh} output-hash:{oh} generated:2026-03-23T00:00:00Z\n" + body
-    )
-
     # Write the permanent concrete spec with a concrete dependency
     (tmp_path / "handler.py.impl.md").write_text(
         "---\nsource-spec: handler.py.spec.md\ntarget-language: python\nephemeral: false\n"
         "concrete-dependencies:\n  - core/pool.py.impl.md\n---\n\n## Strategy\nUses sync pool.\n"
     )
 
-    # Write upstream concrete spec (exists)
+    # Write upstream concrete spec (original version)
+    core_dir = tmp_path / "core"
+    core_dir.mkdir()
+    original_upstream = (
+        "---\nsource-spec: core/pool.py.spec.md\ntarget-language: python\n"
+        "ephemeral: false\n---\n\n## Strategy\nSync pool.\n"
+    )
+    (core_dir / "pool.py.impl.md").write_text(original_upstream)
+
+    # Compute the concrete-deps-hash at generation time (before upstream changes)
+    cdh = compute_concrete_deps_hash(str(tmp_path / "handler.py.impl.md"), str(tmp_path))
+
+    # Write the managed file with the concrete-deps-hash baked in
+    (tmp_path / "handler.py.spec.md").write_text(spec)
+    (tmp_path / "handler.py").write_text(
+        f"# @unslop-managed — do not edit directly. Edit handler.py.spec.md instead.\n"
+        f"# spec-hash:{sh} output-hash:{oh} concrete-deps-hash:{cdh}"
+        f" generated:2026-03-23T00:00:00Z\n" + body
+    )
+
+    # Verify it's fresh before the upstream change
+    result = check_freshness(str(tmp_path))
+    handler_entry = [f for f in result["files"] if f["managed"] == "handler.py"]
+    assert len(handler_entry) == 1
+    assert handler_entry[0]["state"] == "fresh"
+
+    # Now change the upstream concrete spec (strategy shift)
+    (core_dir / "pool.py.impl.md").write_text(
+        "---\nsource-spec: core/pool.py.spec.md\ntarget-language: python\n"
+        "ephemeral: false\n---\n\n## Strategy\nAsync connection pool with backpressure.\n"
+    )
+
+    # Re-check: handler should now be ghost-stale
+    result = check_freshness(str(tmp_path))
+    handler_entry = [f for f in result["files"] if f["managed"] == "handler.py"]
+    assert len(handler_entry) == 1
+    assert handler_entry[0]["state"] == "ghost-stale"
+    assert "concrete_staleness" in handler_entry[0]
+    assert handler_entry[0]["concrete_staleness"]["impl_path"] == "handler.py.impl.md"
+
+
+def test_check_freshness_ghost_stale_no_stored_hash(tmp_path):
+    """Files without concrete-deps-hash should not be flagged as ghost-stale."""
+    spec = "# handler spec\n\n## Behavior\nHandles requests.\nMore detail.\n"
+    body = "def handler(): pass\n"
+    sh = compute_hash(spec)
+    oh = compute_hash(body)
+
+    # Managed file WITHOUT concrete-deps-hash (pre-feature backward compat)
+    (tmp_path / "handler.py.spec.md").write_text(spec)
+    (tmp_path / "handler.py").write_text(
+        f"# @unslop-managed — do not edit directly. Edit handler.py.spec.md instead.\n"
+        f"# spec-hash:{sh} output-hash:{oh} generated:2026-03-23T00:00:00Z\n" + body
+    )
+
+    (tmp_path / "handler.py.impl.md").write_text(
+        "---\nsource-spec: handler.py.spec.md\ntarget-language: python\nephemeral: false\n"
+        "concrete-dependencies:\n  - core/pool.py.impl.md\n---\n\n## Strategy\nUses sync pool.\n"
+    )
+
     core_dir = tmp_path / "core"
     core_dir.mkdir()
     (core_dir / "pool.py.impl.md").write_text(
-        "---\nsource-spec: core/pool.py.spec.md\ntarget-language: python\nephemeral: false\n---\n\n## Strategy\nAsync pool.\n"
+        "---\nsource-spec: core/pool.py.spec.md\ntarget-language: python\n"
+        "ephemeral: false\n---\n\n## Strategy\nAsync pool.\n"
     )
 
-    # Note: the ghost staleness check in check_freshness currently only
-    # flags when upstream deps are missing. This test validates the
-    # orchestrator doesn't crash and correctly scans .impl.md files.
     result = check_freshness(str(tmp_path))
-    assert result is not None
     handler_entry = [f for f in result["files"] if f["managed"] == "handler.py"]
     assert len(handler_entry) == 1
+    assert handler_entry[0]["state"] == "fresh"
 
 
 # --- concrete dependency cycle detection tests ---

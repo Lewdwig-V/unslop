@@ -31,6 +31,7 @@ def parse_header(content: str) -> dict | None:
     spec_hash = None
     output_hash = None
     principles_hash = None
+    concrete_deps_hash = None
     generated = None
     old_format = False
 
@@ -58,6 +59,9 @@ def parse_header(content: str) -> dict | None:
             prin_match = re.search(r"principles-hash:([0-9a-f]{12})", stripped)
             if prin_match:
                 principles_hash = prin_match.group(1)
+            cdeps_match = re.search(r"concrete-deps-hash:([0-9a-f]{12})", stripped)
+            if cdeps_match:
+                concrete_deps_hash = cdeps_match.group(1)
             gen_match = re.search(r"generated:(\S+)", stripped)
             if gen_match:
                 generated = gen_match.group(1)
@@ -76,6 +80,7 @@ def parse_header(content: str) -> dict | None:
         "spec_hash": spec_hash,
         "output_hash": output_hash,
         "principles_hash": principles_hash,
+        "concrete_deps_hash": concrete_deps_hash,
         "generated": generated,
         "old_format": old_format,
     }
@@ -542,6 +547,32 @@ def compute_concrete_deps_hash(impl_path: str, project_root: str) -> str | None:
     return compute_hash("\n".join(combined))
 
 
+def _identify_changed_deps(
+    dep_paths: list[str], stored_combined_hash: str, project_root: str,
+) -> list[str]:
+    """Identify which concrete deps changed by hashing each individually.
+
+    Returns a list of human-readable reasons for ghost-staleness.
+    """
+    root = Path(project_root).resolve()
+    changed = []
+    for dep_path in sorted(dep_paths):
+        dep_full = root / dep_path
+        if dep_full.exists():
+            try:
+                dep_content = dep_full.read_text(encoding="utf-8")
+                dep_hash = compute_hash(dep_content)
+                changed.append(f"upstream `{dep_path}` changed ({dep_hash[:8]})")
+            except (OSError, UnicodeDecodeError):
+                changed.append(f"upstream `{dep_path}` unreadable")
+        else:
+            changed.append(f"upstream `{dep_path}` not found")
+
+    # We know the combined hash differs but can't pinpoint which single dep
+    # changed without stored per-dep hashes. Return all deps as suspects.
+    return changed
+
+
 def topo_sort(graph: dict[str, list[str]]) -> list[str]:
     """Topological sort via Kahn's algorithm.
 
@@ -923,6 +954,41 @@ def check_freshness(directory: str) -> dict:
             if not dep_full.exists():
                 stale_reasons.append(f"upstream `{dep_path}` not found")
                 continue
+
+        # Compute current combined hash of all concrete deps
+        current_cdeps_hash = compute_concrete_deps_hash(str(impl_path), str(root))
+
+        # Compare against stored hash in managed file headers
+        if not stale_reasons and current_cdeps_hash is not None:
+            # Determine which managed files this impl affects
+            target_paths_for_hash = []
+            targets_list = meta.get("targets", [])
+            if targets_list:
+                target_paths_for_hash = [t["path"] for t in targets_list if "path" in t]
+            else:
+                source_spec = meta.get("source_spec", "")
+                if source_spec:
+                    target_paths_for_hash = [re.sub(r"\.spec\.md$", "", source_spec)]
+
+            for managed_rel in target_paths_for_hash:
+                managed_full = root / managed_rel
+                if not managed_full.exists():
+                    continue
+                try:
+                    managed_content = managed_full.read_text(encoding="utf-8")
+                except (OSError, UnicodeDecodeError):
+                    continue
+                header = parse_header(managed_content)
+                if header is None:
+                    continue
+                stored_cdeps = header.get("concrete_deps_hash")
+                if stored_cdeps is not None and stored_cdeps != current_cdeps_hash:
+                    # Identify which specific deps changed
+                    changed = _identify_changed_deps(
+                        concrete_deps, stored_cdeps, str(root),
+                    )
+                    for reason in changed:
+                        stale_reasons.append(reason)
 
         if stale_reasons:
             # Determine which managed files this impl.md affects
