@@ -75,8 +75,15 @@ class TestDeadCodeEquivalence:
 
     def test_immediately_after_return(self):
         p = DeadCodeEquivalence()
-        context = {"preceding_lines": ["    return 42"]}
+        # Mutated line has same indentation as return -- dead code in same block
+        context = {"preceding_lines": ["    return 42"], "mutated_line_raw": "    x = 10"}
         assert p.matches("x = 10", "x = 20", context)
+
+    def test_return_in_inner_block_not_dead(self):
+        p = DeadCodeEquivalence()
+        # return is indented more (inner block) -- code after it is reachable
+        context = {"preceding_lines": ["        return 42"], "mutated_line_raw": "    x = 10"}
+        assert not p.matches("x = 10", "x = 20", context)
 
 
 class TestClassifyMutant:
@@ -92,6 +99,79 @@ class TestClassifyMutant:
         assert "classification_prompt" in result
 
 
+class TestClassifyMutantWithSourceLines:
+    """Test classify_mutant with source_lines context (end-to-end through DeadCodeEquivalence)."""
+
+    def test_dead_code_via_source_lines(self):
+        source_lines = [
+            "def foo():",
+            "    return 42",
+            "    x = 10",
+            "    y = 20",
+        ]
+        # Line 3 (x = 10) is after return on line 2, same block
+        result = classify_mutant("x = 10", "x = 20", 3, "test.py", source_lines=source_lines)
+        assert result["verdict"] == "equivalent"
+        assert result["pattern"] == "dead_code"
+
+    def test_reachable_code_via_source_lines(self):
+        source_lines = [
+            "def foo():",
+            "    if flag:",
+            "        return 42",
+            "    x = 10",
+        ]
+        # Line 4 (x = 10) is after a return that's in an inner block -- still reachable
+        result = classify_mutant("x = 10", "x = 20", 4, "test.py", source_lines=source_lines)
+        assert result["verdict"] != "equivalent" or result["pattern"] != "dead_code"
+
+    def test_boundary_math_line_1(self):
+        source_lines = ["x = 10"]
+        # Line 1 -- no preceding lines, start=max(0, 1-5)=0, slice [0:0] = []
+        result = classify_mutant("x = 10", "x = 20", 1, "test.py", source_lines=source_lines)
+        assert result["verdict"] == "inconclusive"
+
+
+class TestOffByOneReverseDirections:
+    """Test the reverse comparison pairs (<= to <, >= to >)."""
+
+    def test_less_equal_to_less_than(self):
+        p = OffByOneEquivalence()
+        assert p.matches("x <= 9", "x < 10", {})
+
+    def test_greater_equal_to_greater_than(self):
+        p = OffByOneEquivalence()
+        assert p.matches("x >= 6", "x > 5", {})
+
+
+class TestRedundantBooleanReverse:
+    """Test reverse direction: mutated has trivial pattern, original is simplified."""
+
+    def test_mutated_has_true_and(self):
+        p = RedundantBooleanEquivalence()
+        assert p.matches("x", "True and x", {})
+
+
+class TestStringLiteralLogPattern:
+    """Test the log_pat branch of StringLiteralEquivalence."""
+
+    def test_print_message_change(self):
+        p = StringLiteralEquivalence()
+        assert p.matches(
+            'print("connecting to server")',
+            'print("connecting to host")',
+            {},
+        )
+
+    def test_logger_message_change(self):
+        p = StringLiteralEquivalence()
+        assert p.matches(
+            'logger.info("request sent")',
+            'logger.info("request dispatched")',
+            {},
+        )
+
+
 class TestBatchClassification:
     def test_mixed_batch(self):
         mutants = [
@@ -103,3 +183,24 @@ class TestBatchClassification:
         assert result["equivalent"] == 1
         assert result["inconclusive"] == 1
         assert result["effective_surviving"] == 1
+
+    def test_batch_with_real_file(self, tmp_path):
+        """Test batch classification with a real source file for DeadCodeEquivalence."""
+        source = tmp_path / "module.py"
+        source.write_text("def foo():\n    return 42\n    x = 10\n")
+        mutants = [
+            {"original": "    x = 10", "mutated": "    x = 20", "line": 3},
+        ]
+        result = classify_surviving_mutants(mutants, str(source))
+        assert result["equivalent"] == 1
+        assert result["details"]["equivalent"][0]["pattern"] == "dead_code"
+
+    def test_batch_with_missing_keys(self):
+        """Test that mutants with missing keys produce error verdicts."""
+        mutants = [
+            {"original": "x = 1"},  # missing mutated and line
+            {"original": "y = 2", "mutated": "y = 3", "line": 5},
+        ]
+        result = classify_surviving_mutants(mutants, "nonexistent.py")
+        assert result["errors"] == 1
+        assert result["details"]["error"][0]["verdict"] == "error"

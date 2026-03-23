@@ -74,9 +74,12 @@ class TestMockTargetExtractor:
             def test_baz(mock_method):
                 pass
         ''')
-        # patch.object first arg is an object, not a string — should not extract
+        # patch.object is now tracked and flagged as internal (implementation-coupled)
         targets = self._extract(source)
-        assert len(targets) == 0
+        assert len(targets) == 1
+        assert targets[0]["kind"] == "patch.object"
+        assert targets[0]["internal"] is True
+        assert targets[0]["target"] == "SomeClass.method"
 
     def test_multiple_patches(self):
         source = textwrap.dedent('''\

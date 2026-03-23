@@ -139,12 +139,20 @@ class DeadCodeEquivalence(EquivalencePattern):
     def matches(self, original: str, mutated: str, context: dict) -> bool:
         # Heuristic: if the line comes after a bare `return` or `raise` in the same block
         # We check context for surrounding lines
+        # Only match if return/raise has equal or less indentation (same or outer block)
         preceding = context.get("preceding_lines", [])
+        raw_mutated = context.get("mutated_line_raw", original)
+        mutated_indent = len(raw_mutated) - len(raw_mutated.lstrip())
         for line in reversed(preceding):
             stripped = line.strip()
-            if stripped.startswith("return ") or stripped.startswith("raise ") or stripped == "return":
+            if not stripped or stripped.startswith("#"):
+                continue
+            prev_indent = len(line) - len(line.lstrip())
+            if prev_indent <= mutated_indent and (
+                stripped.startswith("return ") or stripped == "return" or stripped.startswith("raise ")
+            ):
                 return True
-            if stripped and not stripped.startswith("#"):
+            if stripped:
                 break
         return False
 
@@ -184,6 +192,8 @@ def classify_mutant(
     if source_lines and line_number > 0:
         start = max(0, line_number - 5)
         context["preceding_lines"] = source_lines[start:line_number - 1]
+        if line_number - 1 < len(source_lines):
+            context["mutated_line_raw"] = source_lines[line_number - 1]
 
     # Try heuristic patterns first
     for pattern in HEURISTIC_PATTERNS:
@@ -248,9 +258,22 @@ def classify_surviving_mutants(mutants: list[dict], source_path: str) -> dict:
         "weak_test": [],
         "spec_gap": [],
         "inconclusive": [],
+        "error": [],
     }
 
-    for mutant in mutants:
+    required_keys = {"original", "mutated", "line"}
+    for i, mutant in enumerate(mutants):
+        missing = required_keys - set(mutant.keys())
+        if missing:
+            results["error"].append({
+                "original": mutant.get("original", ""),
+                "mutated": mutant.get("mutated", ""),
+                "line": mutant.get("line", 0),
+                "verdict": "error",
+                "pattern": None,
+                "reason": f"Mutant #{i} missing keys: {', '.join(sorted(missing))}",
+            })
+            continue
         classification = classify_mutant(
             original_line=mutant["original"],
             mutated_line=mutant["mutated"],
@@ -270,6 +293,7 @@ def classify_surviving_mutants(mutants: list[dict], source_path: str) -> dict:
         "weak_test": len(results["weak_test"]),
         "spec_gap": len(results["spec_gap"]),
         "inconclusive": len(results["inconclusive"]),
+        "errors": len(results["error"]),
         "effective_surviving": total - equivalent,
         "details": results,
     }
@@ -296,11 +320,20 @@ def main() -> None:
     source_path = sys.argv[1]
 
     if len(sys.argv) >= 3:
-        mutants_data = Path(sys.argv[2]).read_text(encoding="utf-8")
+        try:
+            mutants_data = Path(sys.argv[2]).read_text(encoding="utf-8")
+        except (FileNotFoundError, OSError, UnicodeDecodeError) as e:
+            print(json.dumps({"error": f"Cannot read mutants file: {e}"}))
+            sys.exit(1)
     else:
         mutants_data = sys.stdin.read()
 
-    mutants = json.loads(mutants_data)
+    try:
+        mutants = json.loads(mutants_data)
+    except json.JSONDecodeError as e:
+        print(json.dumps({"error": f"Invalid JSON: {e}"}))
+        sys.exit(1)
+
     result = classify_surviving_mutants(mutants, source_path)
     print(json.dumps(result, indent=2))
     sys.exit(0)

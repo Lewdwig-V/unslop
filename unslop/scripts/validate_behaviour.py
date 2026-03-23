@@ -108,6 +108,16 @@ def _parse_behaviour_yaml(content: str) -> tuple[dict | None, str | None]:
                        (item_content.startswith("'") and item_content.endswith("'")):
                         item_content = item_content[1:-1]
                     current_list.append(item_content)
+        elif indent > 0 and current_list is not None and ":" in stripped:
+            # Continuation key-value line for the previous list item (e.g., "  error: ConnectionError")
+            if current_list and isinstance(current_list[-1], dict):
+                c_idx = stripped.index(":")
+                c_type = stripped[:c_idx].strip()
+                c_value = stripped[c_idx + 1:].strip()
+                if (c_value.startswith('"') and c_value.endswith('"')) or \
+                   (c_value.startswith("'") and c_value.endswith("'")):
+                    c_value = c_value[1:-1]
+                current_list[-1][c_type] = c_value
         i += 1
 
     # Save final list
@@ -289,7 +299,15 @@ def main() -> None:
         }))
         sys.exit(1)
 
-    content = path.read_text(encoding="utf-8")
+    try:
+        content = path.read_text(encoding="utf-8")
+    except (UnicodeDecodeError, OSError) as e:
+        print(json.dumps({
+            "status": "fail", "file_path": file_path,
+            "issues": [{"check": "read_error", "message": f"Cannot read file: {e}", "severity": "error"}],
+        }))
+        sys.exit(1)
+
     result = validate_behaviour(content, file_path)
     print(json.dumps(result, indent=2))
     sys.exit(1 if result["status"] == "fail" else 0)

@@ -483,3 +483,31 @@ class TestStringLiteralMasking:
         content = '```pseudocode\nSET log ← "async callback at https://svc.io/fn"\n```'
         result = validate_pseudocode(content, "test.impl.md")
         assert result["status"] == "pass", f"Expected pass, got: {result}"
+
+
+class TestSingleCharVariable:
+    """Tests for SINGLE_CHAR_VAR advisory (Check 5)."""
+
+    def test_non_exempt_single_char_advisory(self):
+        """Single-char variable 'a' should produce an advisory."""
+        content = '```pseudocode\nSET a ← 1\n```'
+        result = validate_pseudocode(content, "test.impl.md")
+        advisories = result.get("advisories", [])
+        assert any(a["check"] == "abbreviated_name" for a in advisories), \
+            f"Expected abbreviated_name advisory, got: {advisories}"
+
+    def test_exempt_loop_vars_no_advisory(self):
+        """Loop variables i, j, k, n, m, x, y are exempt from advisory."""
+        content = '```pseudocode\nSET i ← 0\nSET j ← 1\nSET x ← 2\n```'
+        result = validate_pseudocode(content, "test.impl.md")
+        advisories = result.get("advisories", [])
+        abbreviated = [a for a in advisories if a["check"] == "abbreviated_name"]
+        assert len(abbreviated) == 0, f"Exempt vars should not trigger advisory: {abbreviated}"
+
+    def test_descriptive_name_no_advisory(self):
+        """Multi-character variable names should not trigger advisory."""
+        content = '```pseudocode\nSET counter ← 0\n```'
+        result = validate_pseudocode(content, "test.impl.md")
+        advisories = result.get("advisories", [])
+        abbreviated = [a for a in advisories if a["check"] == "abbreviated_name"]
+        assert len(abbreviated) == 0

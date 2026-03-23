@@ -30,7 +30,10 @@ def load_boundaries(project_root: Path) -> list[str]:
     if not boundaries_path.exists():
         return []
     content = boundaries_path.read_text(encoding="utf-8")
-    data = json.loads(content)
+    try:
+        data = json.loads(content)
+    except json.JSONDecodeError as e:
+        raise ValueError(f"boundaries.json contains invalid JSON: {e}")
     if not isinstance(data, list):
         raise ValueError(f"boundaries.json must be a JSON array, got {type(data).__name__}")
     return [str(entry) for entry in data]
@@ -59,12 +62,24 @@ class MockTargetExtractor(ast.NodeVisitor):
         self.targets: list[dict] = []  # {"target": str, "line": int, "col": int, "kind": str}
         self._seen_nodes: set[int] = set()  # Track node ids to avoid double-counting decorators
 
+    # Receiver names known to be mock frameworks
+    _MOCK_RECEIVERS = {"mock", "mocker", "unittest"}
+
     def _is_patch_call(self, node: ast.expr) -> str | None:
-        """Return the patch variant name if node looks like a patch call, else None."""
+        """Return the patch variant name if node looks like a patch call, else None.
+
+        Only matches known mock module patterns to avoid false positives
+        on unrelated .patch() calls (e.g., requests.patch, client.patch).
+        """
         if isinstance(node, ast.Attribute):
-            # mocker.patch(...) or mock.patch(...)
             if node.attr == "patch":
-                return "patch"
+                # unittest.mock.patch(...)
+                if isinstance(node.value, ast.Attribute) and node.value.attr == "mock":
+                    return "patch"
+                # mock.patch(...) or mocker.patch(...)
+                if isinstance(node.value, ast.Name) and node.value.id in self._MOCK_RECEIVERS:
+                    return "patch"
+                return None
             # patch.object, patch.dict, patch.multiple
             if isinstance(node.value, ast.Attribute) and node.value.attr == "patch":
                 return f"patch.{node.attr}"
@@ -72,10 +87,6 @@ class MockTargetExtractor(ast.NodeVisitor):
                 return f"patch.{node.attr}"
         if isinstance(node, ast.Name) and node.id == "patch":
             return "patch"
-        # unittest.mock.patch
-        if isinstance(node, ast.Attribute) and node.attr == "patch":
-            if isinstance(node.value, ast.Attribute) and node.value.attr == "mock":
-                return "patch"
         return None
 
     def _extract_target_from_call(self, node: ast.Call) -> None:
@@ -86,6 +97,25 @@ class MockTargetExtractor(ast.NodeVisitor):
 
         kind = self._is_patch_call(node.func)
         if kind is None:
+            return
+
+        # For patch.object(SomeClass, "method") — the target is an object, not a string.
+        # Count it as a mock and flag as internal (implementation-coupled by definition).
+        if kind == "patch.object":
+            attr_name = ""
+            if len(node.args) >= 2 and isinstance(node.args[1], ast.Constant) and isinstance(node.args[1].value, str):
+                attr_name = node.args[1].value
+            obj_name = ""
+            if node.args and isinstance(node.args[0], ast.Name):
+                obj_name = node.args[0].id
+            target_label = f"{obj_name}.{attr_name}" if obj_name and attr_name else f"<patch.object at line {node.lineno}>"
+            self.targets.append({
+                "target": target_label,
+                "line": node.lineno,
+                "col": node.col_offset,
+                "kind": kind,
+                "internal": True,
+            })
             return
 
         # For patch("target_string") — first positional arg is the target
@@ -208,7 +238,7 @@ def validate_test_file(source: str, file_path: str, boundaries: list[str]) -> di
 
     for mock_info in extractor.targets:
         target = mock_info["target"]
-        if _is_internal_mock(target, boundaries):
+        if mock_info.get("internal") or _is_internal_mock(target, boundaries):
             internal_count += 1
             violations.append({
                 "check": "internal_mock",
@@ -249,10 +279,13 @@ def main() -> None:
 
     if "--project-root" in sys.argv:
         idx = sys.argv.index("--project-root")
-        if idx + 1 < len(sys.argv):
-            project_root = Path(sys.argv[idx + 1])
+        if idx + 1 >= len(sys.argv):
+            print("--project-root requires a value", file=sys.stderr)
+            sys.exit(1)
+        project_root = Path(sys.argv[idx + 1])
 
     boundaries = load_boundaries(project_root)
+    boundaries_missing = not (project_root / ".unslop" / "boundaries.json").exists()
 
     test_files: list[Path] = []
     if target.is_dir():
@@ -266,7 +299,16 @@ def main() -> None:
     results = []
     any_fail = False
     for tf in test_files:
-        source = tf.read_text(encoding="utf-8")
+        try:
+            source = tf.read_text(encoding="utf-8")
+        except (OSError, UnicodeDecodeError) as e:
+            results.append({
+                "status": "fail", "file_path": str(tf),
+                "violations": [{"check": "read_error", "message": str(e), "line": 0}],
+                "mock_count": 0, "boundary_mocks": 0, "internal_mocks": 0,
+            })
+            any_fail = True
+            continue
         result = validate_test_file(source, str(tf), boundaries)
         results.append(result)
         if result["status"] == "fail":
@@ -278,6 +320,11 @@ def main() -> None:
         "files_checked": len(results),
         "results": results,
     }
+    if boundaries_missing:
+        output["warning"] = (
+            "No .unslop/boundaries.json found -- only stdlib mocks are allowed. "
+            "Create boundaries.json to declare external dependency boundaries."
+        )
     print(json.dumps(output, indent=2))
     sys.exit(1 if any_fail else 0)
 

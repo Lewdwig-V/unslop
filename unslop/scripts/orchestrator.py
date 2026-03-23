@@ -251,8 +251,9 @@ MAX_EXTENDS_DEPTH = 3
 def resolve_extends_chain(impl_path: str, project_root: str) -> list[str]:
     """Resolve the extends chain for a concrete spec.
 
-    Returns list of impl paths in resolution order (most general first,
-    most specific last). The input impl_path is always the last element.
+    Returns list of impl paths starting from the input (most specific)
+    and walking up to the root parent (most general). The input impl_path
+    is always the FIRST element.
 
     Raises ValueError on:
     - Cycle in extends chain
@@ -287,8 +288,10 @@ def resolve_extends_chain(impl_path: str, project_root: str) -> list[str]:
 
         try:
             content = full_path.read_text(encoding="utf-8")
-        except (OSError, UnicodeDecodeError):
-            break
+        except (OSError, UnicodeDecodeError) as e:
+            raise ValueError(
+                f"Cannot read concrete spec in extends chain: {full_path} ({e})"
+            )
 
         meta = parse_concrete_frontmatter(content)
         current = meta.get("extends")
@@ -327,8 +330,8 @@ def resolve_inherited_sections(impl_path: str, project_root: str) -> dict[str, s
             return {}
         try:
             content = full.read_text(encoding="utf-8")
-        except (OSError, UnicodeDecodeError):
-            return {}
+        except (OSError, UnicodeDecodeError) as e:
+            raise ValueError(f"Cannot read concrete spec: {full} ({e})")
         return _extract_sections(content)
 
     # Read sections from each level (most general first)
@@ -340,8 +343,8 @@ def resolve_inherited_sections(impl_path: str, project_root: str) -> dict[str, s
             continue
         try:
             content = full.read_text(encoding="utf-8")
-        except (OSError, UnicodeDecodeError):
-            continue
+        except (OSError, UnicodeDecodeError) as e:
+            raise ValueError(f"Cannot read concrete spec in inheritance chain: {full} ({e})")
 
         sections = _extract_sections(content)
         sections_stack.append(sections)
@@ -594,6 +597,7 @@ def check_concrete_staleness(
     """Check if a concrete spec's upstream dependencies have changed.
 
     Returns a dict describing ghost staleness, or None if fresh/not applicable.
+    Raises ValueError if the impl file exists but cannot be read.
     """
     impl = Path(impl_path)
     if not impl.exists():
@@ -601,8 +605,8 @@ def check_concrete_staleness(
 
     try:
         content = impl.read_text(encoding="utf-8")
-    except (OSError, UnicodeDecodeError):
-        return None
+    except (OSError, UnicodeDecodeError) as e:
+        raise ValueError(f"Cannot read concrete spec for staleness check: {impl} ({e})")
 
     meta = parse_concrete_frontmatter(content)
     providers = get_all_strategy_providers(meta)
@@ -643,9 +647,18 @@ def check_concrete_staleness(
             source_full = root / upstream_source
             if source_full.exists():
                 try:
-                    source_full.read_text(encoding="utf-8")
+                    source_content = source_full.read_text(encoding="utf-8")
+                    source_hash = compute_hash(source_content)
+                    # If upstream source spec changed, flag as stale
+                    stale_deps.append({
+                        "path": dep_path,
+                        "reason": f"upstream source-spec {upstream_source} changed ({source_hash[:8]})",
+                    })
                 except (OSError, UnicodeDecodeError):
-                    pass
+                    stale_deps.append({
+                        "path": dep_path,
+                        "reason": f"upstream source-spec {upstream_source} unreadable",
+                    })
 
     if not stale_deps:
         return None
@@ -751,6 +764,7 @@ def compute_concrete_deps_hash(impl_path: str, project_root: str) -> str | None:
     Recursively walks concrete-dependencies and extends chains so that
     a change to a grandparent spec correctly invalidates all descendants.
     Returns a 12-char hex hash, or None if no strategy providers exist.
+    Raises ValueError if the impl file exists but cannot be read.
     """
     impl = Path(impl_path)
     if not impl.exists():
@@ -758,8 +772,8 @@ def compute_concrete_deps_hash(impl_path: str, project_root: str) -> str | None:
 
     try:
         content = impl.read_text(encoding="utf-8")
-    except (OSError, UnicodeDecodeError):
-        return None
+    except (OSError, UnicodeDecodeError) as e:
+        raise ValueError(f"Cannot read concrete spec: {impl} ({e})")
 
     meta = parse_concrete_frontmatter(content)
     providers = get_all_strategy_providers(meta)
@@ -788,8 +802,8 @@ def compute_concrete_manifest(impl_path: str, project_root: str) -> dict[str, st
 
     try:
         content = impl.read_text(encoding="utf-8")
-    except (OSError, UnicodeDecodeError):
-        return None
+    except (OSError, UnicodeDecodeError) as e:
+        raise ValueError(f"Cannot read concrete spec: {impl} ({e})")
 
     meta = parse_concrete_frontmatter(content)
     direct_providers = get_all_strategy_providers(meta)
@@ -1063,7 +1077,10 @@ def build_order_from_dir(directory: str) -> list[str]:
     graph: dict[str, list[str]] = {}
     for spec_path in specs:
         name = str(spec_path.relative_to(root))
-        content = spec_path.read_text()
+        try:
+            content = spec_path.read_text(encoding="utf-8")
+        except (OSError, UnicodeDecodeError) as e:
+            raise ValueError(f"Cannot read spec file: {spec_path} ({e})")
         deps = parse_frontmatter(content)
         graph[name] = deps
 
@@ -1095,7 +1112,10 @@ def resolve_deps(spec_path: str, project_root: str) -> list[str]:
     all_specs = {}
     for s in root.rglob("*.spec.md"):
         rel = str(s.relative_to(root))
-        content = s.read_text()
+        try:
+            content = s.read_text(encoding="utf-8")
+        except (OSError, UnicodeDecodeError) as e:
+            raise ValueError(f"Cannot read spec file: {s} ({e})")
         all_specs[rel] = parse_frontmatter(content)
 
     target_rel = str(target.relative_to(root))
@@ -2104,6 +2124,9 @@ def _compute_ripple_build_order(
     try:
         return topo_sort(subgraph)
     except ValueError:
+        # Cycle detected — fall back to alphabetical but warn via stderr
+        import sys as _sys
+        print(json.dumps({"warning": "Cycle detected in dependency graph, falling back to alphabetical order"}), file=_sys.stderr)
         return sorted(affected_specs)
 
 
@@ -2215,7 +2238,9 @@ def _unified_topo_sort(
     try:
         sorted_specs = topo_sort(list_graph)
     except ValueError:
-        # Cycle — fall back to sorted order
+        # Cycle detected — fall back to sorted order but warn via stderr
+        import sys as _sys
+        print(json.dumps({"warning": "Cycle detected in unified DAG, falling back to alphabetical order"}), file=_sys.stderr)
         sorted_specs = sorted(graph.keys())
 
     return sorted_specs, graph, impl_to_spec
@@ -2353,8 +2378,8 @@ def compute_deep_sync_plan(
     # Get freshness data for all files
     try:
         freshness = check_freshness(str(root))
-    except (ValueError, OSError):
-        freshness = {"files": []}
+    except (ValueError, OSError) as e:
+        return {"error": f"Freshness check failed: {e}"}
 
     state_map = {f["managed"]: f for f in freshness.get("files", [])}
 
@@ -2464,8 +2489,8 @@ def compute_bulk_sync_plan(
     # 1. Get freshness data for all files
     try:
         freshness = check_freshness(str(root))
-    except (ValueError, OSError):
-        freshness = {"files": []}
+    except (ValueError, OSError) as e:
+        return {"error": f"Freshness check failed: {e}"}
 
     state_map = {f["managed"]: f for f in freshness.get("files", [])}
 
@@ -2513,8 +2538,8 @@ def compute_bulk_sync_plan(
     # 4. Combined ripple check for all stale specs at once
     try:
         ripple = ripple_check(sorted(stale_specs), str(root))
-    except (ValueError, OSError):
-        ripple = {"layers": {"code": {"regenerate": [], "ghost_stale": []}}, "build_order": []}
+    except (ValueError, OSError) as e:
+        return {"error": f"Ripple check failed: {e}"}
 
     # 5. Merge all affected files (direct + ghost-stale), deduped
     all_affected: list[dict] = []
@@ -2638,8 +2663,8 @@ def compute_resume_plan(
     # 1. Get current freshness
     try:
         freshness = check_freshness(str(root))
-    except (ValueError, OSError):
-        freshness = {"files": []}
+    except (ValueError, OSError) as e:
+        return {"error": f"Freshness check failed: {e}"}
 
     state_map = {f["managed"]: f for f in freshness.get("files", [])}
     succeeded_set = set(succeeded_files)
