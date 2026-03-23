@@ -23,7 +23,7 @@ Read `.unslop/config.json` to obtain the test command. If `config.json` does not
 
 **2b. Check diagnostic cache**
 
-For each spec file found, check for `.unslop/last-failure/<spec-filename>.md`. If any failure reports exist, surface a one-liner for each before proceeding:
+For each spec file found, check for `.unslop/last-failure/<cache-key>.md`. If any failure reports exist, surface a one-liner for each before proceeding:
 
 > "Resuming from previous failure for `<spec-path>`: [one-line summary of top suspected spec gap]. Ask to review full post-mortem."
 

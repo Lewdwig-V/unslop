@@ -33,7 +33,7 @@ If Python is not available and the spec has no `depends-on` frontmatter, proceed
 
 **2c. Check diagnostic cache**
 
-Check for `.unslop/last-failure/<spec-filename>.md` where `<spec-filename>` matches the target spec. If a failure report exists, surface a one-liner before proceeding:
+Check for `.unslop/last-failure/<cache-key>.md` where `<cache-key>` is the spec path with `/` replaced by `--`. If a failure report exists, surface a one-liner before proceeding:
 
 > "Resuming from previous failure: [one-line summary of top suspected spec gap]. Ask to review full post-mortem."
 

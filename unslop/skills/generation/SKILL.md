@@ -69,7 +69,7 @@ Agent(
 ```
 
 **`{previous_failure}` value:**
-- If `.unslop/last-failure/<spec-filename>.md` exists: `"Previous Implementation Failure:\n<contents of the failure report>"`. The Builder uses this to avoid repeating the same implementation choice.
+- If `.unslop/last-failure/<cache-key>.md` exists: `"Previous Implementation Failure:\n<contents of the failure report>"`. The Builder uses this to avoid repeating the same implementation choice.
 - If no failure report exists: empty string (omitted from prompt).
 
 **`{test_policy}` values by originating command:**
@@ -84,7 +84,7 @@ After the Builder Agent completes:
 2. If DONE with green tests: Claude Code handles worktree merge automatically
 3. Compute `output-hash` on merged code, update `@unslop-managed` header
 4. Commit the staged spec update + merged code as a single atomic commit
-5. Delete `.unslop/last-failure/<spec-filename>.md` if it exists (previous failure is now resolved)
+5. Delete `.unslop/last-failure/<cache-key>.md` if it exists (previous failure is now resolved)
 6. If DONE_WITH_CONCERNS: surface concerns as a one-liner after the commit:
 
 > "Generation complete. Tests green. N concern(s) flagged -- run `/unslop:harden` or ask to review."
@@ -116,11 +116,11 @@ The Builder identifies gaps only -- it does NOT suggest spec language. The Archi
 
 When a Builder fails (BLOCKED or test failures), the controlling session writes the structured failure report to disk:
 
-**Path:** `.unslop/last-failure/<spec-filename>.md` (e.g., `.unslop/last-failure/retry.py.spec.md.md`)
+**Path:** `.unslop/last-failure/<cache-key>.md` where `<cache-key>` is the spec's path relative to the project root with `/` replaced by `--` (e.g., `src/retry.py.spec.md` -> `.unslop/last-failure/src--retry.py.spec.md.md`). This prevents collisions between specs with the same filename in different directories.
 
-**Write:** After discarding the worktree and reverting the staged spec, write the Builder's failure report (Failing Tests, What Was Attempted, Suspected Spec Gaps) to the cache file. Overwrite any existing report for the same spec.
+**Write:** After discarding the worktree and reverting the staged spec, create `.unslop/last-failure/` if it does not exist, then write the Builder's failure report (Failing Tests, What Was Attempted, Suspected Spec Gaps) to the cache file. Overwrite any existing report for the same spec.
 
-**Read:** Before dispatching any Builder or entering Stage A, the controlling command checks for `.unslop/last-failure/<spec-filename>.md`. This check runs at the command level -- before worktree creation, before any agent dispatch. If a report exists:
+**Read:** Before dispatching any Builder or entering Stage A, the controlling command checks for `.unslop/last-failure/<cache-key>.md`. This check runs at the command level -- before worktree creation, before any agent dispatch. If a report exists:
 
 1. **Surface to user:** Always display a one-liner:
 

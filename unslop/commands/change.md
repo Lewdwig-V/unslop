@@ -101,7 +101,7 @@ The `[description or elaborated body]` should be the description text as provide
 
 **5a. Check diagnostic cache**
 
-Check for `.unslop/last-failure/<spec-filename>.md`. If a failure report exists, surface a one-liner before proceeding:
+Check for `.unslop/last-failure/<cache-key>.md`. If a failure report exists, surface a one-liner before proceeding:
 
 > "Resuming from previous failure: [one-line summary of top suspected spec gap]. Ask to review full post-mortem."
 
