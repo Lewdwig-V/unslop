@@ -916,6 +916,100 @@ def check_freshness(directory: str) -> dict:
         result["spec"] = rel_spec
         files.append(result)
 
+    # Target-driven discovery: scan .impl.md files with targets[] to find
+    # managed files that live outside their spec's directory tree.
+    seen_managed = {f["managed"] for f in files}
+    target_owners = {}  # managed_rel -> impl_rel (for collision detection)
+
+    # Record ownership from spec-driven pass (single-target defaults)
+    for f in files:
+        managed_rel = f["managed"]
+        if managed_rel not in target_owners:
+            target_owners[managed_rel] = f.get("spec", "")
+
+    impl_files_for_targets = sorted(root.rglob("*.impl.md"))
+    for impl_path in impl_files_for_targets:
+        rel_impl = str(impl_path.relative_to(root))
+        try:
+            impl_content = impl_path.read_text(encoding="utf-8")
+        except (OSError, UnicodeDecodeError):
+            continue
+
+        meta = parse_concrete_frontmatter(impl_content)
+        targets_list = meta.get("targets", [])
+        if not targets_list:
+            continue
+
+        source_spec = meta.get("source_spec", "")
+        # Resolve spec path relative to the impl file's directory
+        if source_spec:
+            spec_full = (impl_path.parent / source_spec).resolve()
+            if not spec_full.exists():
+                spec_full = root / source_spec
+        else:
+            spec_full = None
+
+        for target in targets_list:
+            target_rel = target.get("path", "")
+            if not target_rel:
+                continue
+
+            # Collision detection: two impl specs claiming the same target
+            if target_rel in target_owners and target_owners[target_rel] != rel_impl:
+                prev_owner = target_owners[target_rel]
+                files.append({
+                    "managed": target_rel,
+                    "spec": source_spec,
+                    "state": "error",
+                    "hint": (
+                        f"Target collision: `{target_rel}` claimed by both "
+                        f"`{prev_owner}` and `{rel_impl}`. "
+                        "Remove the duplicate target from one concrete spec."
+                    ),
+                    "impl_path": rel_impl,
+                })
+                continue
+            target_owners[target_rel] = rel_impl
+
+            # Skip if already tracked from the spec-driven pass
+            if target_rel in seen_managed:
+                continue
+            seen_managed.add(target_rel)
+
+            target_full = root / target_rel
+            if spec_full and spec_full.exists():
+                if not target_full.exists():
+                    files.append({
+                        "managed": target_rel,
+                        "spec": source_spec,
+                        "state": "stale",
+                        "impl_path": rel_impl,
+                    })
+                else:
+                    result = classify_file(
+                        str(target_full), str(spec_full), project_root=str(root),
+                    )
+                    result["managed"] = target_rel
+                    result["spec"] = source_spec
+                    result["impl_path"] = rel_impl
+                    files.append(result)
+            elif not target_full.exists():
+                files.append({
+                    "managed": target_rel,
+                    "spec": source_spec,
+                    "state": "stale",
+                    "hint": "Target file does not exist and spec not found.",
+                    "impl_path": rel_impl,
+                })
+            else:
+                files.append({
+                    "managed": target_rel,
+                    "spec": source_spec,
+                    "state": "error",
+                    "hint": f"Spec `{source_spec}` not found for target.",
+                    "impl_path": rel_impl,
+                })
+
     # Check for circular concrete dependencies before scanning
     try:
         build_concrete_order(str(root))

@@ -1138,6 +1138,125 @@ def test_check_freshness_ghost_stale_no_stored_hash(tmp_path):
     assert handler_entry[0]["state"] == "fresh"
 
 
+# --- multi-target discovery tests ---
+
+def test_check_freshness_multi_target_discovery(tmp_path):
+    """Multi-target impl spec should seed all target files into freshness check."""
+    spec = "# auth spec\n\n## Behavior\nAuth logic.\nMore detail.\n"
+    body_py = "def auth(): pass\n"
+    body_ts = "export function auth() {}\n"
+    sh = compute_hash(spec)
+    oh_py = compute_hash(body_py)
+    oh_ts = compute_hash(body_ts)
+
+    # Abstract spec lives at src/auth_logic.spec.md
+    src_dir = tmp_path / "src"
+    src_dir.mkdir()
+    (src_dir / "auth_logic.spec.md").write_text(spec)
+
+    # Multi-target impl spec
+    (src_dir / "auth_logic.impl.md").write_text(
+        "---\nsource-spec: src/auth_logic.spec.md\nephemeral: false\n"
+        "targets:\n"
+        "  - path: src/api/auth.py\n"
+        "    language: python\n"
+        "  - path: frontend/src/api/auth.ts\n"
+        "    language: typescript\n"
+        "---\n\n## Strategy\nShared auth.\n"
+    )
+
+    # Write managed files at their target paths
+    api_dir = src_dir / "api"
+    api_dir.mkdir()
+    (api_dir / "auth.py").write_text(
+        f"# @unslop-managed — do not edit directly. Edit src/auth_logic.spec.md instead.\n"
+        f"# spec-hash:{sh} output-hash:{oh_py} generated:2026-03-23T00:00:00Z\n" + body_py
+    )
+
+    fe_dir = tmp_path / "frontend" / "src" / "api"
+    fe_dir.mkdir(parents=True)
+    (fe_dir / "auth.ts").write_text(
+        f"// @unslop-managed — do not edit directly. Edit src/auth_logic.spec.md instead.\n"
+        f"// spec-hash:{sh} output-hash:{oh_ts} generated:2026-03-23T00:00:00Z\n" + body_ts
+    )
+
+    result = check_freshness(str(tmp_path))
+    managed_paths = {f["managed"] for f in result["files"]}
+
+    # Both target paths should appear in the freshness report
+    assert "src/api/auth.py" in managed_paths
+    assert "frontend/src/api/auth.ts" in managed_paths
+
+    # Both should be fresh
+    py_entry = [f for f in result["files"] if f["managed"] == "src/api/auth.py"]
+    ts_entry = [f for f in result["files"] if f["managed"] == "frontend/src/api/auth.ts"]
+    assert len(py_entry) == 1
+    assert py_entry[0]["state"] == "fresh"
+    assert len(ts_entry) == 1
+    assert ts_entry[0]["state"] == "fresh"
+
+
+def test_check_freshness_multi_target_stale(tmp_path):
+    """A missing target file should appear as stale."""
+    spec = "# auth spec\n\n## Behavior\nAuth logic.\nMore detail.\n"
+
+    src_dir = tmp_path / "src"
+    src_dir.mkdir()
+    (src_dir / "auth_logic.spec.md").write_text(spec)
+
+    (src_dir / "auth_logic.impl.md").write_text(
+        "---\nsource-spec: src/auth_logic.spec.md\nephemeral: false\n"
+        "targets:\n"
+        "  - path: src/api/auth.py\n"
+        "    language: python\n"
+        "  - path: frontend/src/api/auth.ts\n"
+        "    language: typescript\n"
+        "---\n\n## Strategy\nShared auth.\n"
+    )
+
+    # Neither target file exists
+    result = check_freshness(str(tmp_path))
+    target_entries = [f for f in result["files"]
+                      if f["managed"] in ("src/api/auth.py", "frontend/src/api/auth.ts")]
+    assert len(target_entries) == 2
+    for entry in target_entries:
+        assert entry["state"] == "stale"
+
+
+def test_check_freshness_target_collision(tmp_path):
+    """Two impl specs claiming the same target should produce an error."""
+    spec = "# shared spec\n\n## Behavior\nShared logic.\nMore detail.\n"
+
+    src_dir = tmp_path / "src"
+    src_dir.mkdir()
+    (src_dir / "shared.spec.md").write_text(spec)
+
+    # First impl claims src/api/handler.py
+    (src_dir / "first.impl.md").write_text(
+        "---\nsource-spec: src/shared.spec.md\nephemeral: false\n"
+        "targets:\n"
+        "  - path: src/api/handler.py\n"
+        "    language: python\n"
+        "---\n"
+    )
+
+    # Second impl also claims src/api/handler.py
+    (src_dir / "second.impl.md").write_text(
+        "---\nsource-spec: src/shared.spec.md\nephemeral: false\n"
+        "targets:\n"
+        "  - path: src/api/handler.py\n"
+        "    language: python\n"
+        "---\n"
+    )
+
+    result = check_freshness(str(tmp_path))
+    collision_entries = [f for f in result["files"]
+                         if f["managed"] == "src/api/handler.py" and f["state"] == "error"
+                         and "collision" in f.get("hint", "").lower()]
+    assert len(collision_entries) >= 1
+    assert "collision" in collision_entries[0]["hint"].lower()
+
+
 # --- concrete dependency cycle detection tests ---
 
 def test_build_concrete_order_no_cycle(tmp_path):
