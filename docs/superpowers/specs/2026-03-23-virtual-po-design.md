@@ -84,6 +84,10 @@ When `/unslop:generate` or `/unslop:sync` processes a file with multiple pending
 
 > "I understand you want to [combined goal from N pending changes]. I'll update [spec] to [summary of constraint changes]."
 
+**Sequencing with Phase 0c:** Phase 0a.0 approval is a prerequisite for entering Phase 0c (change request consumption) for that file. The flow is: Phase 0a.0 presents the aggregated intent and gets a single y/n -- then Phase 0c processes entries individually, applying each to the spec. Phase 0c's per-entry rejection (skip an individual entry) still applies after Phase 0a.0 approval. The Intent Lock validates "is the combined direction correct?" while Phase 0c validates "is each specific spec mutation correct?" -- the double-gate principle operates at both levels.
+
+**Rejection granularity:** Phase 0a.0 is all-or-nothing per file. If the user rejects the aggregated intent, all pending entries for that file are retained and the file is skipped. The user cannot partially approve at the Intent Lock level. To remove a bad entry before re-running, edit or delete the entry from `*.change.md` manually, then re-invoke the command.
+
 ### Conflicting intent detection
 
 If pending entries contain contradictory requirements (e.g., "set timeout to 5s" and "set timeout to 10s"), the Architect must surface the conflict explicitly before asking for approval:
@@ -96,11 +100,19 @@ This is not a new phase -- it is the Intent Lock doing its job. If a coherent on
 
 ## Rejection Protocol
 
-### Paths (a) and (b) -- tactical and takeover
+### Path (a) -- tactical
 
-- The session terminates cleanly.
 - No side effects. The file remains in its previous state.
+- The entry remains in `*.change.md` for future resolution.
 - The Architect asks: "Could you clarify the requirement? I misunderstood [X] as [Y]."
+- The user can clarify in the same session; the Architect reformulates and re-presents the Intent Statement. No limit on reformulation attempts.
+
+### Path (b) -- takeover
+
+- No side effects. No spec is created.
+- The Architect reformulates in the same session based on user feedback: "Could you clarify the requirement? I understood this module's purpose as [X], but that doesn't match your intent."
+- The Architect may re-present the Intent Statement after reformulation. No limit on attempts.
+- If the user abandons (exits the session), no artifacts are left behind.
 
 ### Path (c) -- pending changes
 
@@ -121,7 +133,7 @@ CI is for compilation and audit, not architecture. Spec mutations require intera
 
 ### Mechanism
 
-The existing `check-freshness` command gains one new check: if a managed file has a pending `*.change.md` sidecar, that is a freshness failure with a distinct error class.
+The existing `check-freshness` command already detects pending `*.change.md` sidecars and includes them in the freshness determination (see `checker.py` `check_freshness` function). The new behavior extends the **output formatting** to surface a distinct error class with actionable guidance, rather than adding detection from scratch.
 
 **Current output on staleness:**
 ```
@@ -167,6 +179,9 @@ User Intent
 Phase 0a.0: Virtual PO (Intent Lock)
     |  "I understand you want to [goal]. Proceed?"
     v
+Phases 0a-0e.1: Validation Gates
+    |  Structural, pseudocode, ambiguity, coherence checks
+    v
 Stage A.1: Architect (Intent -> Spec)
     |  Drafts *.spec.md patch, user approves
     v
@@ -193,3 +208,4 @@ Each stage sees only what it needs. The Virtual PO looks backward at conversatio
 3. **`unslop/skills/triage/SKILL.md`** -- No changes needed. Triage routes to commands; the commands enforce the gate.
 4. **`unslop/scripts/orchestrator.py`** -- Add pending-changes detection to `check-freshness` subcommand. New error class for pending intent.
 5. **`unslop/commands/generate.md`** / **`unslop/commands/sync.md`** -- Add cross-reference to Phase 0a.0 for the "pending changes trigger Architect stage" path.
+6. **`unslop/commands/takeover.md`** -- Insert Intent Lock (takeover variant) before Stage A step 1 (Discover). The Architect must present the takeover intent statement before reading existing code to extract intent.
