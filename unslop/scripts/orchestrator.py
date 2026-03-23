@@ -2019,6 +2019,126 @@ def _compute_ripple_build_order(affected_specs: set[str], all_specs: dict[str, l
         return sorted(affected_specs)
 
 
+def compute_deep_sync_plan(
+    file_path: str,
+    project_root: str,
+    force: bool = False,
+) -> dict:
+    """Compute an ordered plan for deep-syncing a file and its blast radius.
+
+    Starting from a single managed file (or spec), identifies all downstream
+    files that need regeneration and returns them in topological order.
+
+    Args:
+        file_path: Path to the managed file or spec to start from.
+        project_root: Project root directory.
+        force: If True, include modified/conflict files without flagging them.
+
+    Returns:
+        dict with:
+          - trigger: The input file/spec that initiated the deep sync.
+          - plan: Ordered list of dicts, each with:
+              managed, spec, state, cause, concrete (optional)
+          - skipped: Files that need user confirmation (modified/conflict).
+          - stats: Summary counts.
+    """
+    root = Path(project_root).resolve()
+
+    # Normalize: if given a managed file, derive the spec; if given a spec, use it
+    fp = Path(file_path)
+    if fp.suffix == ".md" and ".spec." in fp.name:
+        trigger_spec = file_path
+    else:
+        # Managed file -> spec
+        trigger_spec = file_path + ".spec.md"
+
+    trigger_spec_full = root / trigger_spec
+    if not trigger_spec_full.exists():
+        return {"error": f"No spec found at {trigger_spec}"}
+
+    # Get freshness data for all files
+    try:
+        freshness = check_freshness(str(root))
+    except (ValueError, OSError):
+        freshness = {"files": []}
+
+    state_map = {f["managed"]: f for f in freshness.get("files", [])}
+
+    # Use ripple_check to compute full blast radius from this spec
+    ripple = ripple_check([trigger_spec], str(root))
+
+    # Merge the code-layer results: both direct regenerations and ghost-stale
+    all_affected: list[dict] = []
+    seen_managed: set[str] = set()
+
+    for entry in ripple["layers"]["code"]["regenerate"]:
+        managed = entry["managed"]
+        if managed in seen_managed:
+            continue
+        seen_managed.add(managed)
+
+        # Get actual freshness state from check_freshness
+        fresh_entry = state_map.get(managed)
+        state = fresh_entry["state"] if fresh_entry else entry.get("current_state", "new")
+
+        all_affected.append({
+            "managed": managed,
+            "spec": entry["spec"],
+            "state": state,
+            "cause": entry["cause"],
+            "concrete": entry.get("concrete"),
+        })
+
+    for entry in ripple["layers"]["code"]["ghost_stale"]:
+        managed = entry["managed"]
+        if managed in seen_managed:
+            continue
+        seen_managed.add(managed)
+
+        fresh_entry = state_map.get(managed)
+        state = fresh_entry["state"] if fresh_entry else "ghost-stale"
+
+        all_affected.append({
+            "managed": managed,
+            "spec": entry["spec"],
+            "state": state,
+            "cause": entry["cause"],
+            "concrete": entry.get("concrete"),
+        })
+
+    # Split into actionable plan vs skipped (needs confirmation)
+    plan = []
+    skipped = []
+
+    for entry in all_affected:
+        state = entry["state"]
+        if state == "fresh":
+            continue  # Already up to date — skip entirely
+        if state in ("modified", "conflict") and not force:
+            skipped.append(entry)
+        else:
+            plan.append(entry)
+
+    # Order the plan by the build order from ripple_check
+    build_order = ripple.get("build_order", [])
+    spec_order = {spec: i for i, spec in enumerate(build_order)}
+
+    plan.sort(key=lambda e: spec_order.get(e["spec"], 999999))
+
+    return {
+        "trigger": trigger_spec,
+        "plan": plan,
+        "skipped": skipped,
+        "stats": {
+            "total_affected": len(all_affected),
+            "to_regenerate": len(plan),
+            "skipped_need_confirm": len(skipped),
+            "fresh_skipped": len(all_affected) - len(plan) - len(skipped),
+        },
+        "build_order": build_order,
+    }
+
+
 def render_dependency_graph(
     directory: str,
     scope: list[str] | None = None,
@@ -2290,7 +2410,7 @@ def file_tree(directory: str) -> list[str]:
 def main():
     """CLI entry point."""
     if len(sys.argv) < 2:
-        cmds = "discover|build-order|deps|check-freshness|concrete-order|concrete-deps|ripple-check|graph|file-tree"
+        cmds = "discover|build-order|deps|check-freshness|concrete-order|concrete-deps|ripple-check|deep-sync-plan|graph|file-tree"
         print(f"Usage: orchestrator.py <{cmds}> [args]", file=sys.stderr)
         sys.exit(1)
 
@@ -2458,6 +2578,30 @@ def main():
                 i += 1
         try:
             result = ripple_check(spec_paths, project_root)
+            print(json.dumps(result, indent=2))
+        except (ValueError, OSError, UnicodeDecodeError) as e:
+            print(json.dumps({"error": str(e)}), file=sys.stderr)
+            sys.exit(1)
+
+    elif command == "deep-sync-plan":
+        if len(sys.argv) < 3:
+            print("Usage: orchestrator.py deep-sync-plan <file-path> [--root <dir>] [--force]", file=sys.stderr)
+            sys.exit(1)
+        file_path = sys.argv[2]
+        project_root = "."
+        force = False
+        i = 3
+        while i < len(sys.argv):
+            if sys.argv[i] == "--root" and i + 1 < len(sys.argv):
+                project_root = sys.argv[i + 1]
+                i += 2
+            elif sys.argv[i] == "--force":
+                force = True
+                i += 1
+            else:
+                i += 1
+        try:
+            result = compute_deep_sync_plan(file_path, project_root, force=force)
             print(json.dumps(result, indent=2))
         except (ValueError, OSError, UnicodeDecodeError) as e:
             print(json.dumps({"error": str(e)}), file=sys.stderr)

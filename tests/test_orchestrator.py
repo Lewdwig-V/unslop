@@ -32,6 +32,7 @@ from orchestrator import (
     flatten_inheritance_chain,
     ripple_check,
     render_dependency_graph,
+    compute_deep_sync_plan,
     STRICT_CHILD_ONLY,
 )
 
@@ -3064,3 +3065,151 @@ def test_deep_ghost_format_message_with_chain(tmp_path):
     assert len(reasons) == 1
     assert "changed" in reasons[0]
     assert "utils.impl.md" in reasons[0]
+
+
+# --- compute_deep_sync_plan tests ---
+
+
+def _setup_deep_sync_chain(tmp_path):
+    """Helper: create api -> service -> utils chain with managed files."""
+    (tmp_path / ".unslop").mkdir()
+
+    utils_text = "---\nephemeral: false\n---\n\n## Strategy\nUtils v1.\n"
+    (tmp_path / "utils.impl.md").write_text(utils_text)
+
+    service_text = (
+        "---\nsource-spec: service.py.spec.md\nephemeral: false\n"
+        "extends: utils.impl.md\n---\n\n## Strategy\nService.\n"
+    )
+    (tmp_path / "service.impl.md").write_text(service_text)
+
+    api_text = (
+        "---\nsource-spec: api.py.spec.md\nephemeral: false\n"
+        "extends: service.impl.md\n---\n\n## Strategy\nAPI.\n"
+    )
+    (tmp_path / "api.impl.md").write_text(api_text)
+
+    (tmp_path / "service.py.spec.md").write_text("# Service\n")
+    (tmp_path / "api.py.spec.md").write_text("# API\n")
+
+    # Create managed files with transitive manifests
+    service_manifest = compute_concrete_manifest(str(tmp_path / "service.impl.md"), str(tmp_path))
+    _make_managed_with_manifest(
+        tmp_path, "service.py", "service.py.spec.md",
+        "def service(): pass\n", service_manifest
+    )
+
+    api_manifest = compute_concrete_manifest(str(tmp_path / "api.impl.md"), str(tmp_path))
+    _make_managed_with_manifest(
+        tmp_path, "api.py", "api.py.spec.md",
+        "def api(): pass\n", api_manifest
+    )
+
+    return utils_text
+
+
+def test_deep_sync_plan_basic(tmp_path):
+    """Deep sync plan should return ordered regeneration list."""
+    _setup_deep_sync_chain(tmp_path)
+
+    # Change utils to make service and api stale
+    (tmp_path / "utils.impl.md").write_text(
+        "---\nephemeral: false\n---\n\n## Strategy\nUtils v2.\n"
+    )
+
+    result = compute_deep_sync_plan("service.py", str(tmp_path))
+    assert "error" not in result
+    assert result["trigger"] == "service.py.spec.md"
+    assert result["stats"]["to_regenerate"] >= 1
+
+    managed_files = [e["managed"] for e in result["plan"]]
+    assert "service.py" in managed_files
+
+
+def test_deep_sync_plan_includes_downstream(tmp_path):
+    """Deep sync from service should include api (downstream dependent)."""
+    _setup_deep_sync_chain(tmp_path)
+
+    # Change utils
+    (tmp_path / "utils.impl.md").write_text(
+        "---\nephemeral: false\n---\n\n## Strategy\nUtils v2.\n"
+    )
+
+    result = compute_deep_sync_plan("service.py", str(tmp_path))
+    managed_files = [e["managed"] for e in result["plan"]]
+
+    # service.py should be in the plan (direct stale)
+    assert "service.py" in managed_files
+    # api.py should also be in the plan (downstream, ghost-stale)
+    assert "api.py" in managed_files
+
+
+def test_deep_sync_plan_topological_order(tmp_path):
+    """Plan should list service before api (dependency order)."""
+    _setup_deep_sync_chain(tmp_path)
+
+    # Change utils
+    (tmp_path / "utils.impl.md").write_text(
+        "---\nephemeral: false\n---\n\n## Strategy\nUtils v2.\n"
+    )
+
+    result = compute_deep_sync_plan("service.py", str(tmp_path))
+    managed_files = [e["managed"] for e in result["plan"]]
+
+    if "service.py" in managed_files and "api.py" in managed_files:
+        service_idx = managed_files.index("service.py")
+        api_idx = managed_files.index("api.py")
+        assert service_idx < api_idx, (
+            f"service.py (idx {service_idx}) should come before api.py (idx {api_idx})"
+        )
+
+
+def test_deep_sync_plan_fresh_files_excluded(tmp_path):
+    """Fresh files should not appear in the plan."""
+    _setup_deep_sync_chain(tmp_path)
+
+    # Don't change anything — all files are fresh
+    result = compute_deep_sync_plan("service.py", str(tmp_path))
+    assert result["stats"]["to_regenerate"] == 0
+    assert len(result["plan"]) == 0
+
+
+def test_deep_sync_plan_modified_files_skipped(tmp_path):
+    """Modified files should be skipped unless --force."""
+    _setup_deep_sync_chain(tmp_path)
+
+    # Modify api.py (change the body so output-hash mismatches)
+    api_content = (tmp_path / "api.py").read_text()
+    (tmp_path / "api.py").write_text(api_content + "\n# user edit\n")
+
+    # Change utils to trigger staleness
+    (tmp_path / "utils.impl.md").write_text(
+        "---\nephemeral: false\n---\n\n## Strategy\nUtils v2.\n"
+    )
+
+    # Without force, api.py should be in skipped (it's modified AND stale = conflict)
+    result = compute_deep_sync_plan("service.py", str(tmp_path))
+
+    # With force, all should be in plan
+    result_force = compute_deep_sync_plan("service.py", str(tmp_path), force=True)
+    assert result_force["stats"]["skipped_need_confirm"] == 0
+
+
+def test_deep_sync_plan_accepts_spec_path(tmp_path):
+    """Should accept a spec path as input."""
+    _setup_deep_sync_chain(tmp_path)
+
+    (tmp_path / "utils.impl.md").write_text(
+        "---\nephemeral: false\n---\n\n## Strategy\nUtils v2.\n"
+    )
+
+    result = compute_deep_sync_plan("service.py.spec.md", str(tmp_path))
+    assert "error" not in result
+    assert result["trigger"] == "service.py.spec.md"
+
+
+def test_deep_sync_plan_missing_spec(tmp_path):
+    """Should return error for nonexistent spec."""
+    (tmp_path / ".unslop").mkdir()
+    result = compute_deep_sync_plan("nonexistent.py", str(tmp_path))
+    assert "error" in result
