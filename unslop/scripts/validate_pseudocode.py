@@ -107,16 +107,20 @@ def lint_pseudocode(blocks: list[dict]) -> tuple[list[dict], list[dict]]:
             if not stripped or stripped.startswith("//"):
                 continue
 
-            # Strip inline comments ONCE — use clean_line for all rule checks,
-            # but keep stripped (original) for error reporting so devs see context.
-            clean_line = re.sub(r'//.*$', '', stripped).strip()
-            # Mask string literals: replace contents with "_STR_" so keyword
-            # scanners see structure but not data.  Handles both "double" and
-            # 'single' quotes, including escaped quotes within.
-            scan_line = re.sub(
-                r"""(?:"(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*')""",
-                '"_STR_"', clean_line,
-            )
+            # Mask string literals FIRST so that "//" inside strings (URLs,
+            # log text) is not mistaken for an inline comment delimiter.
+            # Handles both "double" and 'single' quotes, including escapes.
+            _STR_PAT = r"""(?:"(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*')"""
+            masked_for_comment = re.sub(_STR_PAT, '"_STR_"', stripped)
+            # Now strip inline comments from the masked version to find the
+            # comment boundary, then apply the same trim to the original line.
+            comment_match = re.search(r'//.*$', masked_for_comment)
+            if comment_match:
+                clean_line = stripped[:comment_match.start()].strip()
+            else:
+                clean_line = stripped
+            # Re-mask strings on the comment-stripped line for keyword scanning.
+            scan_line = re.sub(_STR_PAT, '"_STR_"', clean_line)
             # Fully strip string literals for structural checks (bare =, ;)
             code_part = re.sub(r'"[^"]*"', '', scan_line)
 

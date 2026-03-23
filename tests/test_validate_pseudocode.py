@@ -431,3 +431,27 @@ class TestStringLiteralMasking:
         content = '```pseudocode\nSET err ← "class not found: Widget"\n```'
         result = validate_pseudocode(content, "test.impl.md")
         assert result["status"] == "pass", f"Expected pass, got: {result}"
+
+    def test_url_in_string_not_truncated(self):
+        """A URL like 'https://...' inside a string must not be treated as // comment."""
+        content = '```pseudocode\nSET endpoint ← "https://api.example.com/v1"\n```'
+        result = validate_pseudocode(content, "test.impl.md")
+        assert result["status"] == "pass", f"Expected pass, got: {result}"
+
+    def test_double_slash_in_string_not_comment(self):
+        """'//' inside a string must not start a comment."""
+        content = '```pseudocode\nSET msg ← "async // not a comment"\n```'
+        result = validate_pseudocode(content, "test.impl.md")
+        assert result["status"] == "pass", f"Expected pass, got: {result}"
+
+    def test_real_comment_after_string_with_slashes(self):
+        """A real // comment after a string containing // should still be stripped."""
+        content = '```pseudocode\nSET url ← "https://example.com" // fetch endpoint\n```'
+        result = validate_pseudocode(content, "test.impl.md")
+        assert result["status"] == "pass", f"Expected pass, got: {result}"
+
+    def test_keyword_after_url_string_not_false_positive(self):
+        """Keyword scan must not see tokens from inside a truncated URL string."""
+        content = '```pseudocode\nSET log ← "async callback at https://svc.io/fn"\n```'
+        result = validate_pseudocode(content, "test.impl.md")
+        assert result["status"] == "pass", f"Expected pass, got: {result}"
