@@ -19,6 +19,7 @@ Contents:
 archive/
 last-failure/
 feedback.md
+errors.log
 ```
 
 **3. Detect the test command**
@@ -120,12 +121,18 @@ jobs:
         run: uv run python .unslop/scripts/orchestrator.py check-freshness .
 ```
 
-3. Copy the orchestrator script to `.unslop/scripts/` for CI availability:
-   - Copy `orchestrator.py` from the plugin to `.unslop/scripts/orchestrator.py`
-   - Add a version marker comment at the top: `# unslop orchestrator v0.9.0 -- vendored for CI`
-   - Note: Only `orchestrator.py` needs to be vendored -- `validate_spec.py` is used by the generation skill during interactive sessions, not by CI. The `check-freshness` command does not import from `validate_spec.py`.
+3. Copy the orchestrator scripts directory to `.unslop/scripts/` for CI availability:
+   - Recursively copy the following from `${CLAUDE_PLUGIN_ROOT}/scripts/` to `.unslop/scripts/`:
+     - `orchestrator.py` (CLI entry point)
+     - `core/` directory (hashing, frontmatter, spec_discovery)
+     - `dependencies/` directory (graph, concrete_graph, unified_dag)
+     - `freshness/` directory (checker, manifest)
+     - `planning/` directory (ripple, deep_sync, bulk_sync, resume, graph_renderer)
+     - `validation/` directory (placeholder for future symbol_audit)
+   - Do NOT copy `validate_spec.py`, `validate_behaviour.py`, `validate_mocks.py`, `prosecutor.py`, or `pseudocode_linter.py` -- these are used by the generation skill during interactive sessions, not by CI.
+   - Write a `version.txt` file at `.unslop/scripts/version.txt` containing the current plugin version (e.g. `0.13.0`). This allows the orchestrator to warn the user if their vendored CI logic is out of sync with their installed unslop plugin.
 
-   If `.unslop/scripts/orchestrator.py` already exists (from a previous init), read its first line to check the version marker. If the version is older than `v0.9.0`, offer to update it. If the user agrees, overwrite the file with the current version. If the user declines, leave it unchanged.
+   If `.unslop/scripts/version.txt` already exists (from a previous init), read it and compare against the current plugin version. If the vendored version is older, offer to update. If the user agrees, overwrite the entire `.unslop/scripts/` directory with the current version. If the user declines, leave it unchanged.
 
 4. Inform the user: "CI workflow created at `.github/workflows/unslop-freshness.yml`. Commit it alongside `.unslop/scripts/` to enable freshness checks on PRs."
 

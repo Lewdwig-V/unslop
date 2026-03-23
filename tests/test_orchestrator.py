@@ -1,12 +1,10 @@
 import hashlib
 import json
+import os
 import subprocess
 import sys
-import os
 
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "unslop", "scripts"))
-
-from orchestrator import (
+from unslop.scripts.orchestrator import (
     compute_hash,
     parse_header,
     parse_frontmatter,
@@ -750,7 +748,7 @@ why this matters and what constraints apply.
 
 
 def test_check_freshness_pending_changes(tmp_path):
-    from orchestrator import check_freshness, compute_hash
+    from unslop.scripts.orchestrator import check_freshness, compute_hash
 
     spec = "# spec\n\n## Behavior\nDoes stuff.\nMore detail.\n"
     body = "def thing(): pass\n"
@@ -774,7 +772,7 @@ def test_check_freshness_pending_changes(tmp_path):
 
 
 def test_check_freshness_no_changes_still_pass(tmp_path):
-    from orchestrator import check_freshness, compute_hash
+    from unslop.scripts.orchestrator import check_freshness, compute_hash
 
     spec = "# spec\n\n## Behavior\nDoes stuff.\nMore detail.\n"
     body = "def thing(): pass\n"
@@ -791,7 +789,7 @@ def test_check_freshness_no_changes_still_pass(tmp_path):
 
 
 def test_check_freshness_mixed_changes(tmp_path):
-    from orchestrator import check_freshness, compute_hash
+    from unslop.scripts.orchestrator import check_freshness, compute_hash
 
     spec = "# spec\n\n## Behavior\nDoes stuff.\nMore detail.\n"
     body = "def thing(): pass\n"
@@ -2515,7 +2513,7 @@ def test_strict_child_only_child_defines_both_strict_sections(tmp_path):
 
 def _make_managed_file(path, spec_path, body="pass"):
     """Helper to create a managed file with proper header."""
-    from orchestrator import compute_hash
+    from unslop.scripts.orchestrator import compute_hash
 
     # Read the actual spec to compute hash
     spec_file = path.parent / spec_path if "/" not in str(spec_path) else path.parent.parent / spec_path
