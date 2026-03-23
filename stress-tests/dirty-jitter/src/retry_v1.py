@@ -1,4 +1,9 @@
-"""Retry module with exponential backoff and optional jitter."""
+"""Retry module with exponential backoff and optional jitter.
+
+NOTE: This file is a DELIBERATE stress-test fixture containing intentional bugs.
+Do not fix them -- they exist to validate the testless takeover pipeline.
+See docs/superpowers/specs/2026-03-23-testless-takeover-design.md for context.
+"""
 
 import random
 import time

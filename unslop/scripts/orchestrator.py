@@ -1313,7 +1313,7 @@ def classify_file(managed_path: str, spec_path: str, project_root: str | None = 
     return result
 
 
-def check_freshness(directory: str) -> dict:
+def check_freshness(directory: str, exclude_dirs: list[str] | None = None) -> dict:
     """Check freshness of all managed files in directory."""
     from collections import Counter
 
@@ -1321,7 +1321,13 @@ def check_freshness(directory: str) -> dict:
     if not root.is_dir():
         raise ValueError(f"Directory does not exist: {directory}")
 
-    specs = sorted(root.rglob("*.spec.md"))
+    _exclude = {(root / e).resolve() for e in (exclude_dirs or [])}
+
+    def _is_excluded(p: Path) -> bool:
+        resolved = p.resolve()
+        return any(resolved == ex or ex in resolved.parents for ex in _exclude)
+
+    specs = sorted(s for s in root.rglob("*.spec.md") if not _is_excluded(s))
     files = []
 
     # Pre-scan: build set of spec paths that have a target-driven impl
@@ -1330,7 +1336,7 @@ def check_freshness(directory: str) -> dict:
     # lives in a different directory (e.g. .plans/api_multi.impl.md with
     # source-spec: src/api.spec.md).
     _target_owned_specs: set[str] = set()
-    for _impl_path in root.rglob("*.impl.md"):
+    for _impl_path in (p for p in root.rglob("*.impl.md") if not _is_excluded(p)):
         try:
             _ic = _impl_path.read_text(encoding="utf-8")
         except (OSError, UnicodeDecodeError):
@@ -3350,8 +3356,13 @@ def main():
 
     elif command == "check-freshness":
         directory = sys.argv[2] if len(sys.argv) > 2 else "."
+        exclude_dirs: list[str] = []
+        if "--exclude" in sys.argv:
+            eidx = sys.argv.index("--exclude")
+            if eidx + 1 < len(sys.argv):
+                exclude_dirs = [sys.argv[eidx + 1]]
         try:
-            result = check_freshness(directory)
+            result = check_freshness(directory, exclude_dirs=exclude_dirs)
             print(json.dumps(result, indent=2))
             sys.exit(0 if result["status"] == "pass" else 1)
         except (ValueError, OSError, UnicodeDecodeError) as e:
