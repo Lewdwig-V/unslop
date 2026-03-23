@@ -40,7 +40,7 @@ Read `.unslop/config.json` (or `.unslop/config.md` as legacy fallback) to obtain
 **3. Run the takeover pipeline (two-stage)**
 
 Use the **unslop/takeover** skill. The pipeline now operates in two stages:
-- **Stage A (Architect -- current session):** Steps 1-3 of the takeover skill (Discover, Draft Spec, Archive). The Architect reads the existing code and tests to draft the spec. This is the exception where the Architect sees source code.
+- **Stage A (Architect -- current session):** Step 1 of the takeover skill (Discover) reads the existing code and tests. Then **Phase 0a.0 (Intent Lock)** fires: the Architect presents "From the existing code, I understand this module's purpose is [intent]. I'll draft a spec that captures [behaviors]. Does this match your understanding?" If rejected, the Architect reformulates in the same session; if the user abandons, no artifacts are left. After Intent Lock approval, Steps 2-3 (Draft Spec, Archive) proceed. This is the exception where the Architect sees source code.
 - **Stage B (Builder -- worktree):** Steps 4-6 of the takeover skill (Generate, Validate, Convergence). Each Builder dispatch runs in an isolated worktree.
 
 The spec update is staged but not committed until the Builder succeeds. On convergence failure, the staged spec is reverted.
