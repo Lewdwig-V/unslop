@@ -122,7 +122,8 @@ Inject the failure report contents as "Previous Attempt Post-Mortem" context for
 8. If Builder succeeds (DONE, green tests):
    a. Worktree merges automatically.
    b. Compute `output-hash` on the merged code, update `@unslop-managed` header (including `spec-hash`, `output-hash`, `principles-hash`).
-   c. Delete the tactical entry from `<file>.change.md` (if file is now empty, delete the sidecar entirely).
+   c. Delete `.unslop/last-failure/<cache-key>.md` if it exists (previous failure resolved).
+   d. Delete the tactical entry from `<file>.change.md` (if file is now empty, delete the sidecar entirely).
    d. Commit the spec update + generated code + sidecar change as a single atomic commit.
 9. If Builder fails (BLOCKED or tests fail):
    a. Discard the worktree.
