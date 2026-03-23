@@ -1195,6 +1195,11 @@ def test_check_freshness_multi_target_discovery(tmp_path):
     assert len(ts_entry) == 1
     assert ts_entry[0]["state"] == "fresh"
 
+    # No ghost entry for the deduced basename
+    assert "src/auth_logic" not in managed_paths, (
+        f"Ghost 'src/auth_logic' should be suppressed when targets[] exists, got: {managed_paths}"
+    )
+
 
 def test_check_freshness_multi_target_stale(tmp_path):
     """A missing target file should appear as stale."""
@@ -1785,3 +1790,87 @@ def test_check_freshness_ghost_stale_unit_spec(tmp_path):
     assert pkg_entry[0]["state"] == "ghost-stale", (
         f"Expected ghost-stale after upstream change, got: {pkg_entry[0]}"
     )
+
+
+# --- Target-Driven Suppression Tests ---
+
+def test_target_suppresses_default_deduction(tmp_path):
+    """When impl.md defines targets[], no ghost entry for the deduced basename."""
+    spec = "# auth spec\n\n## Behavior\nAuth logic.\nMore detail.\n"
+    body = "def auth(): pass\n"
+    sh = compute_hash(spec)
+    oh = compute_hash(body)
+
+    src = tmp_path / "src"
+    src.mkdir()
+    (src / "auth_logic.spec.md").write_text(spec)
+
+    # impl explicitly targets src/api/auth.py
+    (src / "auth_logic.impl.md").write_text(
+        "---\nsource-spec: src/auth_logic.spec.md\nephemeral: false\n"
+        "targets:\n  - path: src/api/auth.py\n    language: python\n"
+        "---\n\n## Strategy\nShared auth.\n"
+    )
+
+    api = src / "api"
+    api.mkdir()
+    (api / "auth.py").write_text(
+        f"# @unslop-managed — do not edit directly. Edit src/auth_logic.spec.md instead.\n"
+        f"# spec-hash:{sh} output-hash:{oh} generated:2026-03-23T00:00:00Z\n" + body
+    )
+
+    result = check_freshness(str(tmp_path))
+    managed_set = {f["managed"] for f in result["files"]}
+
+    # Target should appear
+    assert "src/api/auth.py" in managed_set
+    # Ghost "src/auth_logic" must NOT appear
+    assert "src/auth_logic" not in managed_set, (
+        f"Ghost entry for deduced basename should be suppressed, got: {managed_set}"
+    )
+
+
+def test_no_suppression_without_targets(tmp_path):
+    """Without targets[] in impl.md, the default basename deduction still works."""
+    spec = "# handler spec\n\n## Behavior\nHandle requests.\nMore detail.\n"
+    body = "def handle(): pass\n"
+    sh = compute_hash(spec)
+    oh = compute_hash(body)
+
+    (tmp_path / "handler.py.spec.md").write_text(spec)
+    (tmp_path / "handler.py.impl.md").write_text(
+        "---\nsource-spec: handler.py.spec.md\nephemeral: false\n"
+        "---\n\n## Strategy\nBasic handler.\n"
+    )
+    (tmp_path / "handler.py").write_text(
+        f"# @unslop-managed — do not edit directly. Edit handler.py.spec.md instead.\n"
+        f"# spec-hash:{sh} output-hash:{oh} generated:2026-03-23T00:00:00Z\n" + body
+    )
+
+    result = check_freshness(str(tmp_path))
+    managed_set = {f["managed"] for f in result["files"]}
+    assert "handler.py" in managed_set
+
+    handler = [f for f in result["files"] if f["managed"] == "handler.py"]
+    assert handler[0]["state"] == "fresh"
+
+
+def test_no_suppression_without_impl(tmp_path):
+    """Without any impl.md companion, the default basename deduction still works."""
+    spec = "# utils spec\n\n## Behavior\nUtility functions.\nMore detail.\n"
+    body = "def util(): pass\n"
+    sh = compute_hash(spec)
+    oh = compute_hash(body)
+
+    (tmp_path / "utils.py.spec.md").write_text(spec)
+    (tmp_path / "utils.py").write_text(
+        f"# @unslop-managed — do not edit directly. Edit utils.py.spec.md instead.\n"
+        f"# spec-hash:{sh} output-hash:{oh} generated:2026-03-23T00:00:00Z\n" + body
+    )
+
+    result = check_freshness(str(tmp_path))
+    managed_set = {f["managed"] for f in result["files"]}
+    assert "utils.py" in managed_set
+
+    utils = [f for f in result["files"] if f["managed"] == "utils.py"]
+    assert utils[0]["state"] == "fresh"

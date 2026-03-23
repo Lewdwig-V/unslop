@@ -935,6 +935,20 @@ def check_freshness(directory: str) -> dict:
             continue
 
         # Per-file spec
+        # If a corresponding .impl.md exists with explicit targets[],
+        # skip the default basename deduction — the target-driven pass
+        # will handle it.  This prevents ghost entries for files that
+        # don't exist (e.g. "auth_logic" when targets point elsewhere).
+        impl_companion = spec_path.parent / re.sub(r"\.spec\.md$", ".impl.md", spec_path.name)
+        if impl_companion.exists():
+            try:
+                _ic = impl_companion.read_text(encoding="utf-8")
+            except (OSError, UnicodeDecodeError):
+                _ic = ""
+            _ic_meta = parse_concrete_frontmatter(_ic)
+            if _ic_meta.get("targets"):
+                continue  # target-driven pass owns this spec's mappings
+
         managed_name = re.sub(r"\.spec\.md$", "", spec_path.name)
         managed_path = spec_path.parent / managed_name
         if not managed_path.exists():
