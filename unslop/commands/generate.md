@@ -82,7 +82,7 @@ For each file classified as new, stale, modified (confirmed), or conflict (confi
    - test_policy: `"Do NOT create or modify test files. Use existing tests for validation only"`
    - Pass `--incremental` to the Builder prompt if Mode B was selected.
 3. **Verify result:**
-   - If DONE with green tests: worktree merges automatically. Compute `output-hash`, update header. Delete `.unslop/last-failure/<cache-key>.md` if it exists.
+   - If DONE with green tests: worktree merges automatically. Compute `output-hash`, update header.
    - If BLOCKED or tests fail: discard worktree, revert ALL staged spec updates from Step 3c (`git checkout HEAD -- <spec_path>` for every spec that was staged), not just the failing file's spec. Report failure and **stop immediately**. Do not process remaining files.
 4. If a dependency was regenerated in this run, mark its dependents as stale even if their own specs haven't changed.
 
@@ -109,3 +109,7 @@ After all Builders have succeeded and worktrees are merged, commit all changes a
 - Updated alignment summary
 
 This is a single atomic commit covering all files processed in this run.
+
+**8. Clean up diagnostic cache**
+
+After the atomic commit succeeds, delete `.unslop/last-failure/<cache-key>.md` for every spec that was successfully generated in this run. Cache files must not be deleted before the commit -- if a later Builder fails in Step 5 and the run is aborted, the post-mortem for earlier specs must survive for the next retry.
