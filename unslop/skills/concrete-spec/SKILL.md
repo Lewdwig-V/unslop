@@ -47,10 +47,31 @@ concrete-dependencies:
 ---
 ```
 
+For **multi-target lowering** (one spec → multiple languages), use `targets` instead of `target-language`:
+
+```yaml
+---
+source-spec: src/auth/auth_logic.spec.md
+ephemeral: false
+complexity: high
+targets:
+  - path: src/api/auth.py
+    language: python
+    notes: "Use FastAPI HTTPException with structured detail"
+  - path: frontend/src/api/auth.ts
+    language: typescript
+    notes: "Use Axios interceptors for error code mapping"
+---
+```
+
 | Field | Required | Description |
 |---|---|---|
 | `source-spec` | yes | Path to the abstract spec this concretizes |
-| `target-language` | yes | Target language/platform for lowering |
+| `target-language` | yes* | Target language/platform for lowering. *Mutually exclusive with `targets` |
+| `targets` | no* | List of target files for multi-target lowering. *Mutually exclusive with `target-language` |
+| `targets[].path` | yes | Path to the managed file this target produces |
+| `targets[].language` | yes | Language for this target (e.g., `python`, `typescript`, `go`) |
+| `targets[].notes` | no | Target-specific lowering hints (supplements `## Lowering Notes`) |
 | `ephemeral` | no | Default `true`. Set `false` when promoted via `/unslop:promote` or when complexity meets the project's `promote-threshold` |
 | `complexity` | no | `low`, `medium`, or `high`. Compared against the project's `promote-threshold` for auto-promotion |
 | `extends` | no | Path to a base `*.impl.md` whose sections are inherited. Child sections override parent sections. See Strategy Inheritance |
@@ -101,6 +122,126 @@ Ghost staleness is invisible to the standard staleness check (which only tracks 
 **In `/unslop:status`:** Ghost-stale files appear as a distinct state:
 
 > `src/api/handler.py` — **ghost-stale** (upstream concrete spec changed: `src/core/connection_pool.py.impl.md`)
+
+### Multi-Target Lowering (1-to-Many)
+
+A single Abstract Spec can describe a contract that must be implemented in multiple languages simultaneously. The Concrete Spec's `targets` field enables this by listing each output file with its language and target-specific notes.
+
+#### The Coordination Problem
+
+When `user_login.spec.md` says "return error code AUTH_EXPIRED on token expiry":
+- The Python backend must `raise HTTPException(status_code=401, detail={"code": "AUTH_EXPIRED"})`
+- The TypeScript frontend must `if (error.response.data.code === "AUTH_EXPIRED") { redirect("/login") }`
+
+If these drift, the app breaks — even if both files independently "pass" their spec-to-code tests. Multi-target lowering solves this by ensuring both implementations are derived from the **same Strategy and Type Sketch**, differing only in `## Lowering Notes`.
+
+#### How It Works
+
+**1. The concrete spec uses `targets` instead of `target-language`:**
+
+```yaml
+---
+source-spec: src/auth/auth_logic.spec.md
+targets:
+  - path: src/api/auth.py
+    language: python
+    notes: "Use FastAPI HTTPException with structured detail"
+  - path: frontend/src/api/auth.ts
+    language: typescript
+    notes: "Use Axios interceptors for error code mapping"
+---
+```
+
+**2. The `## Lowering Notes` section has per-language headings:**
+
+```markdown
+## Lowering Notes
+
+### Python
+- `raise HTTPException(status_code=401, detail={"code": "AUTH_EXPIRED"})`
+- Auth middleware via `Annotated[User, Depends(get_current_user)]`
+
+### TypeScript
+- Error codes as `const enum AuthErrorCode { ... }` for tree-shaking
+- Axios response interceptor maps codes to redirect actions
+- Token refresh via `async function refreshToken(): Promise<string>`
+```
+
+**3. Stage B dispatches parallel Builders — one per target:**
+
+Each Builder receives:
+- The **same** Abstract Spec (contract constraints)
+- The **same** `## Strategy` and `## Type Sketch` (algorithmic intent)
+- **Different** `## Lowering Notes` (filtered to its target language)
+- **Different** `targets[].notes` (target-specific hints)
+
+**4. Atomic merge — all succeed or all are discarded:**
+
+The controlling session waits for all parallel Builders to complete:
+- If **all** report DONE with green tests: merge all worktrees, commit atomically
+- If **any** reports BLOCKED or fails: discard **all** worktrees, revert staged spec
+
+This prevents partial updates where the backend changes but the frontend doesn't.
+
+#### Parallel Worktree Dispatch
+
+Each target gets its own Builder in a separate worktree. Git supports concurrent worktrees natively — no lock contention as long as each is on a different branch (`unslop/builder/<target-path-hash>`).
+
+```
+Architect (Stage A)
+    ↓
+Strategist (Stage A.2) — single concrete spec
+    ↓
+┌─────────────────────────────────────────────┐
+│  Parallel Builder Dispatch                  │
+│                                             │
+│  Worktree 1 (python)    Worktree 2 (ts)     │
+│  ┌─────────────┐        ┌─────────────┐    │
+│  │ Read spec   │        │ Read spec   │    │
+│  │ Read impl   │        │ Read impl   │    │
+│  │ Filter LN   │        │ Filter LN   │    │
+│  │ Generate .py│        │ Generate .ts│    │
+│  │ Run pytest  │        │ Run jest    │    │
+│  │ DONE ✓      │        │ DONE ✓      │    │
+│  └─────────────┘        └─────────────┘    │
+└─────────────────────────────────────────────┘
+    ↓
+Atomic Merge (all or nothing)
+    ↓
+Single Commit: spec + auth.py + auth.ts
+```
+
+#### Cross-Target Contract Consistency
+
+After all Builders complete but before merging, the controlling session runs a **cross-target consistency check**:
+
+- Do all targets use the same error codes / status values?
+- Do all targets agree on the shape of shared data structures (from `## Type Sketch`)?
+- Do all targets handle the same edge cases?
+
+This is a model-assisted check (not automated) — the controlling session reads all generated outputs and flags discrepancies. It runs after Builder success but before the atomic commit.
+
+#### Staleness
+
+When a multi-target concrete spec changes:
+- **All** targets are marked stale simultaneously
+- `/unslop:status` shows them grouped under the concrete spec:
+
+```
+  stale    src/api/auth.py          <- src/auth/auth_logic.spec.md [target 1/2]
+  stale    frontend/src/api/auth.ts <- src/auth/auth_logic.spec.md [target 2/2]
+           concrete spec: src/auth/auth_logic.impl.md
+```
+
+#### When NOT to Use Multi-Target
+
+Multi-target lowering is for **shared contracts** — the same business logic implemented across language boundaries. Do NOT use it for:
+
+- Unrelated files that happen to share a spec (use per-file specs instead)
+- Frontend and backend that communicate via a well-defined API (the API schema is the contract — use separate specs for each side)
+- Different implementations of the same algorithm in the same language (use unit specs)
+
+The right test: "If I change an error code in the abstract spec, must BOTH files update atomically?" If yes → multi-target. If no → separate specs.
 
 ### Strategy Inheritance
 

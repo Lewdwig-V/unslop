@@ -146,10 +146,39 @@ def parse_concrete_frontmatter(content: str) -> dict:
 
     result = {}
     concrete_deps = []
+    targets = []
     in_concrete_deps = False
+    in_targets = False
+    current_target = None
 
     for line in lines[1:end]:
         stripped = line.strip()
+
+        # Handle nested target parsing first
+        if in_targets:
+            if re.match(r"^  - path:", line):
+                if current_target:
+                    targets.append(current_target)
+                current_target = {"path": line.split(":", 1)[1].strip()}
+                continue
+            elif current_target and re.match(r"^    \w", line):
+                key, _, val = stripped.partition(":")
+                if key.strip() and val.strip():
+                    current_target[key.strip()] = val.strip().strip('"').strip("'")
+                continue
+            else:
+                if current_target:
+                    targets.append(current_target)
+                    current_target = None
+                in_targets = False
+
+        if in_concrete_deps:
+            match = re.match(r"^  - (.+)$", line)
+            if match:
+                concrete_deps.append(match.group(1).strip())
+                continue
+            else:
+                in_concrete_deps = False
 
         if stripped.startswith("source-spec:"):
             result["source_spec"] = stripped.split(":", 1)[1].strip()
@@ -162,19 +191,19 @@ def parse_concrete_frontmatter(content: str) -> dict:
             result["complexity"] = stripped.split(":", 1)[1].strip()
         elif stripped.startswith("extends:"):
             result["extends"] = stripped.split(":", 1)[1].strip()
+        elif stripped == "targets:":
+            in_targets = True
         elif stripped == "concrete-dependencies:":
             in_concrete_deps = True
-            continue
 
-        if in_concrete_deps:
-            match = re.match(r"^  - (.+)$", line)
-            if match:
-                concrete_deps.append(match.group(1).strip())
-            else:
-                in_concrete_deps = False
+    # Flush final target
+    if current_target:
+        targets.append(current_target)
 
     if concrete_deps:
         result["concrete_dependencies"] = concrete_deps
+    if targets:
+        result["targets"] = targets
 
     return result
 
@@ -902,10 +931,19 @@ def check_freshness(directory: str) -> dict:
                 continue
 
         if stale_reasons:
-            # Find the managed file this impl.md corresponds to
-            source_spec = meta.get("source_spec", "")
-            if source_spec:
-                managed_rel = re.sub(r"\.spec\.md$", "", source_spec)
+            # Determine which managed files this impl.md affects
+            target_paths = []
+            targets = meta.get("targets", [])
+            if targets:
+                # Multi-target: mark all targets as ghost-stale
+                target_paths = [t["path"] for t in targets if "path" in t]
+            else:
+                # Single-target: derive from source-spec
+                source_spec = meta.get("source_spec", "")
+                if source_spec:
+                    target_paths = [re.sub(r"\.spec\.md$", "", source_spec)]
+
+            for managed_rel in target_paths:
                 for f in files:
                     if f["managed"] == managed_rel:
                         if f["state"] == "fresh":
@@ -918,6 +956,10 @@ def check_freshness(directory: str) -> dict:
                             "impl_path": rel_impl,
                             "stale_deps": stale_reasons,
                         }
+                        if targets:
+                            total = len(targets)
+                            idx = target_paths.index(managed_rel) + 1
+                            f["multi_target"] = f"[target {idx}/{total}]"
                         break
 
     # Scan for pending change requests

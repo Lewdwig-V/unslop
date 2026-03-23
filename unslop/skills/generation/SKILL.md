@@ -85,6 +85,10 @@ Only block on user rejection.
 
 The Builder generates code from the specs. It runs as a fresh Agent in an isolated git worktree with zero conversation history.
 
+**Multi-target dispatch:** If the concrete spec has `targets` (instead of `target-language`), Stage B dispatches **parallel Builders** — one per target. Each Builder runs in its own worktree on branch `unslop/builder/<target-path-hash>`. All Builders receive the same Abstract Spec and `## Strategy`, but each gets its target-specific `## Lowering Notes` (filtered by language heading) and `targets[].notes`. See the `unslop/concrete-spec` skill for the full multi-target lowering specification.
+
+**Atomic merge for multi-target:** The controlling session waits for ALL parallel Builders to complete. If all report DONE with green tests: merge all worktrees and commit atomically. If any Builder fails: discard ALL worktrees and revert ALL staged spec updates. This all-or-nothing semantics prevents partial updates across language boundaries.
+
 **Dispatch:**
 
 ```python

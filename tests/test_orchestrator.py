@@ -1293,3 +1293,77 @@ def test_build_concrete_order_includes_extends(tmp_path):
     base_idx = result.index("shared/base.impl.md")
     child_idx = result.index("child.impl.md")
     assert base_idx < child_idx  # Parent must come before child
+
+
+# --- multi-target lowering tests ---
+
+def test_parse_concrete_frontmatter_targets():
+    content = """---
+source-spec: src/auth/auth_logic.spec.md
+ephemeral: false
+complexity: high
+targets:
+  - path: src/api/auth.py
+    language: python
+    notes: "Use FastAPI HTTPException"
+  - path: frontend/src/api/auth.ts
+    language: typescript
+    notes: "Use Axios interceptors"
+---
+"""
+    result = parse_concrete_frontmatter(content)
+    assert "targets" in result
+    assert len(result["targets"]) == 2
+    assert result["targets"][0]["path"] == "src/api/auth.py"
+    assert result["targets"][0]["language"] == "python"
+    assert result["targets"][0]["notes"] == "Use FastAPI HTTPException"
+    assert result["targets"][1]["path"] == "frontend/src/api/auth.ts"
+    assert result["targets"][1]["language"] == "typescript"
+    # target-language should NOT be set when targets is used
+    assert "target_language" not in result
+
+
+def test_parse_concrete_frontmatter_targets_minimal():
+    content = """---
+source-spec: src/shared.spec.md
+targets:
+  - path: backend/shared.py
+    language: python
+  - path: frontend/shared.ts
+    language: typescript
+---
+"""
+    result = parse_concrete_frontmatter(content)
+    assert len(result["targets"]) == 2
+    assert result["targets"][0]["path"] == "backend/shared.py"
+    assert "notes" not in result["targets"][0]
+
+
+def test_parse_concrete_frontmatter_single_target_language():
+    """target-language (single) should still work for backwards compat."""
+    content = """---
+source-spec: src/retry.py.spec.md
+target-language: python
+---
+"""
+    result = parse_concrete_frontmatter(content)
+    assert result["target_language"] == "python"
+    assert "targets" not in result
+
+
+def test_parse_concrete_frontmatter_targets_with_deps():
+    """targets and concrete-dependencies can coexist."""
+    content = """---
+source-spec: src/auth.spec.md
+targets:
+  - path: src/api/auth.py
+    language: python
+  - path: frontend/src/auth.ts
+    language: typescript
+concrete-dependencies:
+  - src/core/tokens.impl.md
+---
+"""
+    result = parse_concrete_frontmatter(content)
+    assert len(result["targets"]) == 2
+    assert result["concrete_dependencies"] == ["src/core/tokens.impl.md"]
