@@ -36,6 +36,7 @@ from orchestrator import (
     compute_bulk_sync_plan,
     _build_unified_dag,
     _compute_parallel_batches,
+    compute_resume_plan,
     STRICT_CHILD_ONLY,
 )
 
@@ -4561,3 +4562,204 @@ def test_compute_parallel_batches_max_batch_splits_wave():
         assert len(batch) <= 2
     total = sum(len(b) for b in batches)
     assert total == 5
+
+
+# ── Resume Sync Plan (v0.11.12) ─────────────────────────────────────────────
+
+def _setup_resume_chain(tmp_path):
+    """Helper: a -> b -> c chain, all stale, for resume tests."""
+    (tmp_path / ".unslop").mkdir()
+
+    (tmp_path / "a.impl.md").write_text(
+        "---\nsource-spec: a.py.spec.md\nephemeral: false\n---\n\n## Strategy\nA.\n"
+    )
+    (tmp_path / "b.impl.md").write_text(
+        "---\nsource-spec: b.py.spec.md\nephemeral: false\n"
+        "extends: a.impl.md\n---\n\n## Strategy\nB.\n"
+    )
+    (tmp_path / "c.impl.md").write_text(
+        "---\nsource-spec: c.py.spec.md\nephemeral: false\n"
+        "extends: b.impl.md\n---\n\n## Strategy\nC.\n"
+    )
+
+    for letter in "abc":
+        (tmp_path / f"{letter}.py.spec.md").write_text(f"# {letter.upper()}\n")
+
+    for letter in "abc":
+        name = f"{letter}.py"
+        spec = f"{letter}.py.spec.md"
+        impl = f"{letter}.impl.md"
+        manifest = compute_concrete_manifest(
+            str(tmp_path / impl), str(tmp_path)
+        )
+        body = f"def {letter}(): pass\n"
+        sh = compute_hash((tmp_path / spec).read_text())
+        oh = compute_hash(body)
+        mh = format_manifest_header(manifest) if manifest else ""
+        mp = f" concrete-manifest:{mh}" if mh else ""
+        (tmp_path / name).write_text(
+            f"# @unslop-managed — do not edit directly. Edit {spec} instead.\n"
+            f"# spec-hash:{sh} output-hash:{oh}{mp}"
+            f" generated:2026-03-23T00:00:00Z\n" + body
+        )
+
+    # Make all stale
+    for letter in "abc":
+        (tmp_path / f"{letter}.py.spec.md").write_text(
+            f"# {letter.upper()} v2\n"
+        )
+
+
+def test_resume_plan_excludes_succeeded(tmp_path):
+    """Succeeded files should not appear in the resume plan."""
+    _setup_resume_chain(tmp_path)
+
+    result = compute_resume_plan(
+        str(tmp_path),
+        failed_files=["b.py"],
+        succeeded_files=["a.py"],
+    )
+
+    all_managed = [f["managed"] for b in result["batches"] for f in b["files"]]
+    assert "a.py" not in all_managed, "a.py succeeded and should be excluded"
+    assert "b.py" in all_managed, "b.py failed and should be retried"
+    assert result["already_done"] == 1
+
+
+def test_resume_plan_includes_downstream_of_failure(tmp_path):
+    """Downstream dependents of failed files should be in the resume plan."""
+    _setup_resume_chain(tmp_path)
+
+    result = compute_resume_plan(
+        str(tmp_path),
+        failed_files=["b.py"],
+        succeeded_files=["a.py"],
+    )
+
+    all_managed = [f["managed"] for b in result["batches"] for f in b["files"]]
+    assert "b.py" in all_managed
+    assert "c.py" in all_managed, (
+        "c.py depends on b.py and should be in the resume plan"
+    )
+
+
+def test_resume_plan_respects_topo_order(tmp_path):
+    """Failed file must come before its downstream in the resume plan."""
+    _setup_resume_chain(tmp_path)
+
+    result = compute_resume_plan(
+        str(tmp_path),
+        failed_files=["b.py"],
+        succeeded_files=["a.py"],
+    )
+
+    all_managed = [f["managed"] for b in result["batches"] for f in b["files"]]
+    if "b.py" in all_managed and "c.py" in all_managed:
+        assert all_managed.index("b.py") < all_managed.index("c.py")
+
+
+def test_resume_plan_batch_isolation(tmp_path):
+    """b and c should not be in the same batch (c depends on b)."""
+    _setup_resume_chain(tmp_path)
+
+    result = compute_resume_plan(
+        str(tmp_path),
+        failed_files=["b.py"],
+        succeeded_files=["a.py"],
+    )
+
+    batch_map = {}
+    for batch in result["batches"]:
+        for f in batch["files"]:
+            batch_map[f["managed"]] = batch["batch_index"]
+
+    if "b.py" in batch_map and "c.py" in batch_map:
+        assert batch_map["b.py"] < batch_map["c.py"], (
+            "b.py and c.py have a dependency — different batches required"
+        )
+
+
+def test_resume_plan_empty_when_all_fresh(tmp_path):
+    """If failed files are now fresh, resume plan should be empty."""
+    (tmp_path / ".unslop").mkdir()
+
+    spec = "# A\n"
+    (tmp_path / "a.py.spec.md").write_text(spec)
+    body = "def a(): pass\n"
+    sh = compute_hash(spec)
+    oh = compute_hash(body)
+    (tmp_path / "a.py").write_text(
+        f"# @unslop-managed — do not edit directly. Edit a.py.spec.md instead.\n"
+        f"# spec-hash:{sh} output-hash:{oh} generated:2026-03-23T00:00:00Z\n"
+        + body
+    )
+
+    result = compute_resume_plan(
+        str(tmp_path),
+        failed_files=["a.py"],
+        succeeded_files=[],
+    )
+
+    assert result["stats"]["to_regenerate"] == 0
+
+
+def test_resume_plan_cause_field(tmp_path):
+    """Failed files should have cause 'retry', downstream 'downstream'."""
+    _setup_resume_chain(tmp_path)
+
+    result = compute_resume_plan(
+        str(tmp_path),
+        failed_files=["b.py"],
+        succeeded_files=["a.py"],
+    )
+
+    causes = {
+        f["managed"]: f["cause"]
+        for b in result["batches"]
+        for f in b["files"]
+    }
+    assert causes.get("b.py") == "retry"
+    assert causes.get("c.py") == "downstream"
+
+
+def test_resume_plan_resumed_from_field(tmp_path):
+    """resumed_from should contain the original failed files."""
+    _setup_resume_chain(tmp_path)
+
+    result = compute_resume_plan(
+        str(tmp_path),
+        failed_files=["b.py"],
+        succeeded_files=["a.py"],
+    )
+
+    assert result["resumed_from"] == ["b.py"]
+
+
+def test_resume_plan_no_failed_specs(tmp_path):
+    """If failed files can't be resolved to specs, return empty plan."""
+    (tmp_path / ".unslop").mkdir()
+
+    result = compute_resume_plan(
+        str(tmp_path),
+        failed_files=["nonexistent.py"],
+        succeeded_files=[],
+    )
+
+    assert result["stats"]["to_regenerate"] == 0
+
+
+def test_resume_plan_cli(tmp_path):
+    """CLI resume-sync-plan should return valid JSON."""
+    _setup_resume_chain(tmp_path)
+
+    proc = _run_cli(
+        "resume-sync-plan",
+        "--failed", "b.py",
+        "--succeeded", "a.py",
+        "--root", str(tmp_path),
+    )
+    assert proc.returncode == 0, f"stderr: {proc.stderr}"
+    result = json.loads(proc.stdout)
+    assert "batches" in result
+    assert "resumed_from" in result
+    assert result["resumed_from"] == ["b.py"]

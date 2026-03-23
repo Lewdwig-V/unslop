@@ -1,9 +1,9 @@
 ---
 description: Regenerate managed files from their specs
-argument-hint: "[<file-path>] [--force] [--force-ambiguous] [--incremental] [--deep] [--dry-run] [--stale-only] [--max-batch N]"
+argument-hint: "[<file-path>] [--force] [--force-ambiguous] [--incremental] [--deep] [--dry-run] [--stale-only] [--resume] [--max-batch N]"
 ---
 
-**Parse arguments:** `$ARGUMENTS` may contain the file path and optional flags. Extract the file path (the first argument that does not start with `--`) and check for flags (`--force`, `--force-ambiguous`, `--incremental`, `--deep`, `--dry-run`, `--stale-only`, `--max-batch`). Strip flags before using the path in subsequent steps. Note: `--stale-only` does not require a file path.
+**Parse arguments:** `$ARGUMENTS` may contain the file path and optional flags. Extract the file path (the first argument that does not start with `--`) and check for flags (`--force`, `--force-ambiguous`, `--incremental`, `--deep`, `--dry-run`, `--stale-only`, `--resume`, `--max-batch`). Strip flags before using the path in subsequent steps. Note: `--stale-only` and `--resume` do not require a file path.
 
 **Check for `--force` flag:** If `$ARGUMENTS` contains `--force`, note this — it allows regeneration to proceed on modified and conflict files without requiring user confirmation.
 
@@ -13,7 +13,9 @@ argument-hint: "[<file-path>] [--force] [--force-ambiguous] [--incremental] [--d
 
 **Check for `--stale-only` flag:** If `$ARGUMENTS` contains `--stale-only`, this sync will find and batch-regenerate ALL stale files in the project — no file path required. See **Step 2e** below for the bulk sync workflow.
 
-**Check for `--max-batch` flag:** If `$ARGUMENTS` contains `--max-batch N`, use N as the maximum number of files per worktree batch (default: 8). Only meaningful with `--stale-only`.
+**Check for `--resume` flag:** If `$ARGUMENTS` contains `--resume`, this sync resumes a previously failed bulk or deep sync. It reads the failure report from `.unslop/last-sync-state.json`, computes only the downstream branch of the failure, and skips files that already succeeded. See **Step 2f** below for the resume workflow. No file path required.
+
+**Check for `--max-batch` flag:** If `$ARGUMENTS` contains `--max-batch N`, use N as the maximum number of files per worktree batch (default: 8). Only meaningful with `--stale-only` or `--resume`.
 
 **1. Verify prerequisites**
 
@@ -23,9 +25,11 @@ Check that `.unslop/` exists in the current working directory. If it does not ex
 
 If `--stale-only` was passed, skip directly to **Step 2e** — no file path is needed.
 
-If neither `--stale-only` was passed nor a file path was provided, stop and tell the user:
+If `--resume` was passed, skip directly to **Step 2f** — no file path is needed.
 
-> "Usage: `/unslop:sync <file-path>` or `/unslop:sync --stale-only`"
+If none of `--stale-only`, `--resume` was passed and no file path was provided, stop and tell the user:
+
+> "Usage: `/unslop:sync <file-path>` or `/unslop:sync --stale-only` or `/unslop:sync --resume`"
 
 **2. Derive the spec path**
 
@@ -141,7 +145,16 @@ Total: N files to regenerate across B batches, M skipped.
    - For each file in the batch, run the normal sync Steps 3-6 (classify, dispatch Builder, verify, update alignment, commit).
    - Files within the same batch are at the same topological depth (no dependency edges between them), so their order within the batch is flexible.
    - **Critical**: After completing a batch, downstream files in later batches may now have updated concrete-manifests. This is expected — they will be regenerated in their batch.
-   - If a Builder fails for any file: **stop immediately**. Report which file in which batch failed, and how many batches remain. Do not process remaining files or batches.
+   - If a Builder fails for any file in a batch: let the **other files in the same batch finish** (they are independent — no dependency edges), then **stop**. Do not process any subsequent batches.
+   - **Save sync state**: Write `.unslop/last-sync-state.json` with the lists of succeeded and failed managed file paths:
+     ```json
+     {
+       "failed": ["service.py"],
+       "succeeded": ["auth.py", "utils.py"],
+       "timestamp": "<ISO8601>"
+     }
+     ```
+   - Report which file(s) failed, which succeeded in the same batch, and how many batches remain. Tell the user they can fix the spec and run `/unslop:sync --resume` to continue.
 
 6. After all batches are processed successfully, report:
 
@@ -151,6 +164,57 @@ Build order: spec1 -> spec2 -> spec3
 ```
 
 After displaying the plan or completing the bulk sync, **return** — do not fall through to the single-file sync flow below.
+
+**2f. Resume workflow (if `--resume`)**
+
+If `--resume` was passed, resume a previously failed bulk sync using the saved state.
+
+1. Read `.unslop/last-sync-state.json`. If it does not exist, stop and tell the user:
+
+> "No previous sync state found. Run `/unslop:sync --stale-only` first."
+
+2. Call the orchestrator to compute the resume plan:
+
+```
+python ${CLAUDE_PLUGIN_ROOT}/scripts/orchestrator.py resume-sync-plan --failed <f1,f2> --succeeded <s1,s2> --root . [--force] [--max-batch N]
+```
+
+This returns the same structure as `bulk-sync-plan`, plus:
+- `resumed_from`: The failed files that triggered the resume.
+- `already_done`: Count of succeeded files excluded from the plan.
+
+The plan contains only the failed files (for retry) and their transitive downstream dependents that are still stale.
+
+3. **Display the resume plan** to the user:
+
+```
+Resume Plan (from previous failure)
+Previously failed: service.py
+Already succeeded: auth.py, utils.py (skipped)
+
+Batch 1 of N (M files):
+  1. service.py  <- service.py.spec.md  (retry)
+  ...
+
+Batch 2 of N (M files):
+  2. api.py  <- api.py.spec.md  (downstream of service.py)
+  ...
+
+Total: N files to regenerate across B batches.
+```
+
+4. **If `--dry-run`**: Stop here.
+
+5. **Process batches** using the same logic as Step 2e.5 (sequential batches, parallel-safe within each batch, save state on failure).
+
+6. After all batches succeed, delete `.unslop/last-sync-state.json` and report:
+
+```
+Resume complete: N/N files regenerated across B batches.
+Previous failures resolved.
+```
+
+After completing the resume, **return** — do not fall through to the single-file sync flow below.
 
 **2c. Check diagnostic cache**
 
