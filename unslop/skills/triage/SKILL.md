@@ -1,7 +1,7 @@
 ---
 name: triage
 description: Use when the user wants to change, fix, refactor, add, or review code in a project managed by unslop (has a .unslop/ directory). Activates for any intent that would modify source files, ask about code quality, or plan structural changes. Routes the user to the correct unslop command based on their intent.
-version: 0.1.0
+version: 0.2.0
 ---
 
 # Triage Skill
@@ -15,7 +15,11 @@ You are working in a project managed by unslop. The spec is the source of truth 
 If the user wants a structural change, a new feature, or a refactor, do not suggest code edits. The spec must change first.
 
 **Pattern:** "Let's refactor X", "Add Y to Z", "We need to change how W works"
-**Route:** `/unslop:change <file> "description"` to record the change intent, then `/unslop:generate` (all stale files) or `/unslop:sync <file>` (single file) to execute it.
+**Route:** `/unslop:change <file> "description"` to record the change intent, then:
+- `/unslop:sync <file>` -- regenerate a single file
+- `/unslop:sync <file> --deep` -- regenerate the file and its entire downstream blast radius
+- `/unslop:sync --stale-only` -- regenerate all stale files across the project in batched topological order
+- `/unslop:generate` -- regenerate all stale files (legacy, equivalent to `--stale-only`)
 
 If the scope is large (multiple files, new module, architectural shift), suggest `/unslop:takeover` on the affected directory to extract the current intent before making changes.
 
@@ -58,10 +62,31 @@ If the user is working with multiple related specs and asks about consistency, c
 
 ## The Staleness Check
 
-If the user is unsure what's current, what's changed, or where things stand, route to status.
+If the user is unsure what's current, what's changed, or where things stand, route to status. If they want to see the dependency graph, or specifically the stale subgraph, route to graph.
 
 **Pattern:** "What's out of date?", "Which files need regeneration?", "Show me the state"
 **Route:** `/unslop:status`
+
+**Pattern:** "Show me the dependency graph", "What depends on what?"
+**Route:** `/unslop:graph`
+
+**Pattern:** "Show me what's stale and why", "Why is X ghost-stale?", "What caused this staleness?"
+**Route:** `/unslop:graph --stale-only` -- renders the causal subgraph including upstream concrete providers that triggered the staleness, even if those providers have no managed output of their own. Context providers are styled distinctly so the user can trace the infection path from cause to symptom.
+
+## The Bulk Sync
+
+If the user wants to sync everything that's stale across the project, route to bulk sync. This batches all stale files into worktree groups that respect topological order.
+
+**Pattern:** "Sync everything", "Regenerate all stale files", "Bring everything up to date", "Batch sync"
+**Route:** `/unslop:sync --stale-only` -- scans the entire project, groups stale files into dependency-aware batches, and processes them sequentially. No file path needed.
+
+**Pattern:** "What would a full sync look like?", "Show me the sync plan", "Dry run a bulk sync"
+**Route:** `/unslop:sync --stale-only --dry-run` -- shows the batched plan without regenerating anything.
+
+If the user wants to sync a single file and its full downstream blast radius (not the whole project), use deep sync instead.
+
+**Pattern:** "Sync this file and everything downstream", "Deep sync X"
+**Route:** `/unslop:sync <file> --deep`
 
 ## The Takeover Path
 
