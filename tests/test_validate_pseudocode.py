@@ -296,3 +296,66 @@ END FUNCTION
 ```"""
         result = validate_pseudocode(content, "test.impl.md")
         assert result["status"] == "pass", f"Expected pass, got: {result}"
+
+
+class TestInlineCommentStripping:
+    """Inline comments (// ...) should be invisible to all rule checks."""
+
+    def test_banned_keyword_in_comment_ignored(self):
+        """async in a comment should not trigger language_keyword."""
+        content = '```pseudocode\nSET x ← 1 // must be async\n```'
+        result = validate_pseudocode(content, "test.impl.md")
+        assert result["status"] == "pass", f"Expected pass, got: {result}"
+
+    def test_banned_operator_in_comment_ignored(self):
+        """-> in a comment should not trigger language_keyword."""
+        content = '```pseudocode\nSET result ← CALL handler // returns -> error\n```'
+        result = validate_pseudocode(content, "test.impl.md")
+        assert result["status"] == "pass", f"Expected pass, got: {result}"
+
+    def test_library_call_in_comment_ignored(self):
+        """time.sleep() in a comment should not trigger library_call."""
+        content = '```pseudocode\nSET timeout ← 30 // time.sleep(30) is the legacy equivalent\n```'
+        result = validate_pseudocode(content, "test.impl.md")
+        assert result["status"] == "pass", f"Expected pass, got: {result}"
+
+    def test_multi_statement_semicolon_in_comment_ignored(self):
+        """Semicolons in comments should not trigger multi_statement."""
+        content = '```pseudocode\nSET x ← 1 // note: a; b; c in legacy\n```'
+        result = validate_pseudocode(content, "test.impl.md")
+        assert result["status"] == "pass", f"Expected pass, got: {result}"
+
+    def test_bare_assignment_in_comment_ignored(self):
+        """Bare = in a comment should not trigger bare_assignment."""
+        content = '```pseudocode\nSET x ← 1 // where x = initial value\n```'
+        result = validate_pseudocode(content, "test.impl.md")
+        assert result["status"] == "pass", f"Expected pass, got: {result}"
+
+    def test_code_before_comment_still_checked(self):
+        """The code part before // should still be linted."""
+        content = '```pseudocode\nasync CALL handler // does the thing\n```'
+        result = validate_pseudocode(content, "test.impl.md")
+        assert result["status"] == "fail"
+        checks = {v["check"] for v in result["violations"]}
+        assert "language_keyword" in checks
+
+    def test_multiple_inline_comments_in_block(self):
+        """Multiple lines with inline comments should all be handled."""
+        content = """```pseudocode
+FUNCTION retry_with_backoff(operation, config)
+    SET attempt ← 0 // start from zero
+    SET last_error ← NULL // no error yet
+    WHILE attempt < config.max_retries // keep trying
+        SET attempt ← attempt + 1
+    END WHILE
+    RETURN last_error // or NULL if all passed
+END FUNCTION
+```"""
+        result = validate_pseudocode(content, "test.impl.md")
+        assert result["status"] == "pass", f"Expected pass, got: {result}"
+
+    def test_comment_only_after_strip_skipped(self):
+        """A line that is all comment after the code part should work."""
+        content = '```pseudocode\nSET x ← 1 //\n```'
+        result = validate_pseudocode(content, "test.impl.md")
+        assert result["status"] == "pass", f"Expected pass, got: {result}"

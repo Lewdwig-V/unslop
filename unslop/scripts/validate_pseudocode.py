@@ -103,19 +103,26 @@ def lint_pseudocode(blocks: list[dict]) -> tuple[list[dict], list[dict]]:
         for line_num, line in block["lines"]:
             stripped = line.strip()
 
-            # Skip empty lines and comments
+            # Skip empty lines and whole-line comments
             if not stripped or stripped.startswith("//"):
+                continue
+
+            # Strip inline comments ONCE — use clean_line for all rule checks,
+            # but keep stripped (original) for error reporting so devs see context.
+            clean_line = re.sub(r'//.*$', '', stripped).strip()
+            # Also strip string literals for structural checks
+            code_part = re.sub(r'"[^"]*"', '', clean_line)
+
+            # Skip if the line becomes empty after stripping comments
+            if not clean_line:
                 continue
 
             # Check 1: Bare assignment (= instead of ← or :=)
             # Context-sensitive: FOR/SET/INCREMENT/DECREMENT require ←/:=,
             # IF/WHILE/UNTIL/WHEN/ASSERT allow = as comparison.
-            if "←" not in line and ":=" not in line:
-                # Remove string literals and comments before checking
-                code_part = re.sub(r'"[^"]*"', '', stripped)
-                code_part = re.sub(r'//.*$', '', code_part)
+            if "←" not in clean_line and ":=" not in clean_line:
                 if BARE_ASSIGNMENT.search(code_part):
-                    if ASSIGNMENT_REQUIRED.match(stripped):
+                    if ASSIGNMENT_REQUIRED.match(clean_line):
                         # FOR/SET/INCREMENT/DECREMENT headers MUST use ← or :=
                         violations.append({
                             "line": line_num,
@@ -126,7 +133,7 @@ def lint_pseudocode(blocks: list[dict]) -> tuple[list[dict], list[dict]]:
                                 "FOR/SET/INCREMENT headers initialize or mutate state"
                             ),
                         })
-                    elif COMPARISON_CONTEXT.match(stripped):
+                    elif COMPARISON_CONTEXT.match(clean_line):
                         pass  # = is a comparison here (IF, WHILE, UNTIL, etc.)
                     elif not re.search(r'[<>!]=', code_part):
                         violations.append({
@@ -137,7 +144,7 @@ def lint_pseudocode(blocks: list[dict]) -> tuple[list[dict], list[dict]]:
                         })
 
             # Check 2: Language-specific keywords and operators
-            banned_match = BANNED_SYNTAX.search(stripped)
+            banned_match = BANNED_SYNTAX.search(clean_line)
             if banned_match:
                 token = banned_match.group()
                 if token in _BANNED_OPERATOR_TOKENS:
@@ -161,8 +168,6 @@ def lint_pseudocode(blocks: list[dict]) -> tuple[list[dict], list[dict]]:
                 })
 
             # Check 3: Multi-statement lines
-            code_part = re.sub(r'"[^"]*"', '', stripped)
-            code_part = re.sub(r'//.*$', '', code_part)
             if MULTI_STATEMENT.search(code_part):
                 violations.append({
                     "line": line_num,
@@ -172,8 +177,8 @@ def lint_pseudocode(blocks: list[dict]) -> tuple[list[dict], list[dict]]:
                 })
 
             # Check 4: Library calls (dot-notation with parens)
-            if LIBRARY_CALL.search(stripped):
-                match = LIBRARY_CALL.search(stripped)
+            if LIBRARY_CALL.search(clean_line):
+                match = LIBRARY_CALL.search(clean_line)
                 violations.append({
                     "line": line_num,
                     "check": "library_call",
@@ -185,7 +190,7 @@ def lint_pseudocode(blocks: list[dict]) -> tuple[list[dict], list[dict]]:
                 })
 
             # Check 5: Single-character variable names
-            char_match = SINGLE_CHAR_VAR.search(stripped)
+            char_match = SINGLE_CHAR_VAR.search(clean_line)
             if char_match:
                 char = char_match.group(1)
                 if char not in ('i', 'j', 'k', 'n', 'm', 'x', 'y'):
@@ -197,9 +202,9 @@ def lint_pseudocode(blocks: list[dict]) -> tuple[list[dict], list[dict]]:
                     })
 
             # Track FUNCTION / END FUNCTION scope
-            if FUNCTION_START.search(stripped):
+            if FUNCTION_START.search(clean_line):
                 function_stack.append(line_num)
-            if FUNCTION_END.search(stripped):
+            if FUNCTION_END.search(clean_line):
                 if function_stack:
                     function_stack.pop()
                 else:
