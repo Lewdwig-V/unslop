@@ -359,3 +359,75 @@ END FUNCTION
         content = '```pseudocode\nSET x ← 1 //\n```'
         result = validate_pseudocode(content, "test.impl.md")
         assert result["status"] == "pass", f"Expected pass, got: {result}"
+
+
+class TestStringLiteralMasking:
+    """String literals should be invisible to keyword/library-call scanners."""
+
+    def test_banned_keyword_in_double_quoted_string(self):
+        """'async' inside a double-quoted string should not trigger."""
+        content = '```pseudocode\nSET msg ← "async error"\n```'
+        result = validate_pseudocode(content, "test.impl.md")
+        assert result["status"] == "pass", f"Expected pass, got: {result}"
+
+    def test_banned_keyword_in_single_quoted_string(self):
+        """'await' inside a single-quoted string should not trigger."""
+        content = "```pseudocode\nSET msg ← 'await response'\n```"
+        result = validate_pseudocode(content, "test.impl.md")
+        assert result["status"] == "pass", f"Expected pass, got: {result}"
+
+    def test_library_call_in_string(self):
+        """time.sleep() inside a string should not trigger library_call."""
+        content = '```pseudocode\nSET log_note ← "Calling time.sleep() now"\n```'
+        result = validate_pseudocode(content, "test.impl.md")
+        assert result["status"] == "pass", f"Expected pass, got: {result}"
+
+    def test_operator_in_string(self):
+        """-> inside a string should not trigger language_keyword."""
+        content = '```pseudocode\nSET arrow ← "returns -> error"\n```'
+        result = validate_pseudocode(content, "test.impl.md")
+        assert result["status"] == "pass", f"Expected pass, got: {result}"
+
+    def test_semicolon_in_string(self):
+        """Semicolons inside a string should not trigger multi_statement."""
+        content = '```pseudocode\nSET sql ← "SELECT a; SELECT b"\n```'
+        result = validate_pseudocode(content, "test.impl.md")
+        assert result["status"] == "pass", f"Expected pass, got: {result}"
+
+    def test_code_outside_string_still_checked(self):
+        """Keywords outside strings should still be flagged."""
+        content = '```pseudocode\nasync CALL handler("ok")\n```'
+        result = validate_pseudocode(content, "test.impl.md")
+        assert result["status"] == "fail"
+        checks = {v["check"] for v in result["violations"]}
+        assert "language_keyword" in checks
+
+    def test_escaped_quotes_in_string(self):
+        r"""Escaped quotes should not break masking: 'it\'s async'."""
+        content = "```pseudocode\nSET msg ← 'it\\'s an async op'\n```"
+        result = validate_pseudocode(content, "test.impl.md")
+        assert result["status"] == "pass", f"Expected pass, got: {result}"
+
+    def test_multiple_strings_on_one_line(self):
+        """Multiple strings with keywords should all be masked."""
+        content = '```pseudocode\nCALL log("async", "await")\n```'
+        result = validate_pseudocode(content, "test.impl.md")
+        assert result["status"] == "pass", f"Expected pass, got: {result}"
+
+    def test_string_plus_comment_both_masked(self):
+        """String + comment on same line: both should be invisible."""
+        content = '```pseudocode\nSET x ← "async" // await here\n```'
+        result = validate_pseudocode(content, "test.impl.md")
+        assert result["status"] == "pass", f"Expected pass, got: {result}"
+
+    def test_match_keyword_in_string(self):
+        """'match' inside a string should not trigger (SWITCH/CASE rule)."""
+        content = '```pseudocode\nSET pattern ← "match found"\n```'
+        result = validate_pseudocode(content, "test.impl.md")
+        assert result["status"] == "pass", f"Expected pass, got: {result}"
+
+    def test_class_keyword_in_error_message(self):
+        """'class' in an error message string should not trigger."""
+        content = '```pseudocode\nSET err ← "class not found: Widget"\n```'
+        result = validate_pseudocode(content, "test.impl.md")
+        assert result["status"] == "pass", f"Expected pass, got: {result}"

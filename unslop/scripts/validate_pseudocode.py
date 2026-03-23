@@ -110,8 +110,15 @@ def lint_pseudocode(blocks: list[dict]) -> tuple[list[dict], list[dict]]:
             # Strip inline comments ONCE — use clean_line for all rule checks,
             # but keep stripped (original) for error reporting so devs see context.
             clean_line = re.sub(r'//.*$', '', stripped).strip()
-            # Also strip string literals for structural checks
-            code_part = re.sub(r'"[^"]*"', '', clean_line)
+            # Mask string literals: replace contents with "_STR_" so keyword
+            # scanners see structure but not data.  Handles both "double" and
+            # 'single' quotes, including escaped quotes within.
+            scan_line = re.sub(
+                r"""(?:"(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*')""",
+                '"_STR_"', clean_line,
+            )
+            # Fully strip string literals for structural checks (bare =, ;)
+            code_part = re.sub(r'"[^"]*"', '', scan_line)
 
             # Skip if the line becomes empty after stripping comments
             if not clean_line:
@@ -120,9 +127,9 @@ def lint_pseudocode(blocks: list[dict]) -> tuple[list[dict], list[dict]]:
             # Check 1: Bare assignment (= instead of ← or :=)
             # Context-sensitive: FOR/SET/INCREMENT/DECREMENT require ←/:=,
             # IF/WHILE/UNTIL/WHEN/ASSERT allow = as comparison.
-            if "←" not in clean_line and ":=" not in clean_line:
+            if "←" not in scan_line and ":=" not in scan_line:
                 if BARE_ASSIGNMENT.search(code_part):
-                    if ASSIGNMENT_REQUIRED.match(clean_line):
+                    if ASSIGNMENT_REQUIRED.match(scan_line):
                         # FOR/SET/INCREMENT/DECREMENT headers MUST use ← or :=
                         violations.append({
                             "line": line_num,
@@ -133,7 +140,7 @@ def lint_pseudocode(blocks: list[dict]) -> tuple[list[dict], list[dict]]:
                                 "FOR/SET/INCREMENT headers initialize or mutate state"
                             ),
                         })
-                    elif COMPARISON_CONTEXT.match(clean_line):
+                    elif COMPARISON_CONTEXT.match(scan_line):
                         pass  # = is a comparison here (IF, WHILE, UNTIL, etc.)
                     elif not re.search(r'[<>!]=', code_part):
                         violations.append({
@@ -144,7 +151,7 @@ def lint_pseudocode(blocks: list[dict]) -> tuple[list[dict], list[dict]]:
                         })
 
             # Check 2: Language-specific keywords and operators
-            banned_match = BANNED_SYNTAX.search(clean_line)
+            banned_match = BANNED_SYNTAX.search(scan_line)
             if banned_match:
                 token = banned_match.group()
                 if token in _BANNED_OPERATOR_TOKENS:
@@ -177,8 +184,8 @@ def lint_pseudocode(blocks: list[dict]) -> tuple[list[dict], list[dict]]:
                 })
 
             # Check 4: Library calls (dot-notation with parens)
-            if LIBRARY_CALL.search(clean_line):
-                match = LIBRARY_CALL.search(clean_line)
+            if LIBRARY_CALL.search(scan_line):
+                match = LIBRARY_CALL.search(scan_line)
                 violations.append({
                     "line": line_num,
                     "check": "library_call",
@@ -190,7 +197,7 @@ def lint_pseudocode(blocks: list[dict]) -> tuple[list[dict], list[dict]]:
                 })
 
             # Check 5: Single-character variable names
-            char_match = SINGLE_CHAR_VAR.search(clean_line)
+            char_match = SINGLE_CHAR_VAR.search(scan_line)
             if char_match:
                 char = char_match.group(1)
                 if char not in ('i', 'j', 'k', 'n', 'm', 'x', 'y'):
@@ -202,9 +209,9 @@ def lint_pseudocode(blocks: list[dict]) -> tuple[list[dict], list[dict]]:
                     })
 
             # Track FUNCTION / END FUNCTION scope
-            if FUNCTION_START.search(clean_line):
+            if FUNCTION_START.search(scan_line):
                 function_stack.append(line_num)
-            if FUNCTION_END.search(clean_line):
+            if FUNCTION_END.search(scan_line):
                 if function_stack:
                     function_stack.pop()
                 else:
