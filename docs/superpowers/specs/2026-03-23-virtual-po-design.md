@@ -206,6 +206,6 @@ Each stage sees only what it needs. The Virtual PO looks backward at conversatio
 1. **`unslop/skills/generation/SKILL.md`** -- Add Phase 0a.0 section before Phase 0a. Add "When Phase 0a.0 fires" guard conditions. Add Intent Statement format and language constraint.
 2. **`unslop/commands/change.md`** -- Insert Intent Lock as step 0 in the tactical flow (Stage A block). Add batched intent synthesis for path (c) cross-reference.
 3. **`unslop/skills/triage/SKILL.md`** -- No changes needed. Triage routes to commands; the commands enforce the gate.
-4. **`unslop/scripts/orchestrator.py`** -- Add pending-changes detection to `check-freshness` subcommand. New error class for pending intent.
+4. **`unslop/scripts/freshness/checker.py`** -- Add `pending_intent_files` summary to `check_freshness` output for CI messaging. The detection already exists; this extends the output formatting.
 5. **`unslop/commands/generate.md`** / **`unslop/commands/sync.md`** -- Add cross-reference to Phase 0a.0 for the "pending changes trigger Architect stage" path.
 6. **`unslop/commands/takeover.md`** -- Insert Intent Lock (takeover variant) after Stage A step 1 (Discover) but before step 2 (Draft Spec). The Architect reads existing code to form its understanding, then presents the takeover intent statement for approval before writing any spec language.
