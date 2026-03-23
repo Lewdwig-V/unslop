@@ -53,6 +53,8 @@ If no specs have `depends-on` frontmatter, or if Python is not available, proces
 
 Before dispatching any Builders, run Phase 0c for ALL files that have pending `*.change.md` entries:
 
+**Phase 0a.0 gate:** Before running Phase 0c for a file, the generation skill's Phase 0a.0 (Intent Lock) fires -- the Architect presents an aggregated intent statement for all pending entries on that file and waits for approval. Only after approval does Phase 0c process individual entries. See the generation skill's Phase 0a.0 section for the full protocol.
+
 1. For each file with a `*.change.md` sidecar (in build order):
    a. Run the generation skill's Phase 0c (Stage A behavior) -- propose spec updates for each pending/tactical entry, get user approval.
    b. Stage approved spec updates (`git add`). Do NOT commit.

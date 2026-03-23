@@ -108,9 +108,13 @@ Check for `.unslop/last-failure/<cache-key>.md`. If a failure report exists, sur
 Inject the failure report contents as "Previous Attempt Post-Mortem" context for the Architect in Stage A.
 
 **Stage A (Architect -- current session):**
+0. **Intent Lock (Phase 0a.0):** Draft an Intent Statement from the change description in product language: "I understand you want to [goal]. To achieve this, I'll update [spec] to [constraint]." Present to the user and wait for approval. If rejected: ask "Could you clarify the requirement? I misunderstood [X] as [Y]." and reformulate. The entry remains in `<file>.change.md` until an Intent Lock succeeds. Only proceed to step 1 after explicit approval.
 1. Read the current spec, `.unslop/principles.md` (if it exists), the file tree (`python ${CLAUDE_PLUGIN_ROOT}/scripts/orchestrator.py file-tree .`), and the previous failure report (if injected from Step 5a). Do NOT read the managed source file.
 2. Based on the change intent, propose a spec update that captures the change in the spec's constraints/behavior language. Do not describe implementation -- describe intent.
 3. Present the draft spec update to the user for approval.
+
+(Note: Step 0 validates "am I solving the right problem?" Step 3 validates "is this the right spec change?" These are independent gates -- see Phase 0a.0 in the generation skill.)
+
 4. If approved: apply the spec update to the spec file, stage it (`git add <spec_path>`). Do NOT commit.
 5. If rejected: stop. The entry remains in `<file>.change.md` for manual resolution.
 
@@ -134,3 +138,5 @@ Inject the failure report contents as "Previous Attempt Post-Mortem" context for
 **If `[pending]` (default, no `--tactical` flag)**, inform the user:
 
 > "Change recorded in `<file>.change.md`. Run `/unslop:generate` or `/unslop:sync <file>` to apply."
+
+**Batched changes (path c):** When pending changes are processed via `/unslop:generate` or `/unslop:sync`, Phase 0a.0 fires once per file with an aggregated intent statement before Phase 0c processes individual entries. See the generation skill's Phase 0a.0 section for the batched intent protocol.

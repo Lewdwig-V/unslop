@@ -236,6 +236,13 @@ def main():
         try:
             result = check_freshness(directory, exclude_dirs=exclude_dirs)
             print(json.dumps(result, indent=2))
+            for pif in result.get("pending_intent_files", []):
+                print(
+                    f"FAIL: {pif['managed']} has {pif['count']} pending change(s) requiring interactive approval.\n"
+                    f"  Run 'unslop:sync {pif['managed']}' locally to approve the spec update.\n"
+                    f"  CI cannot perform architectural lowering (Phase 0a.0 requires human approval).",
+                    file=sys.stderr,
+                )
             sys.exit(0 if result["status"] == "pass" else 1)
         except (ValueError, OSError, UnicodeDecodeError) as e:
             print(json.dumps({"error": str(e)}), file=sys.stderr)

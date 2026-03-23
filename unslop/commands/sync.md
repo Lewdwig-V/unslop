@@ -240,6 +240,9 @@ Classify the target file using hash-based logic (same as `/unslop:generate`):
 - **Old format** (no hash fields in header): treat as stale and proceed.
 
 **Stage A (Architect -- if pending changes exist):**
+
+**Phase 0a.0 gate:** Before processing pending entries, the generation skill's Phase 0a.0 (Intent Lock) fires -- the Architect presents an aggregated intent statement and waits for approval. See the generation skill's Phase 0a.0 section.
+
 If a `*.change.md` sidecar exists for this file with pending entries, run the generation skill's Phase 0c (Stage A behavior):
 - Propose spec updates for each entry, get user approval.
 - Stage approved spec updates (`git add`). Do NOT commit.

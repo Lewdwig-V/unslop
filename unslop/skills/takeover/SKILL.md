@@ -13,6 +13,7 @@ The takeover pipeline brings an existing file under spec management by **raising
 Steps:
 
 1. **Discover** -- Read the target file, locate its tests, determine `testless_mode`
+1b. **Intent Lock** -- Articulate the extracted product intent; get user approval before drafting specs
 2. **Raise to Concrete** -- Extract the algorithm, patterns, and type structure into a Concrete Spec (the current "How")
 2b. **Raise to Abstract** -- Extract observable behavior and constraints into an Abstract Spec (the original "Why")
 2c. **Generate Behaviour YAML** -- (testless path only) Extract given/when/then constraints for adversarial validation
@@ -59,6 +60,24 @@ If adversarial mode is not available (and `--skip-adversarial` was not passed), 
 > "No tests found. Takeover without tests means the spec is unvalidated. Proceed only with explicit user confirmation."
 
 Track which path was taken: `testless_mode = true/false`. This variable controls downstream routing for all subsequent steps.
+
+---
+
+## Step 1b: Intent Lock (Phase 0a.0)
+
+After reading the target file and its tests, the Architect must articulate the extracted product intent before drafting any spec content. This prevents the Architect from confusing "how it works" (engineering) with "how it should work" (product).
+
+Present the takeover Intent Statement:
+
+> "From the existing code, I understand this module's purpose is [extracted intent]. I'll draft a spec that captures [key behaviors]. Does this match your understanding of what this code should do?"
+
+**Language constraint:** The intent must be expressed in user/product language, not implementation language. "Ensure failed HTTP requests are retried with backoff" passes. "Implement exponential retry with jitter in the request handler" fails -- that is the Concrete Spec's job, not the Intent Lock's.
+
+**If approved:** Proceed to Step 2 (Raise to Concrete Spec).
+
+**If rejected:** The Architect asks "Could you clarify the requirement? I understood this module's purpose as [X], but that doesn't match your intent." and reformulates. No limit on reformulation attempts. If the user abandons (exits the session), no artifacts are left behind.
+
+**No force-approve.** The Intent Lock is mandatory for all takeover operations. There is no `--skip-intent` or auto-approve mechanism.
 
 ---
 
@@ -335,6 +354,14 @@ Find tests for the unit as a whole — look for test files adjacent to or within
 If no tests are found for the unit, apply the same testless routing as single-file mode.
 
 **Note:** Testless mode applies per-file -- some files in a multi-file takeover may have tests (standard path) while others don't (testless path). Track `testless_mode` independently for each file.
+
+### Intent Lock (Phase 0a.0, replaces Step 1b for multi-file)
+
+After reading all source files and tests for the unit, present a single aggregated Intent Statement covering the module as a whole:
+
+> "From the existing code, I understand this module's purpose is [extracted intent for the unit]. The key responsibilities are: [list 2-4 top-level behaviors]. I'll draft specs that capture these behaviors. Does this match your understanding?"
+
+Same approval/rejection protocol as single-file Step 1b. If rejected, reformulate. If abandoned, no artifacts left behind.
 
 ### Granularity Choice (new step, before Draft Spec)
 
