@@ -42,12 +42,42 @@ class TestBareAssignment:
         result = validate_pseudocode(content, "test.impl.md")
         assert result["status"] == "pass"
 
-    def test_allows_equality_comparison(self):
+    def test_allows_equality_in_if(self):
+        """= inside IF is a comparison, not assignment."""
         content = "```pseudocode\nIF x = 1\n    RETURN true\n```\n"
-        validate_pseudocode(content, "test.impl.md")
-        # Should not flag x = 1 as bare assignment when it's inside IF
-        # Note: this is a known limitation — the linter may flag it.
-        # The key test is that ← is always accepted.
+        result = validate_pseudocode(content, "test.impl.md")
+        assert result["status"] == "pass"
+
+    def test_allows_equality_in_while(self):
+        """= inside WHILE is a comparison."""
+        content = "```pseudocode\nWHILE state = OPEN\n    CALL process()\n```\n"
+        result = validate_pseudocode(content, "test.impl.md")
+        assert result["status"] == "pass"
+
+    def test_allows_equality_in_until(self):
+        """= inside UNTIL is a comparison."""
+        content = "```pseudocode\nUNTIL status = DONE\n    CALL poll()\n```\n"
+        result = validate_pseudocode(content, "test.impl.md")
+        assert result["status"] == "pass"
+
+    def test_allows_equality_in_else_if(self):
+        """= inside ELSE IF is a comparison."""
+        content = "```pseudocode\nIF x = 1\n    RETURN a\nELSE IF x = 2\n    RETURN b\n```\n"
+        result = validate_pseudocode(content, "test.impl.md")
+        assert result["status"] == "pass"
+
+    def test_allows_equality_in_case(self):
+        """= inside CASE/WHEN is a comparison."""
+        content = "```pseudocode\nSWITCH mode\n    CASE mode = FAST: RETURN 1\nEND SWITCH\n```\n"
+        result = validate_pseudocode(content, "test.impl.md")
+        assert result["status"] == "pass"
+
+    def test_catches_bare_equals_without_context(self):
+        """= without SET/IF/WHILE context is a bare assignment violation."""
+        content = "```pseudocode\nretry_count = 0\n```\n"
+        result = validate_pseudocode(content, "test.impl.md")
+        assert result["status"] == "fail"
+        assert any(v["check"] == "bare_assignment" for v in result["violations"])
 
     def test_does_not_flag_comparison_operators(self):
         content = "```pseudocode\nIF x >= 1\n    RETURN true\nIF y <= 0\n    RETURN false\nIF z != null\n    RETURN z\n```\n"

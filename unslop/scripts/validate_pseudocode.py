@@ -32,6 +32,11 @@ LIBRARY_CALL = re.compile(r'\b[a-z_]\w*\.[a-z_]\w*\s*\(')
 # Must not match ←, :=, or comparison operators
 BARE_ASSIGNMENT = re.compile(r'(?<![<>!=:])=(?!=)')
 
+# Lines where = is a comparison, not assignment (conditional / loop context)
+COMPARISON_CONTEXT = re.compile(
+    r'^\s*(?:IF|ELSE\s+IF|WHILE|UNTIL|CASE|WHEN|FOR)\b', re.IGNORECASE
+)
+
 # Multi-statement lines (semicolons as separators, not inside strings)
 MULTI_STATEMENT = re.compile(r';')
 
@@ -95,14 +100,17 @@ def lint_pseudocode(blocks: list[dict]) -> tuple[list[dict], list[dict]]:
                 continue
 
             # Check 1: Bare assignment (= instead of ← or :=)
-            # Exclude lines that are clearly comparisons or contain ← already
+            # Exclude lines that already use ← or :=, and lines in
+            # conditional/loop context where = is a comparison.
             if "←" not in line and ":=" not in line:
                 # Remove string literals and comments before checking
                 code_part = re.sub(r'"[^"]*"', '', stripped)
                 code_part = re.sub(r'//.*$', '', code_part)
                 if BARE_ASSIGNMENT.search(code_part):
-                    # Double-check it's not inside a function call or comparison
-                    if not re.search(r'[<>!]=', code_part):
+                    # Allow = as equality in IF, WHILE, UNTIL, CASE, WHEN, FOR
+                    if COMPARISON_CONTEXT.match(stripped):
+                        pass  # = is a comparison here, not assignment
+                    elif not re.search(r'[<>!]=', code_part):
                         violations.append({
                             "line": line_num,
                             "check": "bare_assignment",
