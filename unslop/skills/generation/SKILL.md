@@ -352,7 +352,7 @@ Before any spec validation or mutation, the Architect must articulate the user's
 | Entry point | Trigger |
 |---|---|
 | `/unslop:change --tactical` | Always (before Architect drafts spec patch) |
-| `/unslop:takeover` | Always (after Discover, before Draft Spec) |
+| `/unslop:takeover` | Handled by the takeover skill (Step 1b), not this phase. Listed here for completeness. |
 | `/unslop:generate` or `/unslop:sync` with pending `*.change.md` | Once per file with pending changes (gates entry to Phase 0c) |
 
 **When Phase 0a.0 does NOT fire:**
