@@ -1275,6 +1275,28 @@ def check_freshness(directory: str) -> dict:
     specs = sorted(root.rglob("*.spec.md"))
     files = []
 
+    # Pre-scan: build set of spec paths that have a target-driven impl
+    # anywhere in the tree (not just co-located).  This prevents the
+    # default basename fallback from creating ghost entries when the impl
+    # lives in a different directory (e.g. .plans/api_multi.impl.md with
+    # source-spec: src/api.spec.md).
+    _target_owned_specs: set[str] = set()
+    for _impl_path in root.rglob("*.impl.md"):
+        try:
+            _ic = _impl_path.read_text(encoding="utf-8")
+        except (OSError, UnicodeDecodeError):
+            continue
+        _ic_meta = parse_concrete_frontmatter(_ic)
+        if _ic_meta.get("targets"):
+            _src = _ic_meta.get("source_spec", "")
+            if _src:
+                # Resolve relative to impl directory, then fall back to root-relative
+                _resolved = (_impl_path.parent / _src).resolve()
+                if _resolved.exists():
+                    _target_owned_specs.add(str(_resolved.relative_to(root)))
+                elif (root / _src).exists():
+                    _target_owned_specs.add(_src)
+
     for spec_path in specs:
         rel_spec = str(spec_path.relative_to(root))
 
@@ -1338,19 +1360,13 @@ def check_freshness(directory: str) -> dict:
             continue
 
         # Per-file spec
-        # If a corresponding .impl.md exists with explicit targets[],
-        # skip the default basename deduction — the target-driven pass
-        # will handle it.  This prevents ghost entries for files that
-        # don't exist (e.g. "auth_logic" when targets point elsewhere).
-        impl_companion = spec_path.parent / re.sub(r"\.spec\.md$", ".impl.md", spec_path.name)
-        if impl_companion.exists():
-            try:
-                _ic = impl_companion.read_text(encoding="utf-8")
-            except (OSError, UnicodeDecodeError):
-                _ic = ""
-            _ic_meta = parse_concrete_frontmatter(_ic)
-            if _ic_meta.get("targets"):
-                continue  # target-driven pass owns this spec's mappings
+        # If any .impl.md with explicit targets[] claims this spec
+        # (co-located or not), skip the default basename deduction —
+        # the target-driven pass will handle it.  This prevents ghost
+        # entries for files that don't exist (e.g. "auth_logic" when
+        # targets point elsewhere like .plans/api_multi.impl.md).
+        if rel_spec in _target_owned_specs:
+            continue  # target-driven pass owns this spec's mappings
 
         managed_name = re.sub(r"\.spec\.md$", "", spec_path.name)
         managed_path = spec_path.parent / managed_name
@@ -1856,35 +1872,31 @@ def ripple_check(spec_paths: list[str], project_root: str) -> dict:
         if not spec_path.exists():
             continue
 
-        # Check for multi-target impl
-        impl_companion = spec_path.parent / re.sub(r"\.spec\.md$", ".impl.md", spec_path.name)
+        # Check for multi-target impl (any impl whose source-spec is this
+        # spec, not just a co-located companion).
         targets_handled = False
-
-        if impl_companion.exists():
-            try:
-                ic_content = impl_companion.read_text(encoding="utf-8")
-                ic_meta = parse_concrete_frontmatter(ic_content)
-                if ic_meta.get("targets"):
-                    targets_handled = True
-                    for target in ic_meta["targets"]:
-                        managed_rel = target.get("path", "")
-                        managed_full = root / managed_rel
-                        entry = {
-                            "managed": managed_rel,
-                            "spec": spec,
-                            "concrete": str(impl_companion.relative_to(root)),
-                            "exists": managed_full.exists(),
-                            "language": target.get("language", "unknown"),
-                            "cause": "direct" if spec in directly_changed else "transitive",
-                        }
-                        if managed_full.exists():
-                            result = classify_file(str(managed_full), str(spec_path), project_root=str(root))
-                            entry["current_state"] = result["state"]
-                        else:
-                            entry["current_state"] = "new"
-                        affected_managed.append(entry)
-            except (OSError, UnicodeDecodeError):
-                pass
+        for _impl_rel in spec_to_impls.get(spec, []):
+            _impl_meta = all_impls.get(_impl_rel, {})
+            _targets = _impl_meta.get("targets", [])
+            if _targets:
+                targets_handled = True
+                for target in _targets:
+                    managed_rel = target.get("path", "")
+                    managed_full = root / managed_rel
+                    entry = {
+                        "managed": managed_rel,
+                        "spec": spec,
+                        "concrete": _impl_rel,
+                        "exists": managed_full.exists(),
+                        "language": target.get("language", "unknown"),
+                        "cause": "direct" if spec in directly_changed else "transitive",
+                    }
+                    if managed_full.exists():
+                        result = classify_file(str(managed_full), str(spec_path), project_root=str(root))
+                        entry["current_state"] = result["state"]
+                    else:
+                        entry["current_state"] = "new"
+                    affected_managed.append(entry)
 
         if not targets_handled:
             # Unit spec
@@ -3046,12 +3058,20 @@ def render_dependency_graph(
         lines.append("")
         lines.append("    %% Managed Code Files")
 
+        # Build reverse map: spec -> impls that claim it via source_spec
+        _spec_to_target_impls: dict[str, list[str]] = {}
+        for _impl_path, _meta in all_impls.items():
+            _src = _meta.get("source_spec")
+            if _src and _meta.get("targets"):
+                _spec_to_target_impls.setdefault(_src, []).append(_impl_path)
+
         for spec in sorted(all_specs):
-            # Multi-target check
-            impl_companion = re.sub(r"\.spec\.md$", ".impl.md", spec)
-            if impl_companion in all_impls:
-                targets = all_impls[impl_companion].get("targets", [])
-                if targets:
+            # Multi-target check: find any impl (co-located or not)
+            # whose source-spec is this spec and that has targets[].
+            target_impls = _spec_to_target_impls.get(spec, [])
+            if target_impls:
+                for _impl_path in target_impls:
+                    targets = all_impls[_impl_path].get("targets", [])
                     for target in targets:
                         managed = target.get("path", "")
                         if managed and managed not in code_nodes:
@@ -3064,7 +3084,7 @@ def render_dependency_graph(
                             lines.append(f"    class {nid} {css}")
                             lines.append(f"    {_node_id(spec)} -->|generates| {nid}")
                             nodes_info.append({"id": nid, "path": managed, "layer": "code", "state": state})
-                    continue
+                continue
 
             # Unit specs list their managed files in a ## Files section
             if spec.endswith(".unit.spec.md"):
