@@ -234,3 +234,31 @@ def test_annotated_constants_tracked():
     finally:
         os.unlink(orig)
         os.unlink(gen)
+
+
+def test_reexports_tracked():
+    """ImportFrom re-exports (from .core import Foo) are public symbols."""
+    orig = _write_tmp("from .core import Foo, Bar\nfrom .utils import Helper\n")
+    gen = _write_tmp("from .core import Foo\n")
+    try:
+        result = audit_symbols(orig, gen)
+        assert result["status"] == "fail"
+        assert "Bar" in result["missing"]
+        assert "Helper" in result["missing"]
+        assert "Foo" in result["original_symbols"]
+    finally:
+        os.unlink(orig)
+        os.unlink(gen)
+
+
+def test_private_reexports_ignored():
+    """Private re-exports (from .core import _internal) are not tracked."""
+    orig = _write_tmp("from .core import Foo, _internal\n")
+    gen = _write_tmp("from .core import Foo\n")
+    try:
+        result = audit_symbols(orig, gen)
+        assert result["status"] == "pass"
+        assert "_internal" not in result["original_symbols"]
+    finally:
+        os.unlink(orig)
+        os.unlink(gen)

@@ -35,6 +35,13 @@ def _extract_public_symbols(source: str) -> set[str]:
                 name = node.target.id
                 if not name.startswith("_") and name == name.upper() and any(c.isalpha() for c in name):
                     symbols.add(name)
+        elif isinstance(node, ast.ImportFrom):
+            # Re-exports: from .core import Foo, Bar (common in __init__.py)
+            if node.names:
+                for alias in node.names:
+                    name = alias.asname if alias.asname else alias.name
+                    if name != "*" and not name.startswith("_"):
+                        symbols.add(name)
     return symbols
 
 

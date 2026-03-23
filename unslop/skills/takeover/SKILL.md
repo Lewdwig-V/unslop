@@ -42,7 +42,11 @@ Read any discovered test files in full.
 
 **If no tests are found**, determine the takeover path:
 
-If the project has adversarial mode enabled (`.unslop/config.json` has `"adversarial": true` or the user has not explicitly disabled it):
+Check for override flags from the calling command:
+- If `--skip-adversarial` was passed: set `testless_mode = false` regardless of test absence. The Builder will use the standard test_policy ("Write or extend tests"). This is the escape hatch for files where mutation testing is impractical (pure I/O, GUI code).
+- If `--full-adversarial` was passed: force `adversarial_intensity = "full"` for the adversarial pipeline (Step 5), overriding the Architect's assessment.
+
+If neither override is set and the project has adversarial mode enabled (`.unslop/config.json` has `"adversarial": true` or the user has not explicitly disabled it):
 
 > "No tests found for this file. Routing to **testless takeover** -- the adversarial pipeline will generate and validate tests automatically.
 >
@@ -50,7 +54,7 @@ If the project has adversarial mode enabled (`.unslop/config.json` has `"adversa
 >
 > Proceed? (y/n)"
 
-If adversarial mode is not available, fall back to the existing warning:
+If adversarial mode is not available (and `--skip-adversarial` was not passed), fall back to the existing warning:
 
 > "No tests found. Takeover without tests means the spec is unvalidated. Proceed only with explicit user confirmation."
 
