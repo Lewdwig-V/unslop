@@ -61,7 +61,7 @@ Dispatch a Builder Agent using the generation skill's two-stage execution model:
 
 **4. Verify result**
 
-- If DONE with green tests: worktree merges automatically. Compute `output-hash`, update `@unslop-managed` header.
+- If DONE with green tests: worktree merges automatically. Compute `output-hash`, update `@unslop-managed` header. Delete `.unslop/last-failure/<cache-key>.md` if it exists.
 - If BLOCKED or tests fail: discard worktree, revert any staged spec update (`git checkout HEAD -- <spec_path>`). Report the Builder's failure report and stop. Do not attempt to fix or retry.
 
 **5. Update the alignment summary**

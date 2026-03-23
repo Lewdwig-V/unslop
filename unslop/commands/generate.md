@@ -109,3 +109,7 @@ After all Builders have succeeded and worktrees are merged, commit all changes a
 - Updated alignment summary
 
 This is a single atomic commit covering all files processed in this run.
+
+**8. Clean up diagnostic cache**
+
+After the atomic commit succeeds, delete `.unslop/last-failure/<cache-key>.md` for every spec that was successfully generated in this run. Cache files must not be deleted before the commit -- if a later Builder fails in Step 5 and the run is aborted, the post-mortem for earlier specs must survive for the next retry.
