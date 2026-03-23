@@ -1,9 +1,17 @@
 ---
 description: Run the takeover pipeline on an existing file, directory, or glob
-argument-hint: <file-path|directory|glob> [--force-ambiguous]
+argument-hint: <file-path|directory|glob> [--force-ambiguous] [--skip-adversarial] [--full-adversarial]
 ---
 
-**Parse arguments:** `$ARGUMENTS` may contain the target path and optional flags. Extract the target path (the first argument that does not start with `--`) and check for flags (`--force-ambiguous`). Strip flags before using the path in subsequent steps.
+**Parse arguments:** `$ARGUMENTS` may contain the target path and optional flags. Extract the target path (the first argument that does not start with `--`) and check for flags:
+
+- `--force-ambiguous` -- allow ambiguous specs (existing)
+- `--skip-adversarial` -- skip the adversarial pipeline even for testless files. The Builder generates with the standard test_policy ("Write or extend tests") instead of the testless path. Use for files where mutation testing is impractical (pure I/O, GUI code).
+- `--full-adversarial` -- force full mutation testing (Mason + Saboteur) regardless of the Architect's intensity assessment.
+
+Strip flags before using the path in subsequent steps.
+
+**Testless detection:** The takeover skill (Step 1) detects test absence automatically and routes to the testless path. No `--no-tests` flag is needed. If `--skip-adversarial` is set, pass it to the skill so it uses the standard Builder-writes-tests path even when no tests exist.
 
 **0. Detect mode**
 
