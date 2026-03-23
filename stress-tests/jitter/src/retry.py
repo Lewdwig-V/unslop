@@ -1,8 +1,7 @@
-# Legacy retry module — exponential backoff WITHOUT jitter.
-# This is the "before" state for the Jitter Stress Test.
-# The takeover pipeline will lift this into specs, then lower it
-# back with jitter added.
+# @unslop-managed — do not edit directly. Edit src/retry.py.spec.md instead.
+# spec-hash:9bfe684a839c output-hash:b5a0566bacf0 generated:2026-03-23T00:00:00Z
 
+import random
 import time
 from dataclasses import dataclass
 from typing import Callable, TypeVar, Optional
@@ -42,12 +41,7 @@ def retry(
     operation: Callable[[], T],
     config: Optional[RetryConfig] = None,
 ) -> T:
-    """Execute an operation with exponential backoff retry.
-
-    WARNING: No jitter — susceptible to thundering herd.
-    All failed clients retry at the exact same intervals,
-    creating synchronized retry storms.
-    """
+    """Execute an operation with Full Jitter exponential backoff retry."""
     if config is None:
         config = RetryConfig()
 
@@ -59,11 +53,11 @@ def retry(
         except Exception as e:
             last_error = e
             if attempt < config.max_retries - 1:
-                # Pure exponential — no randomness
-                delay = min(
+                upper_bound = min(
                     config.base_delay * (2 ** attempt),
                     config.max_delay,
                 )
+                delay = random.uniform(0, upper_bound)
                 time.sleep(delay)
 
     raise MaxRetriesExceeded(config.max_retries, last_error)

@@ -3,5 +3,6 @@
 
 ## Managed files
 
-- `src/retry.py` <- `src/retry.py.spec.md` (legacy scaffold, pre-takeover)
-  Intent: Retry utility with exponential backoff — pending jitter upgrade
+- `src/retry.py` <- `src/retry.py.spec.md` (fresh, generated 2026-03-23T00:00:00Z)
+  Intent: Retry utility with Full Jitter exponential backoff to prevent thundering herd
+  Concrete spec: `src/retry.py.impl.md` (permanent, complexity: high)
