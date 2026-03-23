@@ -1399,6 +1399,44 @@ def test_check_freshness_non_colocated_target_impl(tmp_path):
     )
 
 
+def test_check_freshness_relative_source_spec(tmp_path):
+    """Impl with relative source-spec (../src/api.spec.md) should suppress ghost entry."""
+    spec = "# api spec\n\n## Behavior\nAPI logic.\n"
+    body = "def api(): pass\n"
+    sh = compute_hash(spec)
+    oh = compute_hash(body)
+
+    src_dir = tmp_path / "src"
+    src_dir.mkdir()
+    (src_dir / "api.spec.md").write_text(spec)
+
+    plans_dir = tmp_path / ".plans"
+    plans_dir.mkdir()
+    # Relative source-spec: from .plans/ go up then into src/
+    (plans_dir / "api_multi.impl.md").write_text(
+        "---\nsource-spec: ../src/api.spec.md\nephemeral: false\n"
+        "targets:\n"
+        "  - path: src/generated/api.py\n"
+        "    language: python\n"
+        "---\n\n## Strategy\nGenerate API.\n"
+    )
+
+    gen_dir = src_dir / "generated"
+    gen_dir.mkdir()
+    (gen_dir / "api.py").write_text(
+        f"# @unslop-managed — do not edit directly. Edit src/api.spec.md instead.\n"
+        f"# spec-hash:{sh} output-hash:{oh} generated:2026-03-23T00:00:00Z\n" + body
+    )
+
+    result = check_freshness(str(tmp_path))
+    managed_paths = {f["managed"] for f in result["files"]}
+
+    assert "src/generated/api.py" in managed_paths
+    assert "src/api" not in managed_paths, (
+        f"Ghost 'src/api' should be suppressed with relative source-spec, got: {managed_paths}"
+    )
+
+
 def test_check_freshness_multi_target_stale(tmp_path):
     """A missing target file should appear as stale."""
     spec = "# auth spec\n\n## Behavior\nAuth logic.\nMore detail.\n"
@@ -2669,6 +2707,27 @@ def test_ripple_check_non_colocated_target_impl(tmp_path):
     assert "src/api" not in managed_paths
 
 
+def test_ripple_check_relative_source_spec(tmp_path):
+    """Impl with a relative source-spec (../src/api.spec.md) should resolve correctly."""
+    (tmp_path / "src").mkdir()
+    (tmp_path / "src" / "api.spec.md").write_text("# API\n")
+
+    (tmp_path / ".plans").mkdir()
+    (tmp_path / ".plans" / "api_multi.impl.md").write_text(
+        "---\nsource-spec: ../src/api.spec.md\nephemeral: false\n"
+        "targets:\n"
+        "  - path: src/gen/client.py\n"
+        "    language: python\n"
+        "---\n\n## Strategy\nGenerate.\n"
+    )
+
+    result = ripple_check(["src/api.spec.md"], str(tmp_path))
+    regen = result["layers"]["code"]["regenerate"]
+    managed_paths = {m["managed"] for m in regen}
+    assert "src/gen/client.py" in managed_paths
+    assert "src/api" not in managed_paths
+
+
 # --- concrete-manifest tests ---
 
 
@@ -3134,6 +3193,31 @@ def test_graph_non_colocated_target_impl(tmp_path):
     assert result["stats"]["managed_files"] == 2
 
     # No ghost basename entry
+    assert "src/api" not in code_paths
+
+
+def test_graph_relative_source_spec(tmp_path):
+    """Impl with relative source-spec should still produce correct code nodes."""
+    (tmp_path / ".unslop").mkdir()
+    src_dir = tmp_path / "src"
+    src_dir.mkdir()
+    (src_dir / "api.spec.md").write_text("# API\n")
+
+    plans_dir = tmp_path / ".plans"
+    plans_dir.mkdir()
+    (plans_dir / "api_multi.impl.md").write_text(
+        "---\nsource-spec: ../src/api.spec.md\nephemeral: false\n"
+        "targets:\n"
+        "  - path: src/generated/api_client.py\n"
+        "    language: python\n"
+        "---\n\n## Strategy\nGenerate API.\n"
+    )
+
+    result = render_dependency_graph(str(tmp_path))
+    code_paths = {n["path"] for n in result["nodes"] if n["layer"] == "code"}
+
+    assert "src/generated/api_client.py" in code_paths
+    assert result["stats"]["managed_files"] == 1
     assert "src/api" not in code_paths
 
 

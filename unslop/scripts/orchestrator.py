@@ -1793,7 +1793,19 @@ def ripple_check(spec_paths: list[str], project_root: str) -> dict:
             content = impl_path.read_text(encoding="utf-8")
         except (OSError, UnicodeDecodeError):
             continue
-        all_impls[rel] = parse_concrete_frontmatter(content)
+        meta = parse_concrete_frontmatter(content)
+        # Normalise source_spec to a canonical root-relative path so that
+        # downstream maps (spec_to_impls, scope filters, etc.) work even
+        # when the impl lives in a different directory and source-spec is
+        # written as a relative path (e.g. ../src/api.spec.md).
+        src = meta.get("source_spec")
+        if src:
+            resolved = (impl_path.parent / src).resolve()
+            if resolved.exists():
+                meta["source_spec"] = str(resolved.relative_to(root))
+            elif (root / src).exists():
+                meta["source_spec"] = src  # already root-relative
+        all_impls[rel] = meta
 
     # Build reverse concrete dep map: impl -> list of impls that depend on it
     reverse_concrete: dict[str, list[str]] = {i: [] for i in all_impls}
@@ -1808,7 +1820,7 @@ def ripple_check(spec_paths: list[str], project_root: str) -> dict:
                 reverse_concrete[extends] = []
             reverse_concrete[extends].append(impl)
 
-    # Map source-spec -> impl paths
+    # Map source-spec -> impl paths (source_spec already normalised above)
     spec_to_impls: dict[str, list[str]] = {}
     for impl, meta in all_impls.items():
         src = meta.get("source_spec")
@@ -2786,7 +2798,17 @@ def render_dependency_graph(
             content = impl_path.read_text(encoding="utf-8")
         except (OSError, UnicodeDecodeError):
             continue
-        all_impls[rel] = parse_concrete_frontmatter(content)
+        meta = parse_concrete_frontmatter(content)
+        # Normalise source_spec to canonical root-relative path (impl may
+        # live elsewhere and use a relative source-spec like ../src/api.spec.md).
+        src = meta.get("source_spec")
+        if src:
+            resolved = (impl_path.parent / src).resolve()
+            if resolved.exists():
+                meta["source_spec"] = str(resolved.relative_to(root))
+            elif (root / src).exists():
+                meta["source_spec"] = src
+        all_impls[rel] = meta
 
     # If scope is set, compute the affected subgraph (dual-layer aware)
     if scope:
@@ -3059,6 +3081,7 @@ def render_dependency_graph(
         lines.append("    %% Managed Code Files")
 
         # Build reverse map: spec -> impls that claim it via source_spec
+        # (source_spec already normalised above).
         _spec_to_target_impls: dict[str, list[str]] = {}
         for _impl_path, _meta in all_impls.items():
             _src = _meta.get("source_spec")
