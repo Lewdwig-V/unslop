@@ -1356,6 +1356,87 @@ def test_check_freshness_multi_target_discovery(tmp_path):
     )
 
 
+def test_check_freshness_non_colocated_target_impl(tmp_path):
+    """A target-driven impl in a different dir should suppress the default basename entry."""
+    spec = "# api spec\n\n## Behavior\nAPI logic.\n"
+    body = "def api(): pass\n"
+    sh = compute_hash(spec)
+    oh = compute_hash(body)
+
+    # Abstract spec at src/api.spec.md
+    src_dir = tmp_path / "src"
+    src_dir.mkdir()
+    (src_dir / "api.spec.md").write_text(spec)
+
+    # Impl lives in .plans/ (NOT co-located with spec)
+    plans_dir = tmp_path / ".plans"
+    plans_dir.mkdir()
+    (plans_dir / "api_multi.impl.md").write_text(
+        "---\nsource-spec: src/api.spec.md\nephemeral: false\n"
+        "targets:\n"
+        "  - path: src/generated/api.py\n"
+        "    language: python\n"
+        "---\n\n## Strategy\nGenerate API.\n"
+    )
+
+    # Write the target file
+    gen_dir = src_dir / "generated"
+    gen_dir.mkdir()
+    (gen_dir / "api.py").write_text(
+        f"# @unslop-managed — do not edit directly. Edit src/api.spec.md instead.\n"
+        f"# spec-hash:{sh} output-hash:{oh} generated:2026-03-23T00:00:00Z\n" + body
+    )
+
+    result = check_freshness(str(tmp_path))
+    managed_paths = {f["managed"] for f in result["files"]}
+
+    # The real target should appear
+    assert "src/generated/api.py" in managed_paths
+
+    # No ghost entry for the deduced basename "src/api"
+    assert "src/api" not in managed_paths, (
+        f"Ghost 'src/api' should be suppressed when non-colocated impl has targets[], got: {managed_paths}"
+    )
+
+
+def test_check_freshness_relative_source_spec(tmp_path):
+    """Impl with relative source-spec (../src/api.spec.md) should suppress ghost entry."""
+    spec = "# api spec\n\n## Behavior\nAPI logic.\n"
+    body = "def api(): pass\n"
+    sh = compute_hash(spec)
+    oh = compute_hash(body)
+
+    src_dir = tmp_path / "src"
+    src_dir.mkdir()
+    (src_dir / "api.spec.md").write_text(spec)
+
+    plans_dir = tmp_path / ".plans"
+    plans_dir.mkdir()
+    # Relative source-spec: from .plans/ go up then into src/
+    (plans_dir / "api_multi.impl.md").write_text(
+        "---\nsource-spec: ../src/api.spec.md\nephemeral: false\n"
+        "targets:\n"
+        "  - path: src/generated/api.py\n"
+        "    language: python\n"
+        "---\n\n## Strategy\nGenerate API.\n"
+    )
+
+    gen_dir = src_dir / "generated"
+    gen_dir.mkdir()
+    (gen_dir / "api.py").write_text(
+        f"# @unslop-managed — do not edit directly. Edit src/api.spec.md instead.\n"
+        f"# spec-hash:{sh} output-hash:{oh} generated:2026-03-23T00:00:00Z\n" + body
+    )
+
+    result = check_freshness(str(tmp_path))
+    managed_paths = {f["managed"] for f in result["files"]}
+
+    assert "src/generated/api.py" in managed_paths
+    assert "src/api" not in managed_paths, (
+        f"Ghost 'src/api' should be suppressed with relative source-spec, got: {managed_paths}"
+    )
+
+
 def test_check_freshness_multi_target_stale(tmp_path):
     """A missing target file should appear as stale."""
     spec = "# auth spec\n\n## Behavior\nAuth logic.\nMore detail.\n"
@@ -2604,6 +2685,49 @@ def test_ripple_check_multiple_input_specs(tmp_path):
     assert "src/c.py.spec.md" in result["layers"]["abstract"]["transitively_affected"]
 
 
+def test_ripple_check_non_colocated_target_impl(tmp_path):
+    """Non-colocated impl with targets should be found by ripple_check."""
+    (tmp_path / "src").mkdir()
+    (tmp_path / "src" / "api.spec.md").write_text("# API\n")
+
+    (tmp_path / ".plans").mkdir()
+    (tmp_path / ".plans" / "api_multi.impl.md").write_text(
+        "---\nsource-spec: src/api.spec.md\nephemeral: false\n"
+        "targets:\n"
+        "  - path: src/gen/client.py\n"
+        "    language: python\n"
+        "---\n\n## Strategy\nGenerate.\n"
+    )
+
+    result = ripple_check(["src/api.spec.md"], str(tmp_path))
+    regen = result["layers"]["code"]["regenerate"]
+    managed_paths = {m["managed"] for m in regen}
+    assert "src/gen/client.py" in managed_paths
+    # No ghost basename
+    assert "src/api" not in managed_paths
+
+
+def test_ripple_check_relative_source_spec(tmp_path):
+    """Impl with a relative source-spec (../src/api.spec.md) should resolve correctly."""
+    (tmp_path / "src").mkdir()
+    (tmp_path / "src" / "api.spec.md").write_text("# API\n")
+
+    (tmp_path / ".plans").mkdir()
+    (tmp_path / ".plans" / "api_multi.impl.md").write_text(
+        "---\nsource-spec: ../src/api.spec.md\nephemeral: false\n"
+        "targets:\n"
+        "  - path: src/gen/client.py\n"
+        "    language: python\n"
+        "---\n\n## Strategy\nGenerate.\n"
+    )
+
+    result = ripple_check(["src/api.spec.md"], str(tmp_path))
+    regen = result["layers"]["code"]["regenerate"]
+    managed_paths = {m["managed"] for m in regen}
+    assert "src/gen/client.py" in managed_paths
+    assert "src/api" not in managed_paths
+
+
 # --- concrete-manifest tests ---
 
 
@@ -3039,6 +3163,62 @@ def test_graph_unit_spec_no_files_section(tmp_path):
 
     result = render_dependency_graph(str(tmp_path))
     assert result["stats"]["managed_files"] == 0
+
+
+def test_graph_non_colocated_target_impl(tmp_path):
+    """Non-colocated impl with targets[] should produce code nodes, not a ghost basename."""
+    (tmp_path / ".unslop").mkdir()
+    src_dir = tmp_path / "src"
+    src_dir.mkdir()
+    (src_dir / "api.spec.md").write_text("# API\n")
+
+    plans_dir = tmp_path / ".plans"
+    plans_dir.mkdir()
+    (plans_dir / "api_multi.impl.md").write_text(
+        "---\nsource-spec: src/api.spec.md\nephemeral: false\n"
+        "targets:\n"
+        "  - path: src/generated/api_client.py\n"
+        "    language: python\n"
+        "  - path: src/generated/api_types.py\n"
+        "    language: python\n"
+        "---\n\n## Strategy\nGenerate API.\n"
+    )
+
+    result = render_dependency_graph(str(tmp_path))
+    code_paths = {n["path"] for n in result["nodes"] if n["layer"] == "code"}
+
+    # Real targets should appear
+    assert "src/generated/api_client.py" in code_paths
+    assert "src/generated/api_types.py" in code_paths
+    assert result["stats"]["managed_files"] == 2
+
+    # No ghost basename entry
+    assert "src/api" not in code_paths
+
+
+def test_graph_relative_source_spec(tmp_path):
+    """Impl with relative source-spec should still produce correct code nodes."""
+    (tmp_path / ".unslop").mkdir()
+    src_dir = tmp_path / "src"
+    src_dir.mkdir()
+    (src_dir / "api.spec.md").write_text("# API\n")
+
+    plans_dir = tmp_path / ".plans"
+    plans_dir.mkdir()
+    (plans_dir / "api_multi.impl.md").write_text(
+        "---\nsource-spec: ../src/api.spec.md\nephemeral: false\n"
+        "targets:\n"
+        "  - path: src/generated/api_client.py\n"
+        "    language: python\n"
+        "---\n\n## Strategy\nGenerate API.\n"
+    )
+
+    result = render_dependency_graph(str(tmp_path))
+    code_paths = {n["path"] for n in result["nodes"] if n["layer"] == "code"}
+
+    assert "src/generated/api_client.py" in code_paths
+    assert result["stats"]["managed_files"] == 1
+    assert "src/api" not in code_paths
 
 
 def test_graph_scope_filter(tmp_path):
@@ -4729,6 +4909,62 @@ def test_compute_parallel_batches_max_batch_splits_wave():
         assert len(batch) <= 2
     total = sum(len(b) for b in batches)
     assert total == 5
+
+
+def test_compute_parallel_batches_full_cycle():
+    """All specs form a cycle — should still emit batches for every entry."""
+    entries = [
+        {"managed": "a.py", "spec": "a.py.spec.md"},
+        {"managed": "b.py", "spec": "b.py.spec.md"},
+        {"managed": "c.py", "spec": "c.py.spec.md"},
+    ]
+    # a -> b -> c -> a (cycle)
+    graph = {
+        "a.py.spec.md": {"c.py.spec.md"},
+        "b.py.spec.md": {"a.py.spec.md"},
+        "c.py.spec.md": {"b.py.spec.md"},
+    }
+    batches = _compute_parallel_batches(entries, graph)
+    total = sum(len(b) for b in batches)
+    assert total == 3, f"Expected 3 entries in batches, got {total}"
+    assert len(batches) >= 1
+
+
+def test_compute_parallel_batches_partial_cycle():
+    """Some specs form a cycle, others don't — all should appear in batches."""
+    entries = [
+        {"managed": "a.py", "spec": "a.py.spec.md"},
+        {"managed": "b.py", "spec": "b.py.spec.md"},
+        {"managed": "c.py", "spec": "c.py.spec.md"},
+    ]
+    # a is free, b -> c -> b (cycle)
+    graph = {
+        "a.py.spec.md": set(),
+        "b.py.spec.md": {"c.py.spec.md"},
+        "c.py.spec.md": {"b.py.spec.md"},
+    }
+    batches = _compute_parallel_batches(entries, graph)
+    total = sum(len(b) for b in batches)
+    assert total == 3
+    # a should be in an early batch (no deps), b and c in a later one
+    first_batch_specs = {e["spec"] for e in batches[0]}
+    assert "a.py.spec.md" in first_batch_specs
+
+
+def test_compute_parallel_batches_cycle_respects_max_batch():
+    """Cycle fallback should still respect max_batch_size."""
+    entries = [
+        {"managed": f"f{i}.py", "spec": f"f{i}.py.spec.md"}
+        for i in range(5)
+    ]
+    # All in a cycle
+    specs = [f"f{i}.py.spec.md" for i in range(5)]
+    graph = {specs[i]: {specs[(i + 1) % 5]} for i in range(5)}
+    batches = _compute_parallel_batches(entries, graph, max_batch_size=2)
+    total = sum(len(b) for b in batches)
+    assert total == 5
+    for batch in batches:
+        assert len(batch) <= 2
 
 
 # ── Resume Sync Plan (v0.11.12) ─────────────────────────────────────────────
