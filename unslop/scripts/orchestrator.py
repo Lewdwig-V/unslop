@@ -619,9 +619,47 @@ def get_registry_key_for_spec(source_spec: str) -> str:
     return re.sub(r"\.spec\.md$", "", source_spec)
 
 
-def compute_concrete_deps_hash(impl_path: str, project_root: str) -> str | None:
-    """Compute a combined hash of all strategy providers (deps + parents).
+def _gather_recursive_providers(
+    root: Path, meta: dict, seen: set | None = None,
+) -> list[str]:
+    """Recursively gather all strategy provider content from the full DAG.
 
+    Walks concrete-dependencies and extends transitively, returning a
+    sorted list of ``path:hash`` entries for every node in the tree.
+    The ``seen`` set prevents infinite loops on circular references.
+    """
+    if seen is None:
+        seen = set()
+
+    entries = []
+    providers = get_all_strategy_providers(meta)
+
+    for dep_path in sorted(providers):
+        if dep_path in seen:
+            continue
+        seen.add(dep_path)
+
+        dep_full = root / dep_path
+        if dep_full.exists():
+            try:
+                dep_content = dep_full.read_text(encoding="utf-8")
+                entries.append(f"{dep_path}:{compute_hash(dep_content)}")
+                # Recurse into this provider's own upstream
+                dep_meta = parse_concrete_frontmatter(dep_content)
+                entries.extend(_gather_recursive_providers(root, dep_meta, seen))
+            except (OSError, UnicodeDecodeError):
+                entries.append(f"{dep_path}:unreadable")
+        else:
+            entries.append(f"{dep_path}:missing")
+
+    return entries
+
+
+def compute_concrete_deps_hash(impl_path: str, project_root: str) -> str | None:
+    """Compute a deep hash of all transitive strategy providers.
+
+    Recursively walks concrete-dependencies and extends chains so that
+    a change to a grandparent spec correctly invalidates all descendants.
     Returns a 12-char hex hash, or None if no strategy providers exist.
     """
     impl = Path(impl_path)
@@ -639,18 +677,7 @@ def compute_concrete_deps_hash(impl_path: str, project_root: str) -> str | None:
         return None
 
     root = Path(project_root).resolve()
-    combined = []
-    for dep_path in providers:
-        dep_full = root / dep_path
-        if dep_full.exists():
-            try:
-                dep_content = dep_full.read_text(encoding="utf-8")
-                combined.append(f"{dep_path}:{compute_hash(dep_content)}")
-            except (OSError, UnicodeDecodeError):
-                combined.append(f"{dep_path}:unreadable")
-        else:
-            combined.append(f"{dep_path}:missing")
-
+    combined = _gather_recursive_providers(root, meta)
     return compute_hash("\n".join(combined))
 
 

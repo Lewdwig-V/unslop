@@ -2001,3 +2001,171 @@ def test_flatten_cli_without_flag(tmp_path):
     assert result.returncode == 0
     data = json.loads(result.stdout)
     assert "flattened" not in data
+
+
+# --- Deep Inheritance Staleness Tests ---
+
+def test_deep_hash_changes_on_grandparent_edit(tmp_path):
+    """Hash should change when a grandparent spec is modified."""
+    # grand -> parent -> child
+    (tmp_path / "grand.impl.md").write_text(
+        "---\nsource-spec: grand.spec.md\nephemeral: false\n---\n\n"
+        "## Strategy\nGlobal RETRY_PRECISION = 1ms.\n"
+    )
+    (tmp_path / "parent.impl.md").write_text(
+        "---\nsource-spec: parent.spec.md\nephemeral: false\n"
+        "extends: grand.impl.md\n---\n\n"
+        "## Strategy\nParent retry logic.\n"
+    )
+    (tmp_path / "child.impl.md").write_text(
+        "---\nsource-spec: child.spec.md\nephemeral: false\n"
+        "extends: parent.impl.md\n---\n\n"
+        "## Strategy\nChild handler.\n"
+    )
+
+    h1 = compute_concrete_deps_hash(str(tmp_path / "child.impl.md"), str(tmp_path))
+    assert h1 is not None
+
+    # Change grandparent
+    (tmp_path / "grand.impl.md").write_text(
+        "---\nsource-spec: grand.spec.md\nephemeral: false\n---\n\n"
+        "## Strategy\nGlobal RETRY_PRECISION = 5ms.\n"
+    )
+
+    h2 = compute_concrete_deps_hash(str(tmp_path / "child.impl.md"), str(tmp_path))
+    assert h2 is not None
+    assert h1 != h2, "Hash should change when grandparent strategy changes"
+
+
+def test_deep_hash_changes_on_transitive_dep(tmp_path):
+    """Hash should change when a dependency's dependency changes."""
+    # base_math -> pool (dep) -> handler (dep)
+    (tmp_path / "base_math.impl.md").write_text(
+        "---\nsource-spec: base_math.spec.md\nephemeral: false\n---\n\n"
+        "## Strategy\nMath utils v1.\n"
+    )
+    (tmp_path / "pool.impl.md").write_text(
+        "---\nsource-spec: pool.spec.md\nephemeral: false\n"
+        "concrete-dependencies:\n  - base_math.impl.md\n---\n\n"
+        "## Strategy\nPool using math.\n"
+    )
+    (tmp_path / "handler.impl.md").write_text(
+        "---\nsource-spec: handler.spec.md\nephemeral: false\n"
+        "concrete-dependencies:\n  - pool.impl.md\n---\n\n"
+        "## Strategy\nHandler using pool.\n"
+    )
+
+    h1 = compute_concrete_deps_hash(str(tmp_path / "handler.impl.md"), str(tmp_path))
+
+    # Change the transitive dependency
+    (tmp_path / "base_math.impl.md").write_text(
+        "---\nsource-spec: base_math.spec.md\nephemeral: false\n---\n\n"
+        "## Strategy\nMath utils v2 with overflow protection.\n"
+    )
+
+    h2 = compute_concrete_deps_hash(str(tmp_path / "handler.impl.md"), str(tmp_path))
+    assert h1 != h2, "Hash should change when transitive dep changes"
+
+
+def test_deep_hash_stable_without_changes(tmp_path):
+    """Hash should be stable when nothing changes."""
+    (tmp_path / "grand.impl.md").write_text(
+        "---\nsource-spec: grand.spec.md\nephemeral: false\n---\n\n"
+        "## Strategy\nGrand.\n"
+    )
+    (tmp_path / "child.impl.md").write_text(
+        "---\nsource-spec: child.spec.md\nephemeral: false\n"
+        "extends: grand.impl.md\n---\n\n"
+        "## Strategy\nChild.\n"
+    )
+
+    h1 = compute_concrete_deps_hash(str(tmp_path / "child.impl.md"), str(tmp_path))
+    h2 = compute_concrete_deps_hash(str(tmp_path / "child.impl.md"), str(tmp_path))
+    assert h1 == h2
+
+
+def test_deep_hash_handles_cycle(tmp_path):
+    """Recursive hashing should not infinite-loop on cycles."""
+    (tmp_path / "a.impl.md").write_text(
+        "---\nsource-spec: a.spec.md\nephemeral: false\n"
+        "concrete-dependencies:\n  - b.impl.md\n---\n\n"
+        "## Strategy\nA.\n"
+    )
+    (tmp_path / "b.impl.md").write_text(
+        "---\nsource-spec: b.spec.md\nephemeral: false\n"
+        "concrete-dependencies:\n  - a.impl.md\n---\n\n"
+        "## Strategy\nB.\n"
+    )
+
+    # Should not hang — seen set prevents re-visiting
+    h = compute_concrete_deps_hash(str(tmp_path / "a.impl.md"), str(tmp_path))
+    assert h is not None
+
+
+def test_check_freshness_deep_ghost_stale(tmp_path):
+    """Integration: grandparent change should ghost-stale the child managed file."""
+    # grand -> parent (extends) -> child (extends)
+    (tmp_path / "grand.impl.md").write_text(
+        "---\nsource-spec: grand.spec.md\nephemeral: false\n---\n\n"
+        "## Strategy\nGrand strategy v1.\n"
+    )
+    (tmp_path / "parent.py.impl.md").write_text(
+        "---\nsource-spec: parent.py.spec.md\nephemeral: false\n"
+        "extends: grand.impl.md\n---\n\n"
+        "## Strategy\nParent strategy.\n"
+    )
+    (tmp_path / "child.py.impl.md").write_text(
+        "---\nsource-spec: child.py.spec.md\nephemeral: false\n"
+        "extends: parent.py.impl.md\n---\n\n"
+        "## Strategy\nChild strategy.\n"
+    )
+
+    # Spec files
+    spec = "# Spec\n\n## Behavior\nDo things.\nMore detail.\n"
+    (tmp_path / "parent.py.spec.md").write_text(spec)
+    (tmp_path / "child.py.spec.md").write_text(spec)
+
+    sh = compute_hash(spec)
+    parent_body = "def parent(): pass\n"
+    child_body = "def child(): pass\n"
+    parent_oh = compute_hash(parent_body)
+    child_oh = compute_hash(child_body)
+
+    parent_cdh = compute_concrete_deps_hash(str(tmp_path / "parent.py.impl.md"), str(tmp_path))
+    child_cdh = compute_concrete_deps_hash(str(tmp_path / "child.py.impl.md"), str(tmp_path))
+
+    (tmp_path / "parent.py").write_text(
+        f"# @unslop-managed — do not edit directly. Edit parent.py.spec.md instead.\n"
+        f"# spec-hash:{sh} output-hash:{parent_oh} concrete-deps-hash:{parent_cdh}"
+        f" generated:2026-03-23T00:00:00Z\n" + parent_body
+    )
+    (tmp_path / "child.py").write_text(
+        f"# @unslop-managed — do not edit directly. Edit child.py.spec.md instead.\n"
+        f"# spec-hash:{sh} output-hash:{child_oh} concrete-deps-hash:{child_cdh}"
+        f" generated:2026-03-23T00:00:00Z\n" + child_body
+    )
+
+    # Verify fresh
+    result = check_freshness(str(tmp_path))
+    child_entry = [f for f in result["files"] if f["managed"] == "child.py"]
+    assert len(child_entry) == 1
+    assert child_entry[0]["state"] == "fresh"
+
+    # Change grandparent
+    (tmp_path / "grand.impl.md").write_text(
+        "---\nsource-spec: grand.spec.md\nephemeral: false\n---\n\n"
+        "## Strategy\nGrand strategy v2 — changed precision.\n"
+    )
+
+    # Both parent and child should be ghost-stale
+    result = check_freshness(str(tmp_path))
+    child_entry = [f for f in result["files"] if f["managed"] == "child.py"]
+    parent_entry = [f for f in result["files"] if f["managed"] == "parent.py"]
+    assert len(child_entry) == 1
+    assert child_entry[0]["state"] == "ghost-stale", (
+        f"Expected ghost-stale for child after grandparent change, got: {child_entry[0]}"
+    )
+    assert len(parent_entry) == 1
+    assert parent_entry[0]["state"] == "ghost-stale", (
+        f"Expected ghost-stale for parent after grandparent change, got: {parent_entry[0]}"
+    )
