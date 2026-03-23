@@ -34,8 +34,8 @@ def _extract_public_symbols(source: str) -> set[str]:
             for target in node.targets:
                 if isinstance(target, ast.Name):
                     name = target.id
-                    # UPPER_CASE: all alpha chars are uppercase, at least one alpha
-                    if name == name.upper() and any(c.isalpha() for c in name):
+                    # UPPER_CASE: all alpha chars are uppercase, at least one alpha, not private
+                    if not name.startswith("_") and name == name.upper() and any(c.isalpha() for c in name):
                         symbols.add(name)
     return symbols
 

@@ -148,3 +148,75 @@ def test_cli_symbol_audit():
     finally:
         os.unlink(orig)
         os.unlink(gen)
+
+
+def test_empty_files_pass():
+    """Both files empty -> pass with no symbols."""
+    orig = _write_tmp("")
+    gen = _write_tmp("")
+    try:
+        result = audit_symbols(orig, gen)
+        assert result["status"] == "pass"
+        assert result["missing"] == []
+        assert result["original_symbols"] == []
+    finally:
+        os.unlink(orig)
+        os.unlink(gen)
+
+
+def test_empty_generated_fails():
+    """Original has symbols, generated is empty -> fail."""
+    orig = _write_tmp("def foo(): pass\n")
+    gen = _write_tmp("")
+    try:
+        result = audit_symbols(orig, gen)
+        assert result["status"] == "fail"
+        assert "foo" in result["missing"]
+    finally:
+        os.unlink(orig)
+        os.unlink(gen)
+
+
+def test_async_function_tracked():
+    """Async functions are public symbols."""
+    orig = _write_tmp("async def fetch(): pass\n")
+    gen = _write_tmp("def other(): pass\n")
+    try:
+        result = audit_symbols(orig, gen)
+        assert result["status"] == "fail"
+        assert "fetch" in result["missing"]
+    finally:
+        os.unlink(orig)
+        os.unlink(gen)
+
+
+def test_syntax_error_in_generated():
+    """Unparseable generated file -> error with 'generated' hint."""
+    orig = _write_tmp("def foo(): pass\n")
+    gen = _write_tmp("def broken(")
+    try:
+        result = audit_symbols(orig, gen)
+        assert result["status"] == "error"
+        assert "generated" in result["hint"].lower()
+    finally:
+        os.unlink(orig)
+        os.unlink(gen)
+
+
+def test_file_not_found():
+    """Nonexistent file -> error result, not crash."""
+    result = audit_symbols("/nonexistent/file.py", "/also/nonexistent.py")
+    assert result["status"] == "error"
+
+
+def test_private_constant_ignored():
+    """Constants starting with _ are private and not tracked."""
+    orig = _write_tmp("MAX_RETRIES = 3\n_INTERNAL_LIMIT = 10\n")
+    gen = _write_tmp("MAX_RETRIES = 3\n")
+    try:
+        result = audit_symbols(orig, gen)
+        assert result["status"] == "pass"
+        assert "_INTERNAL_LIMIT" not in result["original_symbols"]
+    finally:
+        os.unlink(orig)
+        os.unlink(gen)
