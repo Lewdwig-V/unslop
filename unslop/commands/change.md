@@ -99,8 +99,16 @@ The `[description or elaborated body]` should be the description text as provide
 
 **If `--tactical` was passed**, execute the two-stage tactical flow immediately:
 
+**5a. Check diagnostic cache**
+
+Check for `.unslop/last-failure/<cache-key>.md`. If a failure report exists, surface a one-liner before proceeding:
+
+> "Resuming from previous failure: [one-line summary of top suspected spec gap]. Ask to review full post-mortem."
+
+Inject the failure report contents as "Previous Attempt Post-Mortem" context for the Architect in Stage A.
+
 **Stage A (Architect -- current session):**
-1. Read the current spec, `.unslop/principles.md` (if it exists), and the file tree (`python ${CLAUDE_PLUGIN_ROOT}/scripts/orchestrator.py file-tree .`). Do NOT read the managed source file.
+1. Read the current spec, `.unslop/principles.md` (if it exists), the file tree (`python ${CLAUDE_PLUGIN_ROOT}/scripts/orchestrator.py file-tree .`), and the previous failure report (if injected from Step 5a). Do NOT read the managed source file.
 2. Based on the change intent, propose a spec update that captures the change in the spec's constraints/behavior language. Do not describe implementation -- describe intent.
 3. Present the draft spec update to the user for approval.
 4. If approved: apply the spec update to the spec file, stage it (`git add <spec_path>`). Do NOT commit.

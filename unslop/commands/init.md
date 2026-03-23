@@ -4,7 +4,7 @@ description: Initialize unslop in the current project
 
 Check if `.unslop/` already exists in the current working directory.
 
-If it exists: inform the user that unslop is already initialized and ask if they want to re-detect the test command. If yes, skip to the detection step and overwrite `.unslop/config.json`. If no, stop.
+If it exists: check `.unslop/.gitignore` for missing entries (`last-failure/`). If any are missing, append them silently. Then inform the user that unslop is already initialized and ask if they want to re-detect the test command. If yes, skip to the detection step and overwrite `.unslop/config.json`. If no, stop.
 
 If it does not exist, proceed with the following steps:
 
@@ -17,6 +17,7 @@ Create `.unslop/` and `.unslop/archive/`.
 Contents:
 ```
 archive/
+last-failure/
 feedback.md
 ```
 

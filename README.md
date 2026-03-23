@@ -47,14 +47,14 @@ Creates `.unslop/` with your test command, optional project principles, framewor
 Write a spec, generate the code.
 
 ```
-/unslop:spec src/retry.py           # create the spec
-# edit src/retry.py.spec.md with your intent
-/unslop:sync src/retry.py           # generate code from the spec
+/unslop:spec src/retry.py           # create a skeleton spec (file doesn't need to exist)
+# fill in src/retry.py.spec.md with your intent
+/unslop:generate                    # generate code from specs
 ```
 
-The generated file is marked managed. From here, you maintain the spec. `unslop` maintains the code.
+`/unslop:spec` creates the spec file for you -- even when the source file doesn't exist yet. Fill it with your requirements, then `/unslop:generate` builds all managed files in dependency order.
 
-For multiple related files, write specs with `depends-on` frontmatter to declare relationships, then `/unslop:generate` to build everything in dependency order.
+For multiple related files, write specs with `depends-on` frontmatter to declare relationships. `/unslop:generate` resolves the build order automatically.
 
 ### Path 2: Rescue (existing prototype, bring it under harness)
 

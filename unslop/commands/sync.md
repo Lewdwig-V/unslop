@@ -31,6 +31,14 @@ Check if any dependencies are stale or conflict (using hash-based classification
 
 If Python is not available and the spec has no `depends-on` frontmatter, proceed without dependency resolution (backwards compatible). If the spec has dependencies but Python is unavailable, report an error: "This spec has dependencies that require Python 3.8+ for resolution."
 
+**2c. Check diagnostic cache**
+
+Check for `.unslop/last-failure/<cache-key>.md` where `<cache-key>` is the spec path with `/` replaced by `--`. If a failure report exists, surface a one-liner before proceeding:
+
+> "Resuming from previous failure: [one-line summary of top suspected spec gap]. Ask to review full post-mortem."
+
+Inject the failure report contents into the Builder's prompt via the `{previous_failure}` parameter (see generation skill).
+
 **3. Classify and dispatch**
 
 Classify the target file using hash-based logic (same as `/unslop:generate`):

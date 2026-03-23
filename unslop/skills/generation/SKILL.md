@@ -51,6 +51,8 @@ Agent(
     Target spec: {spec_path}
     Test command: {test_command}
 
+    {previous_failure}
+
     Instructions:
     1. Read the spec at {spec_path}
     2. Read .unslop/principles.md if it exists
@@ -66,6 +68,10 @@ Agent(
 )
 ```
 
+**`{previous_failure}` value:**
+- If `.unslop/last-failure/<cache-key>.md` exists: `"Previous Implementation Failure:\n<contents of the failure report>"`. The Builder uses this to avoid repeating the same implementation choice.
+- If no failure report exists: empty string (omitted from prompt).
+
 **`{test_policy}` values by originating command:**
 - **takeover:** `"Write or extend tests as needed for newly explicit constraints"`
 - **generate / sync:** `"Do NOT create or modify test files. Use existing tests for validation only"`
@@ -78,13 +84,14 @@ After the Builder Agent completes:
 2. If DONE with green tests: Claude Code handles worktree merge automatically
 3. Compute `output-hash` on merged code, update `@unslop-managed` header
 4. Commit the staged spec update + merged code as a single atomic commit
-5. If DONE_WITH_CONCERNS: surface concerns as a one-liner after the commit:
+5. Delete `.unslop/last-failure/<cache-key>.md` if it exists (previous failure is now resolved)
+6. If DONE_WITH_CONCERNS: surface concerns as a one-liner after the commit:
 
 > "Generation complete. Tests green. N concern(s) flagged -- run `/unslop:harden` or ask to review."
 
 Do NOT auto-expand the concerns list. The user chooses when to engage.
 
-If BLOCKED or tests fail: discard the worktree AND revert the staged spec update (`git checkout HEAD -- <spec_path>`). Main branch is untouched.
+If BLOCKED or tests fail: discard the worktree AND revert the staged spec update (`git checkout HEAD -- <spec_path>`). Main branch is untouched. Write the Builder's failure report to the diagnostic cache (see below).
 
 ### Builder Failure Reports
 
@@ -104,6 +111,30 @@ When the Builder reports BLOCKED or test failures, it must provide a structured 
 ```
 
 The Builder identifies gaps only -- it does NOT suggest spec language. The Architect decides how to constrain gaps because it thinks in requirements, not code.
+
+### Diagnostic Cache (`.unslop/last-failure/`)
+
+When a Builder fails (BLOCKED or test failures), the controlling session writes the structured failure report to disk:
+
+**Path:** `.unslop/last-failure/<cache-key>.md` where `<cache-key>` is the spec's path relative to the project root with `/` replaced by `--` (e.g., `src/retry.py.spec.md` -> `.unslop/last-failure/src--retry.py.spec.md.md`). This prevents collisions between specs with the same filename in different directories.
+
+**Write:** After discarding the worktree and reverting the staged spec, create `.unslop/last-failure/` if it does not exist, then write the Builder's failure report (Failing Tests, What Was Attempted, Suspected Spec Gaps) to the cache file. Overwrite any existing report for the same spec.
+
+**Read:** Before dispatching any Builder or entering Stage A, the controlling command checks for `.unslop/last-failure/<cache-key>.md`. This check runs at the command level -- before worktree creation, before any agent dispatch. If a report exists:
+
+1. **Surface to user:** Always display a one-liner:
+
+> "Resuming from previous failure: [one-line summary of top suspected spec gap]. Ask to review full post-mortem."
+
+2. **Route to the right stage:**
+   - **Commands with Stage A** (`/unslop:change`, `/unslop:takeover`): Inject the report as "Previous Attempt Post-Mortem" context for the Architect. The Architect uses it to inform the spec patch -- it must not ignore this context.
+   - **Commands without Stage A** (`/unslop:generate`, `/unslop:sync`): Inject the report into the Builder's worktree prompt as "Previous Implementation Failure." The Builder uses it to avoid repeating the same implementation choice that failed.
+
+The read does not block -- the command proceeds to its normal flow after acknowledging. But it fires before anything else, ensuring the failure context is the first thing in the agent's window.
+
+**Delete:** Only on Builder success. After the atomic commit (spec + code), delete the cache file for that spec. If the user cancels the Architect stage or abandons the run, the report persists for the next attempt.
+
+**Cleanup:** `.unslop/last-failure/` is excluded from version control via `.unslop/.gitignore`. These are transient execution diagnostics, not project history.
 
 ### Convergence Loop
 
