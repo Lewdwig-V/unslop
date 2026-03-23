@@ -516,6 +516,79 @@ def test_cli_cycle_error_json(tmp_path):
     assert "cycle" in err_obj["error"].lower()
 
 
+def test_cli_bulk_sync_plan(tmp_path):
+    """CLI bulk-sync-plan should return valid JSON with batches."""
+    (tmp_path / ".unslop").mkdir()
+
+    # Create two independent stale files
+    for name in ("alpha.py", "beta.py"):
+        spec_name = f"{name}.spec.md"
+        (tmp_path / spec_name).write_text(f"# {name}\n")
+        body = f"# {name} code\n"
+        sh = compute_hash(f"# {name}\n")
+        oh = compute_hash(body)
+        (tmp_path / name).write_text(
+            f"# @unslop-managed — do not edit directly. Edit {spec_name} instead.\n"
+            f"# spec-hash:{sh} output-hash:{oh} generated:2026-03-23T00:00:00Z\n"
+            + body
+        )
+
+    # Make both stale
+    (tmp_path / "alpha.py.spec.md").write_text("# alpha v2\n")
+    (tmp_path / "beta.py.spec.md").write_text("# beta v2\n")
+
+    proc = _run_cli("bulk-sync-plan", "--root", str(tmp_path))
+    assert proc.returncode == 0, f"stderr: {proc.stderr}"
+    result = json.loads(proc.stdout)
+    assert "batches" in result
+    assert result["stats"]["to_regenerate"] == 2
+    assert result["stats"]["total_batches"] >= 1
+
+
+def test_cli_bulk_sync_plan_max_batch(tmp_path):
+    """CLI bulk-sync-plan --max-batch should limit batch size."""
+    (tmp_path / ".unslop").mkdir()
+
+    for i in range(4):
+        name = f"f{i}.py"
+        spec_name = f"{name}.spec.md"
+        (tmp_path / spec_name).write_text(f"# f{i}\n")
+        body = f"# f{i} code\n"
+        sh = compute_hash(f"# f{i}\n")
+        oh = compute_hash(body)
+        (tmp_path / name).write_text(
+            f"# @unslop-managed — do not edit directly. Edit {spec_name} instead.\n"
+            f"# spec-hash:{sh} output-hash:{oh} generated:2026-03-23T00:00:00Z\n"
+            + body
+        )
+        (tmp_path / spec_name).write_text(f"# f{i} v2\n")
+
+    proc = _run_cli("bulk-sync-plan", "--root", str(tmp_path), "--max-batch", "2")
+    assert proc.returncode == 0
+    result = json.loads(proc.stdout)
+    for batch in result["batches"]:
+        assert batch["size"] <= 2
+
+
+def test_cli_bulk_sync_plan_empty(tmp_path):
+    """CLI bulk-sync-plan should return zero batches when all fresh."""
+    (tmp_path / ".unslop").mkdir()
+    spec = "# Fresh\n"
+    (tmp_path / "a.py.spec.md").write_text(spec)
+    body = "def a(): pass\n"
+    sh = compute_hash(spec)
+    oh = compute_hash(body)
+    (tmp_path / "a.py").write_text(
+        f"# @unslop-managed — do not edit directly. Edit a.py.spec.md instead.\n"
+        f"# spec-hash:{sh} output-hash:{oh} generated:2026-03-23T00:00:00Z\n"
+        + body
+    )
+    proc = _run_cli("bulk-sync-plan", "--root", str(tmp_path))
+    assert proc.returncode == 0
+    result = json.loads(proc.stdout)
+    assert result["stats"]["total_batches"] == 0
+
+
 def test_classify_unreadable_managed_file(tmp_path):
     """Binary/unreadable managed file should return error, not crash."""
     (tmp_path / "thing.py.spec.md").write_text("# spec\n\n## Behavior\nDoes stuff.\nMore.\n")
