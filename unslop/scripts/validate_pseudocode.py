@@ -6,12 +6,21 @@ import re
 import sys
 from pathlib import Path
 
-# Language-specific keywords that should not appear in pseudocode
-LANGUAGE_KEYWORDS = re.compile(
-    r'\b(def |func |fn |let |var |const |lambda |pub |use |mod |impl |struct |enum |package |async |await )'
-)
-LANGUAGE_KEYWORD_EXACT = re.compile(
-    r'\b(def|func|fn|let|var|const|lambda|=>)\b'
+# Language-specific tokens that must not appear in pseudocode.
+# Split into word-boundary tokens (alphanumeric) and operator tokens (symbols).
+_BANNED_KEYWORD_TOKENS = {
+    "def", "func", "fn", "let", "var", "const", "lambda",
+    "pub", "use", "mod", "impl", "struct", "enum", "package",
+    "async", "await", "class", "public", "private",
+    "match", "case",
+}
+_BANNED_OPERATOR_TOKENS = {"=>", "->"}
+
+# Build a single pattern: \b for keywords, re.escape for operators
+_kw_alt = "|".join(sorted(_BANNED_KEYWORD_TOKENS))
+_op_alt = "|".join(re.escape(t) for t in sorted(_BANNED_OPERATOR_TOKENS))
+BANNED_SYNTAX = re.compile(
+    r"(?:\b(?:" + _kw_alt + r")\b|" + _op_alt + r")"
 )
 
 # Dot-notation method calls (potential library puns)
@@ -101,17 +110,28 @@ def lint_pseudocode(blocks: list[dict]) -> tuple[list[dict], list[dict]]:
                             "message": "Bare assignment `=` — use `SET ... ←` or `... := ...`",
                         })
 
-            # Check 2: Language-specific keywords
-            if LANGUAGE_KEYWORD_EXACT.search(stripped):
-                match = LANGUAGE_KEYWORD_EXACT.search(stripped)
+            # Check 2: Language-specific keywords and operators
+            banned_match = BANNED_SYNTAX.search(stripped)
+            if banned_match:
+                token = banned_match.group()
+                if token in _BANNED_OPERATOR_TOKENS:
+                    msg = (
+                        f"Language-specific operator `{token}` — "
+                        "use pseudocode notation (← for assignment, "
+                        "FUNCTION for definitions)"
+                    )
+                else:
+                    msg = (
+                        f"Language-specific keyword `{token}` — "
+                        "use capitalized pseudocode keywords "
+                        "(FUNCTION, SET, IF, SWITCH/CASE, "
+                        "CALL ASYNC, WAIT FOR, etc.)"
+                    )
                 violations.append({
                     "line": line_num,
                     "check": "language_keyword",
                     "text": stripped,
-                    "message": (
-                        f"Language-specific keyword `{match.group()}` — "
-                        "use capitalized pseudocode keywords (FUNCTION, SET, IF, etc.)"
-                    ),
+                    "message": msg,
                 })
 
             # Check 3: Multi-statement lines
