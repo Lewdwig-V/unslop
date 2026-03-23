@@ -2831,7 +2831,8 @@ def file_tree(directory: str) -> list[str]:
 def main():
     """CLI entry point."""
     if len(sys.argv) < 2:
-        cmds = "discover|build-order|deps|check-freshness|concrete-order|concrete-deps|ripple-check|deep-sync-plan|bulk-sync-plan|graph|file-tree"
+        cmds = ("discover|build-order|deps|check-freshness|concrete-order"
+                "|concrete-deps|ripple-check|deep-sync-plan|bulk-sync-plan|graph|file-tree")
         print(f"Usage: orchestrator.py <{cmds}> [args]", file=sys.stderr)
         sys.exit(1)
 

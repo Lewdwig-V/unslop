@@ -2435,7 +2435,6 @@ def _make_managed_file(path, spec_path, body="pass"):
     """Helper to create a managed file with proper header."""
     from orchestrator import compute_hash
 
-    spec_content = path.parent.parent / spec_path if not isinstance(spec_path, str) else spec_path
     # Read the actual spec to compute hash
     spec_file = path.parent / spec_path if "/" not in str(spec_path) else path.parent.parent / spec_path
     # We'll compute hashes from content
@@ -3262,7 +3261,7 @@ def test_deep_sync_plan_modified_files_skipped(tmp_path):
     )
 
     # Without force, api.py should be in skipped (it's modified AND stale = conflict)
-    result = compute_deep_sync_plan("service.py", str(tmp_path))
+    compute_deep_sync_plan("service.py", str(tmp_path))
 
     # With force, all should be in plan
     result_force = compute_deep_sync_plan("service.py", str(tmp_path), force=True)
@@ -3929,7 +3928,6 @@ def test_bulk_sync_plan_skips_modified_without_force(tmp_path):
 
     result = compute_bulk_sync_plan(str(tmp_path))
     all_managed = [f["managed"] for b in result["batches"] for f in b["files"]]
-    skipped_managed = [f["managed"] for f in result["skipped"]]
 
     # service.py should be in plan, api.py (modified+stale=conflict) in skipped
     assert "service.py" in all_managed
