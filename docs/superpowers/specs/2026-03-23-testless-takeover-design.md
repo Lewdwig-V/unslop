@@ -80,6 +80,14 @@ This prevents the adversarial pipeline from generating tests that **protect bugs
 
 **User approves all three artifacts** before proceeding. Legacy smells are surfaced explicitly -- the user decides whether to preserve or discard each one.
 
+**Bias risk:** Flagging a behaviour as a "legacy smell" biases the user toward discarding it. The Architect must present smells neutrally: "This behaviour contradicts principle X. Preserve or discard?" -- not "This is a bug, discard it?" The user may have a legitimate reason to keep the behaviour (e.g., the principle is wrong for this context, or the "bug" is a deliberate workaround).
+
+#### Observable Behaviour Preservation
+
+During Lift 2, the Architect must apply the **observable test** to every algorithmic choice: if two implementations produce different outputs for the same inputs, the choice is observable and must be **pinned in the spec** or **flagged as a Behavioural Upgrade** with rationale. Silent substitution of a different strategy (e.g., upgrading half-jitter to full-jitter) is a spec defect.
+
+The behaviour YAML must also reflect the original observable behaviour. If the Architect wants to change it, the constraint must use the new value AND the spec must document the upgrade with rationale.
+
 ### Phase 2: Generate with Snapshot Lockdown (existing takeover Steps 3-4, modified)
 
 ```

@@ -80,9 +80,12 @@ From the Concrete Spec (and the original code/tests), extract the **observable b
 
 **Do NOT copy implementation details into the abstract spec.** The Concrete Spec captures the "How" — the Abstract Spec captures only the "What" and "Why." Algorithms, data structures, variable names, and internal control flow belong in the Concrete Spec or in code, not in the Abstract Spec.
 
-The two-phase raising makes this extraction more accurate: the Architect can reference the Concrete Spec to distinguish between:
+The two-phase raising makes this extraction more accurate: the Architect can reference the Concrete Spec to distinguish between three categories:
 - **Intentional algorithmic choices** (e.g., "uses exponential backoff" → constraint in Abstract Spec: "must prevent thundering herds")
+- **Observable algorithmic behaviour** (e.g., "jitter range is [0.5*delay, delay]" → pin in Abstract Spec unless there's a reason to change it). During takeover, algorithmic choices that produce **observable differences in output** must be preserved by default. If the Architect wants to change them (e.g., upgrading half-jitter to full-jitter), it must flag the change explicitly as a **Behavioural Upgrade** with rationale, not silently substitute a different strategy. The user decides whether to preserve or upgrade.
 - **Incidental implementation details** (e.g., "uses a dict for caching" → omit from Abstract Spec, leave to Builder)
+
+**The "observable" test:** If two implementations produce different outputs for the same inputs, the choice between them is observable and must be pinned or flagged. If they produce identical outputs, the choice is incidental and can be left to the Builder. During takeover, when in doubt, pin it -- under-abstraction is safer than silent behaviour change.
 
 Present the draft Abstract Spec to the user:
 

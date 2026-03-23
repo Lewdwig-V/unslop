@@ -28,6 +28,9 @@ REQUIRED_TOP_LEVEL = {"behaviour", "interface"}
 OPTIONAL_TOP_LEVEL = {"constraints", "invariants", "errors", "properties", "depends_on", "notes"}
 ALL_TOP_LEVEL = REQUIRED_TOP_LEVEL | OPTIONAL_TOP_LEVEL
 
+# Multi-behaviour format: top-level "behaviours" holds a list of behaviour blocks
+MULTI_TOP_LEVEL = {"behaviours", "depends_on", "notes"}
+
 CONSTRAINT_TYPES = {"given", "when", "then", "invariant", "error", "property"}
 
 INTERFACE_PATTERN = re.compile(r"^[a-zA-Z_][a-zA-Z0-9_]*(\.[a-zA-Z_][a-zA-Z0-9_]*)*(:[a-zA-Z_][a-zA-Z0-9_]*)?$")
@@ -135,28 +138,11 @@ def _parse_behaviour_yaml(content: str) -> tuple[dict | None, str | None]:
 # ---------------------------------------------------------------------------
 
 
-def validate_behaviour(content: str, file_path: str) -> dict:
-    """Validate a behaviour YAML file against the DSL schema.
-
-    Returns a dict with status, issues, and warnings.
-    """
+def _validate_single_block(parsed: dict, file_path: str, block_label: str = "") -> tuple[list, list]:
+    """Validate a single behaviour block. Returns (issues, warnings)."""
     issues = []
     warnings = []
-
-    if not content.strip():
-        return {
-            "status": "fail",
-            "file_path": file_path,
-            "issues": [{"check": "empty_file", "message": "Behaviour file is empty"}],
-        }
-
-    parsed, parse_error = _parse_behaviour_yaml(content)
-    if parse_error:
-        return {
-            "status": "fail",
-            "file_path": file_path,
-            "issues": [{"check": "parse_error", "message": parse_error}],
-        }
+    prefix = f"[{block_label}] " if block_label else ""
 
     # Check required fields
     for field in REQUIRED_TOP_LEVEL:
@@ -165,18 +151,18 @@ def validate_behaviour(content: str, file_path: str) -> dict:
                 {
                     "check": "missing_required_field",
                     "field": field,
-                    "message": f"Required field '{field}' is missing",
+                    "message": f"{prefix}Required field '{field}' is missing",
                 }
             )
 
-    # Check unknown fields
+    # Check unknown fields (allow multi-format shared fields)
     for field in parsed:
         if field not in ALL_TOP_LEVEL:
             warnings.append(
                 {
                     "check": "unknown_field",
                     "field": field,
-                    "message": f"Unknown top-level field '{field}' — will be ignored",
+                    "message": f"{prefix}Unknown field '{field}' — will be ignored",
                 }
             )
 
@@ -189,7 +175,7 @@ def validate_behaviour(content: str, file_path: str) -> dict:
                     "check": "invalid_interface",
                     "value": iface,
                     "message": (
-                        f"Interface '{iface}' does not match expected pattern 'module.path:function_name' or 'module.path'"
+                        f"{prefix}Interface '{iface}' does not match pattern 'module.path:function_name' or 'module.path'"
                     ),
                 }
             )
@@ -201,7 +187,7 @@ def validate_behaviour(content: str, file_path: str) -> dict:
             issues.append(
                 {
                     "check": "constraints_not_list",
-                    "message": "constraints must be a list of typed entries",
+                    "message": f"{prefix}constraints must be a list of typed entries",
                 }
             )
         else:
@@ -215,7 +201,7 @@ def validate_behaviour(content: str, file_path: str) -> dict:
                                     "index": idx,
                                     "type": c_type,
                                     "message": (
-                                        f"Constraint #{idx + 1} has unknown type '{c_type}'. "
+                                        f"{prefix}Constraint #{idx + 1} has unknown type '{c_type}'. "
                                         f"Expected one of: {', '.join(sorted(CONSTRAINT_TYPES))}"
                                     ),
                                 }
@@ -227,7 +213,7 @@ def validate_behaviour(content: str, file_path: str) -> dict:
                                     "check": "empty_constraint",
                                     "index": idx,
                                     "type": c_type,
-                                    "message": f"Constraint #{idx + 1} ({c_type}) has empty value",
+                                    "message": f"{prefix}Constraint #{idx + 1} ({c_type}) has empty value",
                                 }
                             )
                 elif isinstance(constraint, str):
@@ -237,7 +223,7 @@ def validate_behaviour(content: str, file_path: str) -> dict:
                             "check": "untyped_constraint",
                             "index": idx,
                             "message": (
-                                f"Constraint #{idx + 1} is untyped. "
+                                f"{prefix}Constraint #{idx + 1} is untyped. "
                                 f"Use typed form: '- given: \"condition\"' for machine-enforceability."
                             ),
                         }
@@ -247,7 +233,7 @@ def validate_behaviour(content: str, file_path: str) -> dict:
                         {
                             "check": "invalid_constraint",
                             "index": idx,
-                            "message": f"Constraint #{idx + 1} has unexpected type {type(constraint).__name__}",
+                            "message": f"{prefix}Constraint #{idx + 1} has unexpected type {type(constraint).__name__}",
                         }
                     )
 
@@ -258,7 +244,7 @@ def validate_behaviour(content: str, file_path: str) -> dict:
             issues.append(
                 {
                     "check": "errors_not_list",
-                    "message": "errors must be a list",
+                    "message": f"{prefix}errors must be a list",
                 }
             )
 
@@ -269,7 +255,7 @@ def validate_behaviour(content: str, file_path: str) -> dict:
             issues.append(
                 {
                     "check": "invariants_not_list",
-                    "message": "invariants must be a list",
+                    "message": f"{prefix}invariants must be a list",
                 }
             )
 
@@ -281,11 +267,112 @@ def validate_behaviour(content: str, file_path: str) -> dict:
         issues.append(
             {
                 "check": "no_behavioural_content",
-                "message": ("Behaviour spec must define at least one of: constraints, invariants, errors, or properties"),
+                "message": (
+                    f"{prefix}Behaviour block must define at least one of: constraints, invariants, errors, or properties"
+                ),
             }
         )
 
-    result = {"file_path": file_path}
+    return issues, warnings
+
+
+def _split_multi_behaviour(content: str) -> list[str]:
+    """Split a multi-behaviour file into individual block strings.
+
+    A multi-behaviour file uses top-level behaviour names (zero indent,
+    ending with colon, matching an identifier pattern) as block delimiters.
+    Each block runs from its header line to the line before the next header
+    (or end of file).
+    """
+    lines = content.split("\n")
+    blocks = []
+    current_lines: list[str] = []
+    # Skip leading shared fields (depends_on, notes) before first block
+    in_preamble = True
+
+    for line in lines:
+        stripped = line.strip()
+        indent = len(line) - len(line.lstrip()) if stripped else 0
+
+        if indent == 0 and stripped and ":" in stripped:
+            key = stripped.split(":")[0].strip()
+            if key == "behaviour":
+                # Start of a new block
+                if current_lines and not in_preamble:
+                    blocks.append("\n".join(current_lines))
+                current_lines = [line]
+                in_preamble = False
+                continue
+
+        if not in_preamble:
+            current_lines.append(line)
+        # Preamble lines (before first "behaviour:") are discarded from blocks
+        # but we'll parse them separately for shared fields
+
+    if current_lines:
+        blocks.append("\n".join(current_lines))
+
+    return blocks
+
+
+def validate_behaviour(content: str, file_path: str) -> dict:
+    """Validate a behaviour YAML file against the DSL schema.
+
+    Supports two formats:
+    - Single-behaviour: top-level `behaviour:` + `interface:` (original format)
+    - Multi-behaviour: multiple `behaviour:` blocks in one file, each with its
+      own `interface:`, `constraints:`, etc. Blocks are delimited by top-level
+      `behaviour:` keys.
+
+    Returns a dict with status, issues, and warnings.
+    """
+    issues = []
+    warnings = []
+
+    if not content.strip():
+        return {
+            "status": "fail",
+            "file_path": file_path,
+            "issues": [{"check": "empty_file", "message": "Behaviour file is empty"}],
+        }
+
+    # Detect multi-behaviour format: more than one "behaviour:" at zero indent
+    behaviour_count = sum(
+        1 for line in content.split("\n") if line.strip().startswith("behaviour:") and (len(line) - len(line.lstrip())) == 0
+    )
+
+    if behaviour_count > 1:
+        # Multi-behaviour format
+        blocks = _split_multi_behaviour(content)
+        if not blocks:
+            issues.append({"check": "no_blocks", "message": "Multi-behaviour file has no parseable blocks"})
+        else:
+            for i, block_content in enumerate(blocks):
+                parsed, parse_error = _parse_behaviour_yaml(block_content)
+                if parse_error:
+                    issues.append({"check": "parse_error", "block": i + 1, "message": f"Block #{i + 1}: {parse_error}"})
+                    continue
+                label = parsed.get("behaviour", f"block #{i + 1}")
+                block_issues, block_warnings = _validate_single_block(parsed, file_path, block_label=label)
+                issues.extend(block_issues)
+                warnings.extend(block_warnings)
+
+        result = {"file_path": file_path, "format": "multi", "block_count": len(blocks)}
+    else:
+        # Single-behaviour format (original)
+        parsed, parse_error = _parse_behaviour_yaml(content)
+        if parse_error:
+            return {
+                "status": "fail",
+                "file_path": file_path,
+                "issues": [{"check": "parse_error", "message": parse_error}],
+            }
+        block_issues, block_warnings = _validate_single_block(parsed, file_path)
+        issues.extend(block_issues)
+        warnings.extend(block_warnings)
+
+        result = {"file_path": file_path, "format": "single"}
+
     if issues:
         result["status"] = "fail"
         result["issues"] = issues
