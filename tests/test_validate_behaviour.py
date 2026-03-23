@@ -136,6 +136,84 @@ class TestWarnings:
         assert any(w["check"] == "untyped_constraint" for w in result["warnings"])
 
 
+class TestMultiBehaviourFormat:
+    """Tests for multi-behaviour files (multiple behaviour: blocks)."""
+
+    def test_two_blocks_valid(self):
+        content = textwrap.dedent("""\
+            behaviour: "fn_a"
+            interface: "mod:fn_a"
+            constraints:
+              - given: "input is positive"
+                then: "returns double"
+
+            behaviour: "fn_b"
+            interface: "mod:fn_b"
+            constraints:
+              - given: "input is negative"
+                then: "raises ValueError"
+        """)
+        result = validate_behaviour(content, "test.yaml")
+        assert result["status"] == "pass"
+        assert result["format"] == "multi"
+        assert result["block_count"] == 2
+
+    def test_single_block_stays_single_format(self):
+        content = textwrap.dedent("""\
+            behaviour: "fn_a"
+            interface: "mod:fn_a"
+            constraints:
+              - given: "always"
+                then: "returns 42"
+        """)
+        result = validate_behaviour(content, "test.yaml")
+        assert result["format"] == "single"
+
+    def test_multi_block_missing_interface(self):
+        content = textwrap.dedent("""\
+            behaviour: "fn_a"
+            interface: "mod:fn_a"
+            constraints:
+              - given: "always"
+                then: "returns 1"
+
+            behaviour: "fn_b"
+            constraints:
+              - given: "always"
+                then: "returns 2"
+        """)
+        result = validate_behaviour(content, "test.yaml")
+        assert result["status"] == "fail"
+        assert any("interface" in str(i.get("message", "")) for i in result["issues"])
+
+    def test_multi_block_one_empty(self):
+        content = textwrap.dedent("""\
+            behaviour: "fn_a"
+            interface: "mod:fn_a"
+            constraints:
+              - given: "always"
+                then: "returns 1"
+
+            behaviour: "fn_b"
+            interface: "mod:fn_b"
+        """)
+        result = validate_behaviour(content, "test.yaml")
+        assert result["status"] == "fail"
+        assert any("no_behavioural_content" in str(i.get("check", "")) for i in result["issues"])
+
+    def test_dirty_jitter_multi_behaviour(self):
+        from pathlib import Path
+
+        path = Path("stress-tests/dirty-jitter/src/retry_v1.py.behaviour.yaml")
+        if not path.exists():
+            pytest.skip("Dirty jitter behaviour file not available")
+        content = path.read_text(encoding="utf-8")
+        result = validate_behaviour(content, str(path))
+        assert result["status"] == "pass", f"Dirty jitter behaviour file is invalid: {result}"
+        assert result["format"] == "multi"
+        assert result["block_count"] == 2
+
+
 class TestJitterBehaviourExample:
     """Validate the actual jitter behaviour YAML from stress-tests."""
 

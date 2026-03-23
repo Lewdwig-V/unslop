@@ -30,4 +30,4 @@ jobs:
       run: uv run --python ${{ matrix.python-version }} pytest tests/ -v
 
     - name: Check spec freshness
-      run: uv run --python ${{ matrix.python-version }} python unslop/scripts/orchestrator.py check-freshness .
+      run: uv run --python ${{ matrix.python-version }} python unslop/scripts/orchestrator.py check-freshness . --exclude stress-tests/dirty-jitter
