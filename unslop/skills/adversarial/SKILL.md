@@ -55,6 +55,8 @@ test generation.
 **Input:** `*.behaviour.yaml` (NO source code access)
 **Output:** `test_*.py` file
 
+**Chinese Wall exception (Cover Mode):** During `/unslop:cover`, the Mason may receive surviving mutant descriptions (original/mutated line pairs) as test guidance. This is a controlled leak -- the Mason sees *what changed* but not the surrounding implementation. The mutant description helps the Mason write assertions that specifically catch the mutation, without exposing the full source code.
+
 The Mason's tests are validated by the **Mock Budget Linter** before they can proceed
 to Phase 3. Tests that mock internal modules are Hard Rejected.
 
