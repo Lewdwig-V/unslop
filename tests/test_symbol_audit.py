@@ -220,3 +220,17 @@ def test_private_constant_ignored():
     finally:
         os.unlink(orig)
         os.unlink(gen)
+
+
+def test_annotated_constants_tracked():
+    """Annotated assignments (AnnAssign) like MAX_RETRIES: int = 3 are public symbols."""
+    orig = _write_tmp("MAX_RETRIES: int = 3\nTIMEOUT: float = 30.0\n")
+    gen = _write_tmp("MAX_RETRIES: int = 3\n")
+    try:
+        result = audit_symbols(orig, gen)
+        assert result["status"] == "fail"
+        assert "TIMEOUT" in result["missing"]
+        assert "MAX_RETRIES" in result["original_symbols"]
+    finally:
+        os.unlink(orig)
+        os.unlink(gen)

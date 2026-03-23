@@ -1,12 +1,4 @@
-"""AST-level public symbol audit for testless takeover.
-
-Verifies that public symbols (functions, classes, UPPER_CASE constants) in an
-original Python file also exist in a generated replacement file.  Used during
-Milestone N to ensure the Builder does not accidentally drop public API members.
-
-CLI usage:
-    python -m unslop.scripts.validation.symbol_audit <original> <generated> [--removed s1,s2]
-"""
+"""Symbol audit: AST-level check that public symbols survive generation."""
 
 from __future__ import annotations
 
@@ -17,12 +9,12 @@ from pathlib import Path
 
 
 def _extract_public_symbols(source: str) -> set[str]:
-    """Return the set of public top-level symbol names from *source*.
+    """Extract public symbol names from Python source.
 
-    Public symbols are:
-    - ``FunctionDef`` / ``AsyncFunctionDef`` whose name does not start with ``_``
-    - ``ClassDef`` whose name does not start with ``_``
-    - ``Assign`` targets that are ``UPPER_CASE`` (all caps + underscores)
+    Tracks top-level:
+    - ``FunctionDef`` and ``AsyncFunctionDef`` (not starting with ``_``)
+    - ``ClassDef`` (not starting with ``_``)
+    - ``Assign`` and ``AnnAssign`` targets that are ``UPPER_CASE``
     """
     tree = ast.parse(source)
     symbols: set[str] = set()
@@ -37,6 +29,12 @@ def _extract_public_symbols(source: str) -> set[str]:
                     # UPPER_CASE: all alpha chars are uppercase, at least one alpha, not private
                     if not name.startswith("_") and name == name.upper() and any(c.isalpha() for c in name):
                         symbols.add(name)
+        elif isinstance(node, ast.AnnAssign):
+            # Annotated assignment: MAX_RETRIES: int = 3
+            if isinstance(node.target, ast.Name):
+                name = node.target.id
+                if not name.startswith("_") and name == name.upper() and any(c.isalpha() for c in name):
+                    symbols.add(name)
     return symbols
 
 
@@ -76,8 +74,12 @@ def audit_symbols(
     orig = Path(original_path)
     gen = Path(generated_path)
 
-    # Non-Python files are not auditable -- skip silently.
+    # Non-Python files are not auditable.
     if orig.suffix != ".py" or gen.suffix != ".py":
+        print(
+            f"symbol-audit: skipping non-Python file(s) ({orig.suffix}, {gen.suffix})",
+            file=sys.stderr,
+        )
         base["skipped"] = True
         return base
 
@@ -85,16 +87,19 @@ def audit_symbols(
         orig_source = orig.read_text(encoding="utf-8")
         gen_source = gen.read_text(encoding="utf-8")
     except (OSError, UnicodeDecodeError) as exc:
+        print(f"symbol-audit: cannot read input: {exc}", file=sys.stderr)
         return {**base, "status": "error", "hint": str(exc)}
 
     try:
         orig_symbols = _extract_public_symbols(orig_source)
     except SyntaxError as exc:
+        print(f"symbol-audit: cannot parse original: {exc}", file=sys.stderr)
         return {**base, "status": "error", "hint": f"original: {exc}"}
 
     try:
         gen_symbols = _extract_public_symbols(gen_source)
     except SyntaxError as exc:
+        print(f"symbol-audit: cannot parse generated: {exc}", file=sys.stderr)
         return {**base, "status": "error", "hint": f"generated: {exc}"}
 
     expected = orig_symbols - set(removed)
@@ -127,11 +132,15 @@ def main() -> None:
     removed: list[str] = []
     if "--removed" in sys.argv:
         idx = sys.argv.index("--removed")
-        if idx + 1 < len(sys.argv):
-            removed = [s for s in sys.argv[idx + 1].split(",") if s]
+        if idx + 1 >= len(sys.argv):
+            print("symbol-audit: --removed requires a comma-separated value", file=sys.stderr)
+            sys.exit(1)
+        removed = [s for s in sys.argv[idx + 1].split(",") if s]
 
     result = audit_symbols(original, generated, removed=removed)
     print(json.dumps(result, indent=2))
+    if result["status"] == "error":
+        sys.exit(2)
     sys.exit(0 if result["status"] == "pass" else 1)
 
 

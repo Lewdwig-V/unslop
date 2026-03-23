@@ -496,10 +496,18 @@ def main():
         removed: list[str] = []
         if "--removed" in sys.argv:
             ridx = sys.argv.index("--removed")
-            if ridx + 1 < len(sys.argv):
-                removed = [s for s in sys.argv[ridx + 1].split(",") if s]
-        result = audit_symbols(original, generated, removed=removed)
+            if ridx + 1 >= len(sys.argv):
+                print("symbol-audit: --removed requires a comma-separated value", file=sys.stderr)
+                sys.exit(1)
+            removed = [s for s in sys.argv[ridx + 1].split(",") if s]
+        try:
+            result = audit_symbols(original, generated, removed=removed)
+        except Exception as e:
+            print(json.dumps({"error": str(e)}), file=sys.stderr)
+            sys.exit(2)
         print(json.dumps(result, indent=2))
+        if result["status"] == "error":
+            sys.exit(2)
         sys.exit(0 if result["status"] == "pass" else 1)
 
     else:
