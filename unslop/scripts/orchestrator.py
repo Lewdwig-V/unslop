@@ -2139,6 +2139,271 @@ def compute_deep_sync_plan(
     }
 
 
+def compute_bulk_sync_plan(
+    project_root: str,
+    force: bool = False,
+    max_batch_size: int = 8,
+) -> dict:
+    """Compute a batched plan for syncing ALL stale files in the project.
+
+    Instead of processing each stale file individually (each spawning its own
+    Agent+worktree), this groups stale files into worktree batches that respect
+    topological order.  Files within a batch share no dependency edges, so they
+    can be regenerated in parallel inside a single worktree.
+
+    Args:
+        project_root: Project root directory.
+        force: If True, include modified/conflict files without flagging.
+        max_batch_size: Maximum files per worktree batch (caps parallelism).
+
+    Returns:
+        dict with:
+          - batches: Ordered list of batches, each containing files to regenerate.
+          - skipped: Files that need user confirmation (modified/conflict).
+          - stats: Summary counts.
+          - build_order: Topological spec order used for sequencing.
+    """
+    root = Path(project_root).resolve()
+
+    # 1. Get freshness data for all files
+    try:
+        freshness = check_freshness(str(root))
+    except (ValueError, OSError):
+        freshness = {"files": []}
+
+    state_map = {f["managed"]: f for f in freshness.get("files", [])}
+
+    # 2. Collect all non-fresh files
+    stale_files = []
+    for entry in freshness.get("files", []):
+        state = entry["state"]
+        if state == "fresh":
+            continue
+        stale_files.append(entry)
+
+    if not stale_files:
+        return {
+            "batches": [],
+            "skipped": [],
+            "stats": {
+                "total_stale": 0,
+                "total_batches": 0,
+                "to_regenerate": 0,
+                "skipped_need_confirm": 0,
+            },
+            "build_order": [],
+        }
+
+    # 3. Collect all unique specs from stale files for a combined ripple check
+    stale_specs = set()
+    for entry in stale_files:
+        spec = entry.get("spec")
+        if spec:
+            stale_specs.add(spec)
+
+    if not stale_specs:
+        return {
+            "batches": [],
+            "skipped": [],
+            "stats": {
+                "total_stale": len(stale_files),
+                "total_batches": 0,
+                "to_regenerate": 0,
+                "skipped_need_confirm": 0,
+            },
+            "build_order": [],
+        }
+
+    # 4. Combined ripple check for all stale specs at once
+    try:
+        ripple = ripple_check(sorted(stale_specs), str(root))
+    except (ValueError, OSError):
+        ripple = {"layers": {"code": {"regenerate": [], "ghost_stale": []}}, "build_order": []}
+
+    # 5. Merge all affected files (direct + ghost-stale), deduped
+    all_affected: list[dict] = []
+    seen_managed: set[str] = set()
+
+    for entry in ripple["layers"]["code"]["regenerate"]:
+        managed = entry["managed"]
+        if managed in seen_managed:
+            continue
+        seen_managed.add(managed)
+        fresh_entry = state_map.get(managed)
+        state = fresh_entry["state"] if fresh_entry else entry.get("current_state", "new")
+        all_affected.append({
+            "managed": managed,
+            "spec": entry["spec"],
+            "state": state,
+            "cause": entry["cause"],
+            "concrete": entry.get("concrete"),
+        })
+
+    for entry in ripple["layers"]["code"]["ghost_stale"]:
+        managed = entry["managed"]
+        if managed in seen_managed:
+            continue
+        seen_managed.add(managed)
+        fresh_entry = state_map.get(managed)
+        state = fresh_entry["state"] if fresh_entry else "ghost-stale"
+        all_affected.append({
+            "managed": managed,
+            "spec": entry["spec"],
+            "state": state,
+            "cause": entry["cause"],
+            "concrete": entry.get("concrete"),
+        })
+
+    # 6. Split into actionable vs skipped
+    plan_entries = []
+    skipped = []
+
+    for entry in all_affected:
+        state = entry["state"]
+        if state == "fresh":
+            continue
+        if state in ("modified", "conflict") and not force:
+            skipped.append(entry)
+        else:
+            plan_entries.append(entry)
+
+    # 7. Build a combined ordering from both abstract spec deps AND concrete
+    #    (extends/concrete-dependencies).  The abstract build_order from
+    #    ripple_check only captures depends-on edges between specs; the
+    #    concrete layer's extends/concrete-dependencies chain is separate.
+    build_order = ripple.get("build_order", [])
+
+    # Get concrete topo order — this captures extends chains
+    try:
+        concrete_order = build_concrete_order(str(root))
+    except (ValueError, OSError):
+        concrete_order = []
+
+    # Build a mapping from impl -> source-spec so we can translate
+    # concrete order into spec order
+    impl_to_spec: dict[str, str] = {}
+    for impl_path in root.rglob("*.impl.md"):
+        try:
+            content = impl_path.read_text(encoding="utf-8")
+        except (OSError, UnicodeDecodeError):
+            continue
+        meta = parse_concrete_frontmatter(content)
+        src = meta.get("source_spec")
+        if src:
+            impl_to_spec[str(impl_path.relative_to(root))] = src
+
+    # Merge: use the maximum index from either ordering as the sort key.
+    # This ensures that if spec A must precede B in *either* the abstract
+    # or concrete graph, A sorts first.
+    spec_order_abstract = {s: i for i, s in enumerate(build_order)}
+    spec_order_concrete: dict[str, int] = {}
+    for i, impl_name in enumerate(concrete_order):
+        src_spec = impl_to_spec.get(impl_name)
+        if src_spec:
+            # Take the maximum index if already present (conservative)
+            spec_order_concrete[src_spec] = max(
+                spec_order_concrete.get(src_spec, i), i
+            )
+
+    def combined_order(spec: str) -> int:
+        a = spec_order_abstract.get(spec, 0)
+        c = spec_order_concrete.get(spec, 0)
+        return max(a, c)
+
+    plan_entries.sort(key=lambda e: combined_order(e["spec"]))
+
+    # 8. Partition into batches: files at the same topological depth can share
+    #    a worktree.  Two files are in the same batch iff neither's spec has a
+    #    dependency on the other's (abstract OR concrete).
+    #
+    #    Simple greedy algorithm: walk plan entries in combined topo order.
+    #    For each entry, check if its spec is downstream of any spec already
+    #    in the current batch.  If so, start a new batch.
+
+    # Build a set of downstream specs for each spec (both abstract + concrete)
+    spec_dependents: dict[str, set[str]] = {}
+    # From abstract layer: specs that depend-on other specs
+    for impl_name, src_spec in impl_to_spec.items():
+        try:
+            impl_content = (root / impl_name).read_text(encoding="utf-8")
+        except (OSError, UnicodeDecodeError):
+            continue
+        meta = parse_concrete_frontmatter(impl_content)
+        deps = list(meta.get("concrete_dependencies", []))
+        if "extends" in meta:
+            deps.append(meta["extends"])
+        for dep_impl in deps:
+            dep_spec = impl_to_spec.get(dep_impl)
+            if dep_spec:
+                spec_dependents.setdefault(dep_spec, set()).add(src_spec)
+
+    # Also add abstract depends-on edges
+    for spec_file in root.rglob("*.spec.md"):
+        try:
+            content = spec_file.read_text(encoding="utf-8")
+        except (OSError, UnicodeDecodeError):
+            continue
+        deps_list = parse_frontmatter(content)  # returns list[str]
+        rel = str(spec_file.relative_to(root))
+        for dep in deps_list:
+            spec_dependents.setdefault(dep, set()).add(rel)
+
+    # Transitively expand dependents
+    def get_all_downstream(spec: str, visited: set[str] | None = None) -> set[str]:
+        if visited is None:
+            visited = set()
+        for dep in spec_dependents.get(spec, set()):
+            if dep not in visited:
+                visited.add(dep)
+                get_all_downstream(dep, visited)
+        return visited
+
+    batches: list[list[dict]] = []
+    current_batch: list[dict] = []
+    current_batch_specs: set[str] = set()
+    # Set of all specs downstream of any spec in the current batch
+    current_batch_downstream: set[str] = set()
+
+    for entry in plan_entries:
+        spec = entry["spec"]
+
+        conflicts_with_batch = spec in current_batch_downstream
+
+        if conflicts_with_batch or len(current_batch) >= max_batch_size:
+            if current_batch:
+                batches.append(current_batch)
+            current_batch = [entry]
+            current_batch_specs = {spec}
+            current_batch_downstream = get_all_downstream(spec)
+        else:
+            current_batch.append(entry)
+            current_batch_specs.add(spec)
+            current_batch_downstream.update(get_all_downstream(spec))
+
+    if current_batch:
+        batches.append(current_batch)
+
+    return {
+        "batches": [
+            {
+                "batch_index": i,
+                "files": batch,
+                "size": len(batch),
+            }
+            for i, batch in enumerate(batches)
+        ],
+        "skipped": skipped,
+        "stats": {
+            "total_stale": len(stale_files),
+            "total_batches": len(batches),
+            "to_regenerate": len(plan_entries),
+            "skipped_need_confirm": len(skipped),
+            "fresh_skipped": len(all_affected) - len(plan_entries) - len(skipped),
+        },
+        "build_order": build_order,
+    }
+
+
 def render_dependency_graph(
     directory: str,
     scope: list[str] | None = None,
@@ -2514,7 +2779,7 @@ def file_tree(directory: str) -> list[str]:
 def main():
     """CLI entry point."""
     if len(sys.argv) < 2:
-        cmds = "discover|build-order|deps|check-freshness|concrete-order|concrete-deps|ripple-check|deep-sync-plan|graph|file-tree"
+        cmds = "discover|build-order|deps|check-freshness|concrete-order|concrete-deps|ripple-check|deep-sync-plan|bulk-sync-plan|graph|file-tree"
         print(f"Usage: orchestrator.py <{cmds}> [args]", file=sys.stderr)
         sys.exit(1)
 
@@ -2706,6 +2971,34 @@ def main():
                 i += 1
         try:
             result = compute_deep_sync_plan(file_path, project_root, force=force)
+            print(json.dumps(result, indent=2))
+        except (ValueError, OSError, UnicodeDecodeError) as e:
+            print(json.dumps({"error": str(e)}), file=sys.stderr)
+            sys.exit(1)
+
+    elif command == "bulk-sync-plan":
+        project_root = "."
+        force = False
+        max_batch_size = 8
+        i = 2
+        while i < len(sys.argv):
+            if sys.argv[i] == "--root" and i + 1 < len(sys.argv):
+                project_root = sys.argv[i + 1]
+                i += 2
+            elif sys.argv[i] == "--force":
+                force = True
+                i += 1
+            elif sys.argv[i] == "--max-batch" and i + 1 < len(sys.argv):
+                try:
+                    max_batch_size = int(sys.argv[i + 1])
+                except ValueError:
+                    print("--max-batch requires an integer", file=sys.stderr)
+                    sys.exit(1)
+                i += 2
+            else:
+                i += 1
+        try:
+            result = compute_bulk_sync_plan(project_root, force=force, max_batch_size=max_batch_size)
             print(json.dumps(result, indent=2))
         except (ValueError, OSError, UnicodeDecodeError) as e:
             print(json.dumps({"error": str(e)}), file=sys.stderr)

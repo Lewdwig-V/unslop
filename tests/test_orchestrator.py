@@ -33,6 +33,7 @@ from orchestrator import (
     ripple_check,
     render_dependency_graph,
     compute_deep_sync_plan,
+    compute_bulk_sync_plan,
     STRICT_CHILD_ONLY,
 )
 
@@ -3422,3 +3423,166 @@ def test_graph_stale_only_includes_upstream_deps(tmp_path):
     assert "dep.py.spec.md" in node_paths, (
         "dep.py.spec.md should be included as upstream of stale consumer"
     )
+
+
+# ── Bulk-Sync Worktree Optimization (L.2) ────────────────────────────────────
+
+def test_bulk_sync_plan_empty_when_all_fresh(tmp_path):
+    """No batches when everything is fresh."""
+    _setup_deep_sync_chain(tmp_path)
+    result = compute_bulk_sync_plan(str(tmp_path))
+    assert result["stats"]["total_batches"] == 0
+    assert result["stats"]["to_regenerate"] == 0
+    assert result["batches"] == []
+
+
+def test_bulk_sync_plan_finds_all_stale(tmp_path):
+    """All stale files across the project should appear in the plan."""
+    _setup_deep_sync_chain(tmp_path)
+
+    # Make utils stale — triggers ghost-staleness for service + api
+    (tmp_path / "utils.impl.md").write_text(
+        "---\nephemeral: false\n---\n\n## Strategy\nUtils v2.\n"
+    )
+
+    result = compute_bulk_sync_plan(str(tmp_path))
+    assert result["stats"]["to_regenerate"] >= 2
+    all_managed = [f["managed"] for b in result["batches"] for f in b["files"]]
+    assert "service.py" in all_managed
+    assert "api.py" in all_managed
+
+
+def test_bulk_sync_plan_respects_topo_order(tmp_path):
+    """service.py must be in an earlier batch than api.py (dependency order)."""
+    _setup_deep_sync_chain(tmp_path)
+
+    (tmp_path / "utils.impl.md").write_text(
+        "---\nephemeral: false\n---\n\n## Strategy\nUtils v2.\n"
+    )
+
+    result = compute_bulk_sync_plan(str(tmp_path))
+
+    # Find which batch each file is in
+    service_batch = None
+    api_batch = None
+    for batch in result["batches"]:
+        for f in batch["files"]:
+            if f["managed"] == "service.py":
+                service_batch = batch["batch_index"]
+            if f["managed"] == "api.py":
+                api_batch = batch["batch_index"]
+
+    assert service_batch is not None, "service.py should be in the plan"
+    assert api_batch is not None, "api.py should be in the plan"
+    assert service_batch <= api_batch, (
+        f"service.py (batch {service_batch}) must come before api.py (batch {api_batch})"
+    )
+
+
+def test_bulk_sync_plan_max_batch_size(tmp_path):
+    """Batches should not exceed max_batch_size."""
+    (tmp_path / ".unslop").mkdir()
+
+    # Create 5 independent stale files (no deps between them)
+    for i in range(5):
+        name = f"file{i}.py"
+        spec_name = f"{name}.spec.md"
+        (tmp_path / spec_name).write_text(f"# File {i}\n")
+        body = f"# code {i}\n"
+        sh = compute_hash(f"# File {i}\n")
+        oh = compute_hash(body)
+        (tmp_path / name).write_text(
+            f"# @unslop-managed — do not edit directly. Edit {spec_name} instead.\n"
+            f"# spec-hash:{sh} output-hash:{oh} generated:2026-03-23T00:00:00Z\n"
+            + body
+        )
+
+    # Now make all specs stale by changing them
+    for i in range(5):
+        (tmp_path / f"file{i}.py.spec.md").write_text(f"# File {i} v2\n")
+
+    result = compute_bulk_sync_plan(str(tmp_path), max_batch_size=2)
+    for batch in result["batches"]:
+        assert batch["size"] <= 2, f"Batch {batch['batch_index']} exceeds max size: {batch['size']}"
+    assert result["stats"]["to_regenerate"] == 5
+
+
+def test_bulk_sync_plan_skips_modified_without_force(tmp_path):
+    """Modified files should be skipped unless --force."""
+    _setup_deep_sync_chain(tmp_path)
+
+    # Modify api.py directly (output-hash mismatch, spec-hash match = modified)
+    api_content = (tmp_path / "api.py").read_text()
+    (tmp_path / "api.py").write_text(api_content + "\n# user edit\n")
+
+    # Also make utils stale so there's something to regenerate
+    (tmp_path / "utils.impl.md").write_text(
+        "---\nephemeral: false\n---\n\n## Strategy\nUtils v2.\n"
+    )
+
+    result = compute_bulk_sync_plan(str(tmp_path))
+    all_managed = [f["managed"] for b in result["batches"] for f in b["files"]]
+    skipped_managed = [f["managed"] for f in result["skipped"]]
+
+    # service.py should be in plan, api.py (modified+stale=conflict) in skipped
+    assert "service.py" in all_managed
+
+    # With force, nothing should be skipped
+    result_force = compute_bulk_sync_plan(str(tmp_path), force=True)
+    assert result_force["stats"]["skipped_need_confirm"] == 0
+
+
+def test_bulk_sync_plan_includes_batch_indices(tmp_path):
+    """Each batch should have a sequential batch_index."""
+    _setup_deep_sync_chain(tmp_path)
+
+    (tmp_path / "utils.impl.md").write_text(
+        "---\nephemeral: false\n---\n\n## Strategy\nUtils v2.\n"
+    )
+
+    result = compute_bulk_sync_plan(str(tmp_path))
+    for i, batch in enumerate(result["batches"]):
+        assert batch["batch_index"] == i
+        assert batch["size"] == len(batch["files"])
+        assert batch["size"] > 0
+
+
+def test_bulk_sync_plan_independent_files_same_batch(tmp_path):
+    """Files with no dependency relationship should share a batch."""
+    (tmp_path / ".unslop").mkdir()
+
+    # Create two independent files (no shared deps)
+    for name in ("alpha.py", "beta.py"):
+        spec_name = f"{name}.spec.md"
+        (tmp_path / spec_name).write_text(f"# {name}\n")
+        body = f"# {name} code\n"
+        sh = compute_hash(f"# {name}\n")
+        oh = compute_hash(body)
+        (tmp_path / name).write_text(
+            f"# @unslop-managed — do not edit directly. Edit {spec_name} instead.\n"
+            f"# spec-hash:{sh} output-hash:{oh} generated:2026-03-23T00:00:00Z\n"
+            + body
+        )
+
+    # Make both stale
+    (tmp_path / "alpha.py.spec.md").write_text("# alpha v2\n")
+    (tmp_path / "beta.py.spec.md").write_text("# beta v2\n")
+
+    result = compute_bulk_sync_plan(str(tmp_path))
+    assert result["stats"]["to_regenerate"] == 2
+    # Independent files should be in the same batch (single batch)
+    assert result["stats"]["total_batches"] == 1
+    assert result["batches"][0]["size"] == 2
+
+
+def test_bulk_sync_plan_build_order_returned(tmp_path):
+    """build_order should be present in the result."""
+    _setup_deep_sync_chain(tmp_path)
+
+    (tmp_path / "utils.impl.md").write_text(
+        "---\nephemeral: false\n---\n\n## Strategy\nUtils v2.\n"
+    )
+
+    result = compute_bulk_sync_plan(str(tmp_path))
+    assert "build_order" in result
+    assert isinstance(result["build_order"], list)
