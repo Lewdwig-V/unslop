@@ -10,6 +10,13 @@ import sys
 from pathlib import Path
 
 
+# Sentinels stored in concrete-manifest when a transitive dep is missing/unreadable.
+MISSING_SENTINEL = "missing00000"   # 12 chars, not valid hex
+UNREADABLE_SENTINEL = "unreadabl000"  # 12 chars, not valid hex
+
+_SENTINEL_HASHES = {MISSING_SENTINEL, UNREADABLE_SENTINEL}
+
+
 def compute_hash(content: str) -> str:
     """SHA-256 hash of content, truncated to 12 hex chars.
 
@@ -85,7 +92,7 @@ def parse_header(content: str) -> dict | None:
                 if last_colon > 0:
                     dep_path = entry[:last_colon]
                     dep_hash = entry[last_colon + 1:]
-                    if re.match(r"^[0-9a-f]{12}$", dep_hash):
+                    if re.match(r"^[0-9a-f]{12}$", dep_hash) or dep_hash in _SENTINEL_HASHES:
                         manifest[dep_path] = dep_hash
             if manifest:
                 concrete_manifest = manifest
@@ -792,9 +799,9 @@ def compute_concrete_manifest(impl_path: str, project_root: str) -> dict[str, st
                     if upstream not in visited:
                         queue.append(upstream)
             except (OSError, UnicodeDecodeError):
-                manifest[dep_path] = "unreadable000"
+                manifest[dep_path] = UNREADABLE_SENTINEL
         else:
-            manifest[dep_path] = "missing000000"[:12]
+            manifest[dep_path] = MISSING_SENTINEL
 
     return manifest if manifest else None
 
@@ -1974,6 +1981,33 @@ def ripple_check(spec_paths: list[str], project_root: str) -> dict:
                 "current_state": "ghost-stale",
             })
 
+    # Collect specs reachable only through concrete-dependency chains so they
+    # appear in build_order alongside the abstract-layer specs.
+    ghost_stale_specs: set[str] = set()
+    for impl in concrete_only_impls:
+        src = all_impls.get(impl, {}).get("source_spec")
+        if src:
+            ghost_stale_specs.add(src)
+
+    # Translate concrete impl→impl edges into spec→spec ordering edges.
+    # For every concrete dep edge (depender_impl → dependency_impl) where both
+    # impls have a source-spec, the dependency's spec must precede the
+    # depender's spec in build order.
+    concrete_spec_edges: dict[str, set[str]] = {}
+    for impl, meta in all_impls.items():
+        impl_spec = meta.get("source_spec")
+        if not impl_spec:
+            continue
+        for dep_impl in meta.get("concrete_dependencies", []):
+            dep_spec = all_impls.get(dep_impl, {}).get("source_spec")
+            if dep_spec and dep_spec != impl_spec:
+                concrete_spec_edges.setdefault(impl_spec, set()).add(dep_spec)
+        ext = meta.get("extends")
+        if ext:
+            ext_spec = all_impls.get(ext, {}).get("source_spec")
+            if ext_spec and ext_spec != impl_spec:
+                concrete_spec_edges.setdefault(impl_spec, set()).add(ext_spec)
+
     # Build the summary
     return {
         "input_specs": normalized_inputs,
@@ -1994,16 +2028,32 @@ def ripple_check(spec_paths: list[str], project_root: str) -> dict:
                 "total_files": len(affected_managed) + len(ghost_stale_managed),
             },
         },
-        "build_order": _compute_ripple_build_order(affected_specs, all_specs),
+        "build_order": _compute_ripple_build_order(
+            affected_specs | ghost_stale_specs, all_specs, concrete_spec_edges,
+        ),
     }
 
 
-def _compute_ripple_build_order(affected_specs: set[str], all_specs: dict[str, list[str]]) -> list[str]:
-    """Compute build order for just the affected specs."""
+def _compute_ripple_build_order(
+    affected_specs: set[str],
+    all_specs: dict[str, list[str]],
+    concrete_spec_edges: dict[str, set[str]] | None = None,
+) -> list[str]:
+    """Compute build order for just the affected specs.
+
+    *concrete_spec_edges* carries spec→set[spec] ordering edges derived from
+    concrete-dependency / extends relationships so that specs reachable only
+    through the concrete layer are sequenced correctly.
+    """
     # Build subgraph of only affected specs
     subgraph: dict[str, list[str]] = {}
     for spec in affected_specs:
         deps = [d for d in all_specs.get(spec, []) if d in affected_specs]
+        # Merge concrete-layer edges (dep spec must precede this spec)
+        if concrete_spec_edges:
+            for cdep in concrete_spec_edges.get(spec, set()):
+                if cdep in affected_specs and cdep not in deps:
+                    deps.append(cdep)
         subgraph[spec] = deps
 
     # Add missing nodes
@@ -3016,10 +3066,37 @@ def render_dependency_graph(
                             nodes_info.append({"id": nid, "path": managed, "layer": "code", "state": state})
                     continue
 
-            # Single target
+            # Unit specs list their managed files in a ## Files section
             if spec.endswith(".unit.spec.md"):
-                continue  # Unit specs handled separately
+                try:
+                    spec_content = (root / spec).read_text(encoding="utf-8")
+                except (OSError, UnicodeDecodeError):
+                    continue
+                spec_dir = str(Path(spec).parent)
+                in_files = False
+                for sline in spec_content.split("\n"):
+                    if re.match(r"^## Files", sline):
+                        in_files = True
+                        continue
+                    if in_files:
+                        if re.match(r"^## ", sline):
+                            break
+                        fm = re.match(r"^\s*-\s+`([^`]+)`", sline)
+                        if fm:
+                            managed = str(Path(spec_dir) / fm.group(1))
+                            if managed not in code_nodes:
+                                code_nodes.add(managed)
+                                nid = _node_id(managed)
+                                label = _short(managed)
+                                state = state_map.get(managed, "new")
+                                lines.append(f'    {nid}(["{label}"])')
+                                css = _state_to_class(state)
+                                lines.append(f"    class {nid} {css}")
+                                lines.append(f"    {_node_id(spec)} -->|generates| {nid}")
+                                nodes_info.append({"id": nid, "path": managed, "layer": "code", "state": state})
+                continue
 
+            # Single target
             managed = re.sub(r"\.spec\.md$", "", spec)
             if managed not in code_nodes:
                 code_nodes.add(managed)
