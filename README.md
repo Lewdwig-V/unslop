@@ -36,12 +36,14 @@ Detects your test runner, sets up `.unslop/`, and optionally creates project pri
 ### 2. Bring existing code under management
 
 ```
-/unslop:takeover src/retry.py
+/unslop:takeover src/retry.py          # single file
+/unslop:takeover src/auth/             # entire module
+/unslop:takeover src/**/*.py           # glob pattern
 ```
 
-Reads the file, drafts a spec capturing the intent (not the implementation), archives the original, and regenerates fresh code from the spec alone. If tests fail, it surfaces the missing constraint, enriches the spec, and retries -- up to 3 iterations. Files without tests are handled automatically via a quality pipeline that generates and validates tests independently.
+Reads the code, drafts specs capturing intent (not implementation), archives the originals, and regenerates fresh code from specs alone. If tests fail, it surfaces the missing constraint, enriches the spec, and retries. Files without tests are handled automatically via a quality pipeline that generates and validates tests independently.
 
-For entire directories: `/unslop:takeover src/auth/`
+For directories and globs, unslop discovers files, resolves their dependency order, and offers per-file or per-unit spec granularity. The same workflow scales from a single utility function to an entire service layer.
 
 ### 3. Make changes through the spec
 
@@ -77,12 +79,19 @@ The practical consequence: code review happens at the spec level. Diffs are spec
 
 ```
 src/
-  retry.py           # managed -- do not edit directly
-  retry.py.spec.md   # the source of truth -- edit this
-  retry_test.py      # human-owned tests -- the acceptance gate
+  retry.py             # managed file -- do not edit directly
+  retry.py.spec.md     # per-file spec -- edit this
+  retry_test.py        # human-owned tests -- the acceptance gate
+  auth/
+    __init__.py         # managed
+    tokens.py           # managed
+    middleware.py        # managed
+    auth.unit.spec.md   # unit spec -- one spec for the whole module
 ```
 
-**Specs** (`*.spec.md`) describe intent: what the code does, its contracts, constraints, and error conditions. They do not describe implementation. If your spec reads like commented-out code, it's over-specified.
+**Per-file specs** (`*.spec.md`) manage a single file. **Unit specs** (`*.unit.spec.md`) manage a group of tightly coupled files as a single logical unit -- one spec, multiple outputs. Dependencies between specs are declared in frontmatter and resolved transitively.
+
+Specs describe intent, not implementation. If your spec reads like commented-out code, it's over-specified.
 
 | Write this (intent) | Not this (implementation) |
 |---|---|
@@ -92,7 +101,7 @@ src/
 
 **Project principles** (`.unslop/principles.md`) define non-negotiable constraints that apply to *all* generated code -- error handling style, architecture patterns, security requirements. Every generation cycle checks the spec against principles and stops on contradiction.
 
-**Dependencies** between specs are declared in frontmatter (`depends-on:`) and resolved transitively. The coherence checker validates that dependent specs don't contradict each other.
+**Dependencies** between specs are declared in frontmatter (`depends-on:`) and resolved transitively. Generation respects dependency order automatically. The coherence checker validates that dependent specs don't contradict each other.
 
 ---
 
@@ -168,9 +177,9 @@ The orchestrator is vendored into `.unslop/scripts/` so CI doesn't need the plug
 
 ## What Belongs Under Management
 
-`unslop` works best for code where *what* is completely separable from *how*: adapters, parsers, boilerplate, glue code, serialisation logic, CLI wrappers, CRUD endpoints, data transformations.
+`unslop` works at every scale -- a single utility function, a module with a dozen files, or an entire service layer. It works best for code where *what* is completely separable from *how*: adapters, parsers, API layers, glue code, serialisation logic, CLI wrappers, CRUD endpoints, data transformations.
 
-Code where the implementation *is* the semantics -- performance-critical algorithms, type-level invariants, subtle concurrency -- belongs in human-owned files. The takeover pipeline will tell you which: if convergence can't succeed without over-specifying to implementation detail, the file probably shouldn't be managed.
+Code where the implementation *is* the semantics -- performance-critical algorithms, type-level invariants, subtle concurrency -- belongs in human-owned files. The takeover pipeline will tell you which: if convergence can't succeed without over-specifying to implementation detail, the file probably shouldn't be managed. A typical project has a mix: spec-managed modules for the application layer, human-owned files for the core domain logic.
 
 ---
 
