@@ -133,14 +133,16 @@ def _try_lsp_document_symbols(file_path: str) -> list[SymbolInfo] | None:  # noq
 def _python_ast_manifest(file_path: str, language: str) -> SymbolManifest:
     """Extract public symbols from a Python file using the ``ast`` module."""
     try:
-        with open(file_path) as fh:
+        with open(file_path, encoding="utf-8") as fh:
             source = fh.read()
-    except OSError as exc:
+    except (OSError, UnicodeDecodeError) as exc:
+        print(f"get_symbol_manifest: cannot read {file_path}: {exc}", file=sys.stderr)
         return SymbolManifest(file_path=file_path, language=language, source="ast", error=str(exc))
 
     try:
         tree = ast.parse(source, filename=file_path)
     except SyntaxError as exc:
+        print(f"get_symbol_manifest: syntax error in {file_path}: {exc}", file=sys.stderr)
         return SymbolManifest(file_path=file_path, language=language, source="ast", error=str(exc))
 
     symbols: list[SymbolInfo] = []

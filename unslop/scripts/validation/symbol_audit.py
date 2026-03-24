@@ -213,7 +213,15 @@ def _manifest_to_source_map(manifest, source_lines: list[str]) -> dict[str, str]
     :func:`_extract_symbol_sources`.
     """
     result: dict[str, str] = {}
+    n = len(source_lines)
     for sym in manifest.symbols:
+        if sym.start_line < 1 or sym.end_line > n:
+            print(
+                f"check-drift: symbol '{sym.name}' line range "
+                f"[{sym.start_line}:{sym.end_line}] exceeds file length ({n}) -- skipping",
+                file=sys.stderr,
+            )
+            continue
         raw = "".join(source_lines[sym.start_line - 1 : sym.end_line])
         result[sym.name] = _normalize_source(raw)
     return result
@@ -258,6 +266,19 @@ def check_drift(old_path: str, new_path: str, affected_symbols: list[str]) -> di
         else:
             modified_names.add(name)
 
+    # Read files once (avoids TOCTOU between manifest and source line extraction)
+    try:
+        with open(old_path, encoding="utf-8") as fh:
+            old_source = fh.read()
+        with open(new_path, encoding="utf-8") as fh:
+            new_source = fh.read()
+    except (OSError, UnicodeDecodeError) as exc:
+        print(f"check-drift: cannot read input: {exc}", file=sys.stderr)
+        return {**base, "status": "error"}
+
+    old_lines = old_source.splitlines(keepends=True)
+    new_lines = new_source.splitlines(keepends=True)
+
     # Obtain symbol manifests via the LSP semantic query layer
     old_manifest = get_symbol_manifest(old_path)
     new_manifest = get_symbol_manifest(new_path)
@@ -272,16 +293,6 @@ def check_drift(old_path: str, new_path: str, affected_symbols: list[str]) -> di
         return {**base, "status": "error"}
     if new_manifest.error is not None:
         print(f"check-drift: cannot parse new file: {new_manifest.error}", file=sys.stderr)
-        return {**base, "status": "error"}
-
-    # Read raw source lines for the bridge function
-    try:
-        with open(old_path, encoding="utf-8") as fh:
-            old_lines = fh.readlines()
-        with open(new_path, encoding="utf-8") as fh:
-            new_lines = fh.readlines()
-    except (OSError, UnicodeDecodeError) as exc:
-        print(f"check-drift: cannot read input: {exc}", file=sys.stderr)
         return {**base, "status": "error"}
 
     old_symbols = _manifest_to_source_map(old_manifest, old_lines)
