@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+import ast
+import os
+import sys
 from dataclasses import dataclass, field
 
 
@@ -94,3 +97,155 @@ def get_lsp_recommendation(extension: str) -> str:
         )
     language, server = entry
     return f"For {language} files, install the '{server}' language server."
+
+
+# ---------------------------------------------------------------------------
+# Extension -> canonical language name (used for dedup of warnings)
+# ---------------------------------------------------------------------------
+_EXT_TO_LANGUAGE: dict[str, str] = {
+    ".rs": "Rust",
+    ".go": "Go",
+    ".ts": "TypeScript",
+    ".tsx": "TypeScript",
+    ".js": "JavaScript",
+    ".jsx": "JavaScript",
+    ".py": "Python",
+    ".java": "Java",
+    ".c": "C",
+    ".cpp": "C++",
+    ".h": "C/C++ Header",
+}
+
+# Tracks which languages have already emitted a "no LSP" warning to stderr.
+_warned_languages: set[str] = set()
+
+
+def _try_lsp_document_symbols(file_path: str) -> list[SymbolInfo] | None:  # noqa: ARG001
+    """Attempt to retrieve symbols via an LSP documentSymbol request.
+
+    This is a placeholder -- the LSP tool is a Claude Code built-in and is not
+    callable from standalone Python scripts.  Always returns None so callers
+    fall through to the AST-based or unavailable path.
+    """
+    return None
+
+
+def _python_ast_manifest(file_path: str, language: str) -> SymbolManifest:
+    """Extract public symbols from a Python file using the ``ast`` module."""
+    try:
+        with open(file_path) as fh:
+            source = fh.read()
+    except OSError as exc:
+        return SymbolManifest(file_path=file_path, language=language, source="ast", error=str(exc))
+
+    try:
+        tree = ast.parse(source, filename=file_path)
+    except SyntaxError as exc:
+        return SymbolManifest(file_path=file_path, language=language, source="ast", error=str(exc))
+
+    symbols: list[SymbolInfo] = []
+
+    for node in ast.iter_child_nodes(tree):
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            if node.name.startswith("_"):
+                continue
+            start = node.decorator_list[0].lineno if node.decorator_list else node.lineno
+            symbols.append(
+                SymbolInfo(
+                    name=node.name,
+                    kind="function",
+                    file_path=file_path,
+                    start_line=start,
+                    end_line=node.end_lineno or node.lineno,
+                )
+            )
+        elif isinstance(node, ast.ClassDef):
+            if node.name.startswith("_"):
+                continue
+            start = node.decorator_list[0].lineno if node.decorator_list else node.lineno
+            symbols.append(
+                SymbolInfo(
+                    name=node.name,
+                    kind="class",
+                    file_path=file_path,
+                    start_line=start,
+                    end_line=node.end_lineno or node.lineno,
+                )
+            )
+        elif isinstance(node, ast.Assign):
+            for target in node.targets:
+                if isinstance(target, ast.Name) and target.id.isupper() and not target.id.startswith("_"):
+                    symbols.append(
+                        SymbolInfo(
+                            name=target.id,
+                            kind="constant",
+                            file_path=file_path,
+                            start_line=node.lineno,
+                            end_line=node.end_lineno or node.lineno,
+                        )
+                    )
+        elif isinstance(node, ast.AnnAssign):
+            if isinstance(node.target, ast.Name) and node.target.id.isupper() and not node.target.id.startswith("_"):
+                symbols.append(
+                    SymbolInfo(
+                        name=node.target.id,
+                        kind="constant",
+                        file_path=file_path,
+                        start_line=node.lineno,
+                        end_line=node.end_lineno or node.lineno,
+                    )
+                )
+        elif isinstance(node, ast.ImportFrom):
+            if node.names:
+                for alias in node.names:
+                    name = alias.asname or alias.name
+                    if name == "*" or name.startswith("_"):
+                        continue
+                    symbols.append(
+                        SymbolInfo(
+                            name=name,
+                            kind="symbol",
+                            file_path=file_path,
+                            start_line=node.lineno,
+                            end_line=node.end_lineno or node.lineno,
+                        )
+                    )
+
+    return SymbolManifest(file_path=file_path, language=language, symbols=symbols, source="ast")
+
+
+def get_symbol_manifest(file_path: str) -> SymbolManifest:
+    """Return a symbol manifest for *file_path*, trying LSP first then falling back.
+
+    Falls back to AST extraction for Python files, or returns an unavailable
+    manifest with an actionable recommendation for other languages.
+    """
+    ext = os.path.splitext(file_path)[1].lower()
+    language = _EXT_TO_LANGUAGE.get(ext, ext)
+
+    # 1. Try LSP
+    lsp_symbols = _try_lsp_document_symbols(file_path)
+    if lsp_symbols is not None:
+        return SymbolManifest(
+            file_path=file_path,
+            language=language,
+            symbols=lsp_symbols,
+            source="lsp",
+        )
+
+    # 2. Fallback for Python
+    if ext == ".py":
+        return _python_ast_manifest(file_path, language)
+
+    # 3. Unavailable for other languages
+    recommendation = get_lsp_recommendation(ext)
+    if language not in _warned_languages:
+        _warned_languages.add(language)
+        print(f"[unslop] No LSP available for {language}: {recommendation}", file=sys.stderr)
+
+    return SymbolManifest(
+        file_path=file_path,
+        language=language,
+        source="unavailable",
+        error=recommendation,
+    )
