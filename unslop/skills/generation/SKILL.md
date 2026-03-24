@@ -81,6 +81,16 @@ Only block on user rejection.
 
 ---
 
+### Model Selection
+
+Before dispatching the Builder subagent, read `.unslop/config.json`. If a `models` block exists and contains a `builder` key, pass that value as the `model` parameter to `Agent()`. If the `models` block is missing or the key is absent, use the hardcoded default:
+
+| Role | Default |
+|---|---|
+| builder | sonnet |
+
+The `model` parameter controls which Claude model runs the subagent. Valid values: `sonnet`, `opus`, `haiku`, or a full model ID (e.g., `claude-sonnet-4-6`).
+
 ### Stage B: Builder (Fresh Agent, Worktree Isolation)
 
 The Builder generates code from the specs. It runs as a fresh Agent in an isolated git worktree with zero conversation history.
@@ -153,6 +163,7 @@ All targets passed. Merging atomically.
 Agent(
     description="Implement spec changes in isolated worktree",
     isolation="worktree",
+    model=config.models.builder,  # from .unslop/config.json, default: sonnet
     prompt="""You are implementing changes to managed files based on their specs.
 
     Target spec: {spec_path}
