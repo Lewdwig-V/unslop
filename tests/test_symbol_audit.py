@@ -396,3 +396,50 @@ def test_spec_diff_removed_section():
     result = compute_spec_diff(old, new)
     assert "Legacy" in result["changed_sections"]
     assert "Overview" in result["unchanged_sections"]
+
+
+def test_drift_unauthorized_new_symbol():
+    """New symbol appears without (new) tag -> drift warning."""
+    old_code = "def foo():\n    return 1\n"
+    new_code = "def foo():\n    return 1\n\ndef sneaked_in():\n    return 2\n"
+    orig = _write_tmp(old_code)
+    gen = _write_tmp(new_code)
+    try:
+        result = check_drift(orig, gen, affected_symbols=["foo"])
+        assert result["status"] == "drift"
+        assert any("sneaked_in" in d for d in result["drifted"])
+    finally:
+        os.unlink(orig)
+        os.unlink(gen)
+
+
+def test_drift_empty_new_file():
+    """Old file has symbols, new file is empty -> all protected symbols drifted."""
+    old_code = "def foo():\n    return 1\n\ndef bar():\n    return 2\n"
+    new_code = ""
+    orig = _write_tmp(old_code)
+    gen = _write_tmp(new_code)
+    try:
+        result = check_drift(orig, gen, affected_symbols=[])
+        assert result["status"] == "drift"
+        assert "foo" in result["drifted"]
+        assert "bar" in result["drifted"]
+    finally:
+        os.unlink(orig)
+        os.unlink(gen)
+
+
+def test_drift_adjacent_classes():
+    """Two adjacent classes -- verify line-range slicing is correct."""
+    old_code = "class A:\n    x = 1\n\nclass B:\n    y = 2\n"
+    new_code = "class A:\n    x = 1\n\nclass B:\n    y = 99\n"
+    orig = _write_tmp(old_code)
+    gen = _write_tmp(new_code)
+    try:
+        result = check_drift(orig, gen, affected_symbols=["B"])
+        assert result["status"] == "clean"
+        assert result["drifted"] == []
+        assert "B" in result["modified"]
+    finally:
+        os.unlink(orig)
+        os.unlink(gen)
