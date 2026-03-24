@@ -206,9 +206,7 @@ git commit -m "feat(init): seed models block in config template"
 
 - [ ] **Step 1: Bump version in plugin.json**
 
-Change `"version": "0.15.0"` to `"version": "0.17.0"` in `unslop/.claude-plugin/plugin.json`.
-
-Note: v0.16.0 is reserved for the Surgical Builder spec (not yet implemented). This is v0.17.0.
+Change `"version": "0.16.0"` to `"version": "0.17.0"` in `unslop/.claude-plugin/plugin.json`.
 
 - [ ] **Step 2: Verify all changes are consistent**
 

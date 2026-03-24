@@ -47,7 +47,7 @@ If multiple indicators are found, or none are found, ask the user which test com
     "saboteur": "haiku",
     "prosecutor": "sonnet"
   },
-  "models_note": "Model selection per agent role. architect is a session recommendation (not dispatched). Valid values: opus, sonnet, haiku, or a full model ID.",
+  "models_note": "Model selection per agent role. architect is not dispatched as a subagent -- it runs inline in the controlling session. This entry documents the intended model tier, not a dispatch parameter. Valid values: opus, sonnet, haiku, or a full model ID.",
   "exclude_patterns": [],
   "exclude_patterns_note": "Additional directory patterns to exclude from discovery, beyond defaults",
   "promote-threshold": "high",

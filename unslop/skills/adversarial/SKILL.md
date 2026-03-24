@@ -37,7 +37,7 @@ The pipeline has three independent agents with a **Chinese Wall** between them:
 
 ### Model Selection
 
-Before dispatching any adversarial agent, read `.unslop/config.json`. If a `models` block exists and contains a key matching the agent role, pass that value as the `model` parameter to `Agent()`. If the `models` block is missing or the role key is absent, use the hardcoded default:
+Before dispatching any adversarial agent, read `.unslop/config.json`. If a `models` block exists and contains a key matching the agent role, pass that value as the `model` parameter when dispatching via `Agent()`. If the `models` block is missing or the role key is absent, use the hardcoded default. Note: the adversarial agents are dispatched by the controlling session -- no `Agent()` code block exists in this skill. The controlling session must set the `model` parameter when creating each agent.
 
 | Role | Default |
 |---|---|
@@ -46,7 +46,7 @@ Before dispatching any adversarial agent, read `.unslop/config.json`. If a `mode
 | saboteur | haiku |
 | prosecutor | sonnet |
 
-The `model` parameter controls which Claude model runs the subagent. Valid values: `sonnet`, `opus`, `haiku`, or a full model ID (e.g., `claude-sonnet-4-6`).
+The `model` parameter controls which Claude model runs the subagent. Valid values: `sonnet`, `opus`, `haiku`, or a full model ID (e.g., `claude-sonnet-4-6`). In the dispatch annotations below, `config.models.<role>` refers to the value at `.unslop/config.json` -> `models` -> `<role>`.
 
 ### Phase 1: Archaeologist (Intent Extraction)
 

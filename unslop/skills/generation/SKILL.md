@@ -83,7 +83,7 @@ Only block on user rejection.
 
 ### Model Selection
 
-Before dispatching any subagent, read `.unslop/config.json`. If a `models` block exists and contains a key matching the agent role, pass that value as the `model` parameter to `Agent()`. If the `models` block is missing or the role key is absent, use the hardcoded default:
+Before dispatching the Builder subagent, read `.unslop/config.json`. If a `models` block exists and contains a `builder` key, pass that value as the `model` parameter to `Agent()`. If the `models` block is missing or the key is absent, use the hardcoded default:
 
 | Role | Default |
 |---|---|
