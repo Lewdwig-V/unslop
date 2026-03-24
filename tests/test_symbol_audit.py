@@ -8,7 +8,7 @@ import subprocess
 import sys
 import tempfile
 
-from unslop.scripts.validation.symbol_audit import audit_symbols
+from unslop.scripts.validation.symbol_audit import audit_symbols, check_drift, compute_spec_diff
 
 AUDIT_SCRIPT = os.path.join(os.path.dirname(__file__), "..", "unslop", "scripts", "orchestrator.py")
 
@@ -262,3 +262,137 @@ def test_private_reexports_ignored():
     finally:
         os.unlink(orig)
         os.unlink(gen)
+
+
+# ---- check_drift tests ----
+
+
+def test_drift_clean():
+    """Only affected symbols changed -> clean."""
+    old = _write_tmp("def foo():\n    pass\n\ndef bar():\n    pass\n")
+    new = _write_tmp("def foo():\n    return 1\n\ndef bar():\n    pass\n")
+    try:
+        result = check_drift(old, new, ["foo"])
+        assert result["status"] == "clean"
+        assert result["drifted"] == []
+        assert "foo" in result["modified"]
+    finally:
+        os.unlink(old)
+        os.unlink(new)
+
+
+def test_drift_detected():
+    """Protected symbol changed -> drift."""
+    old = _write_tmp("def foo():\n    pass\n\ndef bar():\n    pass\n")
+    new = _write_tmp("def foo():\n    pass\n\ndef bar():\n    return 99\n")
+    try:
+        result = check_drift(old, new, ["foo"])
+        assert result["status"] == "drift"
+        assert "bar" in result["drifted"]
+    finally:
+        os.unlink(old)
+        os.unlink(new)
+
+
+def test_drift_new_symbol():
+    """(new) tag exempts new symbols from drift detection."""
+    old = _write_tmp("def foo():\n    pass\n")
+    new = _write_tmp("def foo():\n    pass\n\ndef helper():\n    return 1\n")
+    try:
+        result = check_drift(old, new, ["helper (new)"])
+        assert result["status"] == "clean"
+        assert result["drifted"] == []
+    finally:
+        os.unlink(old)
+        os.unlink(new)
+
+
+def test_drift_deleted_symbol():
+    """(deleted) tag, symbol removed -> clean."""
+    old = _write_tmp("def foo():\n    pass\n\ndef legacy():\n    pass\n")
+    new = _write_tmp("def foo():\n    pass\n")
+    try:
+        result = check_drift(old, new, ["legacy (deleted)"])
+        assert result["status"] == "clean"
+    finally:
+        os.unlink(old)
+        os.unlink(new)
+
+
+def test_drift_deleted_but_still_present():
+    """Tagged deleted but still in output -> drift."""
+    old = _write_tmp("def foo():\n    pass\n\ndef legacy():\n    pass\n")
+    new = _write_tmp("def foo():\n    pass\n\ndef legacy():\n    pass\n")
+    try:
+        result = check_drift(old, new, ["legacy (deleted)"])
+        assert result["status"] == "drift"
+        assert "legacy" in result["drifted"]
+    finally:
+        os.unlink(old)
+        os.unlink(new)
+
+
+def test_drift_nonpython_skips():
+    """.ts files skip drift checking."""
+    old = _write_tmp("export function foo() {}", suffix=".ts")
+    new = _write_tmp("export function bar() {}", suffix=".ts")
+    try:
+        result = check_drift(old, new, [])
+        assert result["status"] == "clean"
+        assert result["skipped"] is True
+    finally:
+        os.unlink(old)
+        os.unlink(new)
+
+
+def test_drift_class_body_change():
+    """Class method changed in protected class -> drift."""
+    old_src = "def unrelated():\n    pass\n\nclass MyClass:\n    def method(self):\n        return 1\n"
+    new_src = "def unrelated():\n    pass\n\nclass MyClass:\n    def method(self):\n        return 999\n"
+    old = _write_tmp(old_src)
+    new = _write_tmp(new_src)
+    try:
+        result = check_drift(old, new, ["unrelated"])
+        assert result["status"] == "drift"
+        assert "MyClass" in result["drifted"]
+    finally:
+        os.unlink(old)
+        os.unlink(new)
+
+
+# ---- compute_spec_diff tests ----
+
+
+def test_spec_diff_changed_section():
+    """Changed section detected."""
+    old = "## Overview\nOld content\n\n## API\nSame\n"
+    new = "## Overview\nNew content\n\n## API\nSame\n"
+    result = compute_spec_diff(old, new)
+    assert "Overview" in result["changed_sections"]
+    assert "API" in result["unchanged_sections"]
+
+
+def test_spec_diff_no_change():
+    """Identical specs -> no changed sections."""
+    spec = "## Overview\nContent\n\n## API\nEndpoints\n"
+    result = compute_spec_diff(spec, spec)
+    assert result["changed_sections"] == []
+    assert len(result["unchanged_sections"]) == 2
+
+
+def test_spec_diff_new_section():
+    """New section in new spec -> changed."""
+    old = "## Overview\nContent\n"
+    new = "## Overview\nContent\n\n## API\nNew stuff\n"
+    result = compute_spec_diff(old, new)
+    assert "API" in result["changed_sections"]
+    assert "Overview" in result["unchanged_sections"]
+
+
+def test_spec_diff_removed_section():
+    """Section removed from new spec -> changed."""
+    old = "## Overview\nContent\n\n## Legacy\nOld stuff\n"
+    new = "## Overview\nContent\n"
+    result = compute_spec_diff(old, new)
+    assert "Legacy" in result["changed_sections"]
+    assert "Overview" in result["unchanged_sections"]
