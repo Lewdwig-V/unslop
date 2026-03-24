@@ -355,7 +355,7 @@ When the takeover command provides a list of files (from directory scanning or g
 
 ### Context Management for Large Batches
 
-For takeovers of 8+ files, the Architect session accumulates significant context: all source files, all specs, all concrete specs, and orchestration state. To prevent context exhaustion:
+For takeovers of 6 or more files, the Architect session accumulates significant context: all source files, all specs, all concrete specs, and orchestration state. To prevent context exhaustion:
 
 **Layer-based processing:** Group files by dependency layer (leaves first, then dependents). Complete each layer fully (specs drafted, Builders dispatched, results verified) before loading the next layer's source files. This keeps the Architect's working set to one layer at a time.
 
