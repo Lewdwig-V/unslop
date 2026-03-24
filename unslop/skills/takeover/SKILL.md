@@ -353,6 +353,18 @@ Do not delete, overwrite, or clean up any of these artifacts. Leave the working 
 
 When the takeover command provides a list of files (from directory scanning or glob expansion), the pipeline operates on the entire set as a unit.
 
+### Context Management for Large Batches
+
+For takeovers of 8+ files, the Architect session accumulates significant context: all source files, all specs, all concrete specs, and orchestration state. To prevent context exhaustion:
+
+**Layer-based processing:** Group files by dependency layer (leaves first, then dependents). Complete each layer fully (specs drafted, Builders dispatched, results verified) before loading the next layer's source files. This keeps the Architect's working set to one layer at a time.
+
+**Commit checkpoints:** After each layer's Builders succeed, commit the completed layer's specs and generated files atomically. This frees context -- the Architect no longer needs the completed layer's source files or specs in memory for subsequent layers.
+
+**Resume on failure:** If the Architect session hits context limits mid-batch, the user can start a new session and resume from the last committed layer. Completed layers are already on disk; only incomplete layers need re-processing.
+
+For batches of 5 or fewer files, process all files in a single pass without layering.
+
 ### Discovery (replaces Step 1)
 
 The command has already called `orchestrator.py discover` and the user has confirmed the file list. You receive the confirmed list of source files.

@@ -17,10 +17,12 @@ Unslop's spec-driven pipeline mirrors a compiler's multi-stage lowering:
 | **Mid-Level IR** | **Concrete Spec (`*.impl.md`)** | **Implementation strategy** | **The "How" (algorithm/pattern level)** |
 | Low-Level IR / Target | Generated Code | Language-specific source | The "With What" |
 
-The Abstract Spec describes **observable behavior** — what the code must do.
-The Concrete Spec describes **implementation strategy** — the algorithm, pattern, and structural approach the Builder will use, without committing to language syntax.
+The Abstract Spec describes **observable behavior** -- what the code must do.
+The Concrete Spec describes **what the Builder would get wrong** without guidance -- the non-obvious implementation decisions where a wrong choice is silent (memory layout, unsafe preconditions, type migrations, competing definitions) rather than loud (wrong return value, missing error case).
 
-This extra layer of indirection is where the most powerful optimizations happen: you catch logic errors in the strategy before wasting tokens on boilerplate, and you gain radical portability by keeping the "How" separate from the "With What."
+**The concrete spec is a correction layer, not a complete implementation strategy.** The Builder already knows how to implement standard algorithms (retry loops, CRUD operations, request routing). Pseudocode for these adds noise. The concrete spec's value is in the parts where getting it wrong is silent: memory layout that causes corruption under load, unsafe operations with implicit preconditions, type changes from takeover that the Builder might regress, concurrency orderings where "stronger to be safe" introduces contention.
+
+Focus the concrete spec on what's surprising about this implementation. If the Builder would produce correct code from the abstract spec alone, the concrete spec can be minimal or omitted (ephemeral).
 
 ---
 
