@@ -1,22 +1,36 @@
 # v0.16.0 Surgical Builder Design Spec
 
-**Date:** 2026-03-23
-**Branch:** feat/diffi-minimizer
-**Status:** Design-Locked
+**Date:** 2026-03-24
+**Status:** Design-Locked (Surgical Lite -- replaces the full Surgicality Linter spec)
 
 ## Problem
 
 The Builder operates in "blank slate" mode -- it receives specs and produces code from scratch in an isolated worktree. Two runs with identical specs can produce structurally different code because the Builder has no anchor to preserve existing structure. This causes Developer Vertigo: a single variable name change in the spec triggers method reordering, for-loop-to-map() swaps, and gratuitous reformatting throughout the file. Users lose trust, git blame becomes useless, and diffs are unreadable.
 
-## Solution: Surgical Patching
+## Solution: Surgical Lite
 
-Move from "Bulk Generation" to "Surgical Patching" as a core constraint of the Builder. The Builder receives its own prior output as a structural template (the "Last Successful Compilation Target"), a spec diff to focus its attention, and an explicit list of symbols it is authorized to modify. A deterministic Surgicality Linter enforces that protected symbols remain untouched.
+Give the Builder its own prior output as a structural template (the "Compilation Target"), a spec diff to focus its attention, and an explicit list of symbols it is authorized to modify. A soft post-hoc check warns if the Builder drifted beyond its authorization. No new dependencies. No new Builder status codes.
+
+### Design principles
+
+1. **Prompt-first, lint-second.** The Builder receives focused context (compilation target + spec diff + affected symbols) and is instructed to minimize changes. A post-hoc check catches drift but does not reject -- it warns.
+2. **Zero new dependencies.** Uses Python's `ast` module (already used by `symbol_audit.py`) for the post-hoc check. No tree-sitter, no compiled libraries.
+3. **Escape hatch, not escalation protocol.** If surgical mode produces a bad result, the user runs `--refactor` for full regeneration. No BLOCKED_SCOPE, no Architect escalation flow.
+4. **Python-first.** The `ast`-based post-hoc check works for Python. Other languages get prompt enforcement only, with the soft check deferred to a future version that adds tree-sitter.
+
+### What this spec defers
+
+The original design specified a deterministic Surgicality Linter with tree-sitter, a BLOCKED_SCOPE Builder status, language-specific import comparison, and a 4-PR implementation plan. These are deferred to v0.17.0 pending validation data: if Surgical Lite's prompt-based approach produces minimal diffs in practice, the hard linter is premature optimization. If it doesn't, the data justifies the dependency.
+
+---
 
 ## Core Architectural Decision: The "Compilation Target" Carve-Out
 
-The existing code is not "user intent" -- it is a serialized state of the previous spec, a cold deterministic implementation with zero vibes, intents, or conversation history. Providing it to the Builder is State Synchronization, not a No-Peeking violation.
+The existing managed code is not "user intent" -- it is a serialized state of the previous spec, a cold deterministic implementation with zero vibes, intents, or conversation history. Providing it to the Builder is State Synchronization, not a No-Peeking violation.
 
 **Negative Constraint:** The Builder is prohibited from using the existing code as a reason to ignore a spec change. If the Spec Diff contradicts the Code, the Spec Diff wins. Always.
+
+---
 
 ## Relationship to Existing Generation Modes
 
@@ -32,92 +46,11 @@ Surgical mode **replaces both** as the new default for files that already exist:
 | Existing file, spec changed | Mode A (default) or Mode B (`--incremental`) | **Surgical** (new default) |
 | User wants full restructure | Mode A | `--refactor` flag (equivalent to Mode A) |
 
-**Mode B (`--incremental`) is deprecated.** Surgical mode subsumes it with deterministic enforcement. The `--incremental` flag becomes an alias for the new default behavior (surgical sync) and emits a deprecation warning: `"--incremental is deprecated. Surgical mode is now the default. Use --refactor for full regeneration."`
-
-The dispatch logic in `generate.md` and `sync.md` changes from:
-- Old: "New files use Mode A. Existing files default to Mode A; use Mode B if `--incremental`."
-- New: "New files use Mode A. Existing files use Surgical mode. Use `--refactor` for Mode A on existing files."
+**Mode B (`--incremental`) is deprecated.** Surgical mode subsumes it with better context. The `--incremental` flag becomes an alias for the new default behavior and emits a deprecation warning: `"--incremental is deprecated. Surgical mode is now the default. Use --refactor for full regeneration."`
 
 ---
 
-## 1. Symbol-Block Splitter
-
-### Purpose
-
-Decompose a source file into a map of `{symbol_name: code_block}` pairs for per-symbol comparison.
-
-### Implementation: Tree-sitter CST
-
-Tree-sitter produces Concrete Syntax Trees that preserve comments, whitespace, and exact formatting -- required for bit-level comparison of protected blocks. Tree-sitter grammars are community-maintained; adding a new language is a package install, not a regex profile.
-
-**Language support (v0.16.0):** Python, JavaScript, TypeScript, Go. Additional languages via `tree-sitter-{lang}` packages.
-
-**Dependency bootstrap:** Tree-sitter packages are installed via `uv pip install tree-sitter tree-sitter-python tree-sitter-javascript tree-sitter-typescript tree-sitter-go`. On first surgical sync, if `import tree_sitter` fails, the Orchestrator prompts:
-
-```
-Surgical mode requires tree-sitter for symbol-level diffing.
-Install? uv pip install tree-sitter tree-sitter-python tree-sitter-javascript \
-  tree-sitter-typescript tree-sitter-go
-[y/N]
-```
-
-On user confirmation, install and proceed. On decline, fall back to line-based heuristic with reduced precision warning.
-
-**Fallback:** If no tree-sitter grammar is available for a file's language (or tree-sitter is not installed), fall back to a line-based heuristic (top-level definition boundaries via indentation/brace-depth) and emit a warning: `"WARNING: No Tree-sitter grammar for .{ext}. Surgicality check is less precise."`
-
-### Algorithm
-
-1. Strip the `@unslop-managed` header (lines matching the managed header pattern)
-2. Parse with tree-sitter for the file's language
-3. Extract top-level declaration nodes (function_definition, class_definition, and language equivalents)
-4. Each top-level node becomes a named block including its decorators/annotations and leading comments
-5. Everything before the first declaration splits into:
-   - `__imports__`: import statements, compared using language-specific set semantics (see Import Comparison below)
-   - `__constants__`: module-level assignments, each its own named entry (protected unless in `affected_symbols`)
-6. Nested classes/functions belong to their parent block (not split further)
-
-### Output Format
-
-```python
-{
-    "__imports__": [
-        {"raw": "import random", "key": "random"},
-        {"raw": "from dataclasses import dataclass", "key": "dataclasses.dataclass"},
-        ...
-    ],
-    "T": "T = TypeVar('T')\n",
-    "MaxRetriesExceeded": "class MaxRetriesExceeded(Exception):\n    ...",
-    "RetryConfig": "@dataclass(frozen=True)\nclass RetryConfig:\n    ...",
-    "retry": "def retry(operation: Callable[[], T], ...) -> T:\n    ...",
-}
-```
-
-### Normalization (applied before comparison, never to actual output)
-
-- Strip trailing whitespace per line
-- LF line endings (CRLF -> LF)
-- Collapse consecutive blank lines to single blank line
-- Strip leading/trailing blank lines from each block
-
-After normalization, exact match required. No "it's just a docstring" exceptions.
-
-### Import Comparison (Language-Specific)
-
-Imports are compared as sets keyed by a normalized identifier, not by raw text or position. Each language adapter defines how to extract the key and how to handle ordering semantics.
-
-**Python:** Key is the imported name (`random`, `dataclasses.dataclass`). Order is not semantically meaningful. Set comparison: same keys = same imports.
-
-**JavaScript/TypeScript:** Key is the module specifier + imported binding (`bar.foo` for `import { foo } from 'bar'`). **Exception:** bare side-effect imports (`import './polyfill'`, `import 'reflect-metadata'`) are order-sensitive and position-pinned. The linter treats side-effect imports as individual named entries (keyed by module specifier) that must appear in the same relative order. Adding a new side-effect import for an affected symbol is allowed; reordering existing ones is a violation.
-
-**Go:** Key is the import path (`"fmt"`, `"encoding/json"`). Blank-identifier imports (`_ "net/http/pprof"`) are treated like JS side-effect imports -- position-pinned and order-sensitive. Named imports (`myjson "encoding/json"`) are keyed by the alias.
-
-**General rule:** If a language has imports with side effects that depend on execution order, those imports are position-pinned. All other imports use unordered set comparison.
-
----
-
-## 2. Spec-Diff Parser + Affected Symbols Extraction
-
-### Part 1: Spec-Diff Computation
+## 1. Spec-Diff Computation
 
 When a spec changes, the Orchestrator computes a section-level diff.
 
@@ -135,10 +68,13 @@ spec_diff:
   unchanged_sections:
     - "## Purpose"
     - "## Constraints"
-    - "## Open Questions"
 ```
 
-### Part 2: Architect `affected_symbols` Derivation
+This is computed by the Orchestrator and passed to the Architect during Stage A.2. No new script needed -- section-level markdown diffing is a simple string operation.
+
+---
+
+## 2. Affected Symbols Derivation
 
 During Stage A.2, the Architect produces the `affected_symbols` list. Written to concrete spec frontmatter:
 
@@ -155,16 +91,29 @@ reason: "Behavior section changed delay calculation formula"
 
 **Architect's inputs:**
 - The `spec_diff` (which sections changed)
-- Existing code's symbol name list (from tree-sitter, names only -- not bodies)
+- Existing code's symbol name list (from `symbol_audit.py`'s `_extract_public_symbols`, names only -- not bodies)
 - The spec text (to map requirements to symbols)
 
 The Architect sees symbol *names*, not *implementations*. This preserves the No-Peeking boundary -- symbol names are already visible in the file tree.
 
+### Edge Cases
+
+**New symbols:** Tagged `(new)` in `affected_symbols`. Post-hoc check exempts from "must match old block."
+```yaml
+affected_symbols:
+  - calculate_delay
+  - format_backoff_report (new)
+```
+
+**Deleted symbols:** Tagged `(deleted)`. Post-hoc check verifies symbol was removed.
+```yaml
+affected_symbols:
+  - legacy_retry (deleted)
+```
+
 ### Multi-Target Concrete Specs
 
-For multi-target concrete specs (dispatching parallel Builders across languages), each target gets its own `affected_symbols` list. Different languages may have different symbol names for the same logical unit (e.g., `calculate_delay` in Python vs `calculateDelay` in TypeScript).
-
-The `affected_symbols` list is placed per-target in the `targets[]` array, not at the top-level frontmatter:
+For multi-target concrete specs, each target gets its own `affected_symbols` list in the `targets[]` array:
 
 ```yaml
 ---
@@ -184,280 +133,118 @@ reason: "Behavior section changed delay calculation formula"
 ---
 ```
 
-Each parallel Builder receives only its target's `affected_symbols`. Each target's output is linted independently.
-
-For single-target specs (`target-language` instead of `targets[]`), `affected_symbols` remains at the top-level frontmatter as shown in Part 2.
-
-### Edge Cases
-
-**New symbols:** Tagged `(new)` in `affected_symbols`. Linter exempts from "must match old block" check.
-```yaml
-affected_symbols:
-  - calculate_delay
-  - format_backoff_report (new)
-```
-
-**Deleted symbols:** Tagged `(deleted)`. Linter verifies symbol was removed.
-```yaml
-affected_symbols:
-  - legacy_retry (deleted)
-```
+For single-target specs, `affected_symbols` remains at top-level frontmatter.
 
 ---
 
-## 3. Surgicality Linter (The Cold Audit Gate)
-
-### Purpose
-
-Deterministic post-hoc enforcement that the Builder only modified authorized symbols. Runs in the Orchestrator after Builder returns DONE, before worktree merge.
-
-### Inputs
-
-- `OLD_CODE`: existing managed file (Last Successful Compilation Target)
-- `NEW_CODE`: Builder's output from worktree
-- `affected_symbols`: from concrete spec frontmatter
-
-### Algorithm
-
-```
-1. Parse OLD_CODE with tree-sitter -> old_symbols: {name: normalized_block}
-2. Parse NEW_CODE with tree-sitter -> new_symbols: {name: normalized_block}
-3. For each symbol in old_symbols:
-     if symbol NOT in affected_symbols:
-       if symbol NOT in new_symbols:
-         FAIL("Protected symbol '{symbol}' was deleted")
-       if normalize(old_symbols[symbol]) != normalize(new_symbols[symbol]):
-         FAIL("Surgicality violation: '{symbol}' modified but not in affected_symbols")
-4. For each symbol in new_symbols:
-     if symbol NOT in old_symbols AND symbol NOT tagged (new) in affected_symbols:
-       FAIL("Unauthorized new symbol '{symbol}' not declared in affected_symbols")
-5. For each symbol tagged (deleted) in affected_symbols:
-     if symbol in new_symbols:
-       FAIL("Symbol '{symbol}' marked for deletion but still present")
-6. PASS -- generate summary
-```
-
-### Preamble Rules
-
-- `__imports__`: compared using language-specific set semantics (see Section 1, Import Comparison). New imports required by affected symbols are allowed. Removed imports for deleted symbols are allowed. For non-side-effect imports, reordering is not a violation. Side-effect imports are position-pinned.
-- `__constants__`: each constant is a named symbol entry. Protected unless listed in `affected_symbols`.
-
-### Rejection Output
-
-```
-REJECTED: Surgicality violation in src/retry.py
-
-  Protected symbol 'RetryConfig' was modified.
-  Affected symbols were: [calculate_delay, retry]
-
-  Diff in protected symbol:
-    - max_retries: int = 3
-    + max_retries: int = 5
-
-  Action: Re-dispatch Builder with tighter constraint,
-          or escalate via BLOCKED_SCOPE if change is necessary.
-```
-
-### Retry on Failure
-
-1. Builder's worktree is preserved (not discarded)
-2. Re-dispatch Builder with violation report appended to prompt (mirrors `previous_failure` pattern)
-3. Max 1 linter retry. Second failure auto-escalates to BLOCKED_SCOPE
-4. If escalation budget also exhausted, becomes full BLOCKED
-
----
-
-## 4. Builder Prompt Update
-
-### New Context Blocks
+## 3. Builder Prompt Update
 
 The Builder's dispatch prompt gains three new sections for surgical syncs:
 
-**Existing Code block:** The current managed file, labeled "Last Successful Compilation Target." Builder treats this as its structural template.
+### Existing Code block
 
-**Spec Diff block:** Summary of which spec sections changed. Focuses the Builder's attention on relevant requirements.
+The current managed file, labeled "Last Successful Compilation Target." Builder treats this as its structural template.
 
-**Affected Symbols block:** Explicit authorization list. Builder is instructed: "You are authorized to modify ONLY these symbols. All other symbols must remain identical to the Existing Code."
+### Spec Diff block
 
-### BLOCKED_SCOPE Awareness
+Summary of which spec sections changed. Focuses the Builder's attention on relevant requirements.
 
-The Builder is instructed that if it cannot satisfy the spec change within the authorized symbols, it must report `BLOCKED_SCOPE` with:
-- Which protected symbol it needs
-- Why the spec change requires it (must reference a spec requirement)
-- What minimal change is needed
-- Requested additions to `affected_symbols`
+### Affected Symbols block
 
-### Surgicality Linter Warning
+Explicit authorization list:
 
-The prompt explicitly warns: "The Surgicality Linter will verify your output. Any modification to a protected symbol triggers automatic rejection and retry."
-
-### Surgicality Violation Injection
-
-On linter retry, the violation report is injected (same pattern as `previous_failure`):
-
-```
-Previous Surgicality Violation:
-  You modified protected symbol 'RetryConfig' which was not in your
-  affected_symbols set [calculate_delay, retry].
-
-  The specific unauthorized change:
-    - max_retries: int = 3
-    + max_retries: int = 5
-
-  You MUST preserve 'RetryConfig' exactly as it appears in the
-  Existing Code. If this is impossible, report BLOCKED_SCOPE.
-```
+> "You are authorized to modify ONLY these symbols: [calculate_delay, retry]. All other symbols, including their docstrings, type signatures, and internal logic, must remain identical to the Existing Code. Copy them verbatim. Do not reformat, reorder, or 'improve' protected symbols."
 
 ### When Surgical Context Is NOT Provided
 
-Full regeneration mode (no Existing Code, no Spec Diff, no Affected Symbols, Linter skipped):
+Full regeneration mode (no Existing Code, no Spec Diff, no Affected Symbols):
 - First generation (no existing code)
 - File state is `conflict` and user chose "Overwrite"
 - `--refactor` flag (explicit opt-in to full regen)
 
-**Note on `--force`:** The `--force` flag retains its existing meaning ("proceed on modified/conflict files without confirmation"). It does NOT bypass surgical mode. A `--force` sync on a `modified` file skips the overwrite/absorb/skip prompt and proceeds with surgical sync using the existing code as-is. To bypass surgical linting, use `--refactor`.
+**Note on `--force`:** Retains existing meaning ("proceed on modified/conflict files without confirmation"). Does NOT bypass surgical mode. To bypass surgical mode, use `--refactor`.
 
 ---
 
-## 5. BLOCKED_SCOPE Protocol
+## 4. Post-Hoc Drift Check (Soft)
 
-### New Builder Status
+After the Builder returns DONE, before worktree merge, run a soft check. This is a **warning**, not a gate.
 
-Fourth status alongside DONE, DONE_WITH_CONCERNS, BLOCKED:
+### Python files
 
-```
-BLOCKED_SCOPE: Cannot satisfy spec change within authorized symbols.
+Use `_extract_public_symbols()` from `symbol_audit.py` to extract top-level symbol names from both the old and new files. For each symbol NOT in `affected_symbols`:
 
-Protected symbol requiring modification: RetryConfig
-Reason: Spec now requires calculate_delay to return tuple[float, int].
-        RetryConfig must add an include_attempt field.
-Requested additions: [RetryConfig]
-Minimal change description: Add include_attempt: bool = False field.
-```
+1. Extract the symbol's source lines from both files (using `ast.get_source_segment` or line-range extraction from the AST node)
+2. Normalize (strip trailing whitespace, collapse blank lines)
+3. Compare
 
-### Orchestrator Escalation Flow
+If a protected symbol changed:
 
 ```
-Builder returns BLOCKED_SCOPE
-    |
-Orchestrator parses structured report
-    |
-Architect Review (Stage A, controlling session):
-    |-- reads BLOCKED_SCOPE report
-    |-- reads spec diff
-    |-- reads requested symbol's name + type (tree-sitter, not body)
-    |-- runs ripple-check on parent spec
-    |
-Three outcomes:
-    |-- APPROVE: update affected_symbols, re-dispatch Builder
-    |-- REDIRECT: Builder's interpretation is wrong, add constraint note, re-dispatch
-    +-- ESCALATE: surface to user for decision
+WARNING: Builder modified protected symbol 'RetryConfig' (not in affected_symbols).
+  Affected symbols were: [calculate_delay, retry]
+
+  This may indicate the spec change has broader impact than expected.
+  Options:
+    - Accept the diff (the change may be necessary)
+    - Re-run with --refactor for full regeneration
+    - Edit the spec to decompose the change
 ```
 
-### Auto-Approve vs Escalate Decision
+The warning is surfaced in the triage summary. The worktree merge proceeds regardless -- the user decides whether to accept.
 
-The Architect auto-approves when:
-- Requested symbol is in the same file (internal scope)
-- Change is additive (new field, new method) not destructive (rename/removal)
-- `ripple-check` shows no downstream dependents affected
+### Non-Python files
 
-The Architect escalates to user when:
-- Symbol is referenced in other specs' `depends-on` lists
-- Change is destructive (removes or renames a public interface)
-- `ripple-check` shows downstream files would become stale
+Prompt enforcement only. No post-hoc check. The Builder's "minimize changes" instruction is the only guard. A future version may add tree-sitter-based checking for JS/TS/Go.
 
-### Scope Escalation Metadata
+### What the check does NOT do
 
-Preserved in concrete spec frontmatter for triage summary:
-```yaml
-scope_escalation:
-  symbol: RetryConfig
-  reason: "Return type change in calculate_delay requires new config field"
-  approved_by: architect
-```
-
-Auto-approved escalations appear in the triage summary as a single line:
-```
-Scope widened: +RetryConfig (return type change required by calculate_delay)
-```
-
-### Iteration Budget (Complete)
-
-```
-Builder attempt 1
-    -> DONE -> Surgicality Linter
-                  -> PASS -> merge
-                  -> FAIL -> retry with violation report
-Builder attempt 2 (linter retry)
-    -> DONE -> Surgicality Linter
-                  -> PASS -> merge
-                  -> FAIL -> auto-escalate to BLOCKED_SCOPE
-    -> BLOCKED_SCOPE -> Architect review
-                          -> APPROVE -> re-dispatch (attempt 3)
-                          -> REDIRECT -> re-dispatch (attempt 3)
-                          -> ESCALATE -> user decides
-Builder attempt 3 (post-escalation)
-    -> DONE -> Surgicality Linter -> PASS -> merge
-    -> Any failure -> BLOCKED (user decides)
-```
-
-Maximum 3 Builder dispatches per file per sync. This **replaces** the existing Stage A/B convergence loop budget (not additive). The 3-attempt budget covers all retry reasons: test failures, surgicality violations, and scope escalations. A BLOCKED_SCOPE escalation that triggers re-dispatch counts as one of the 3 attempts.
+- It does not reject the Builder's output
+- It does not retry the Builder
+- It does not escalate to a new protocol
+- It does not compare imports (import changes are almost always consequences of symbol changes)
 
 ---
 
-## 6. Triage Summary + --refactor Flag
+## 5. Triage Summary
 
-### Triage Summary
+Generated from the drift check output. No LLM involved.
 
-Generated by the Orchestrator from Linter output. No LLM involved -- pure string formatting from ground truth.
-
-**Surgical sync:**
+**Surgical sync (clean):**
 ```
 Surgical sync: src/retry.py
   Modified: calculate_delay, retry (2 symbols)
   Preserved: RetryConfig, MaxRetriesExceeded, T (3 symbols)
-  Imports: +1 added (typing.Tuple)
 ```
 
-**With scope escalation:**
+**Surgical sync (with drift warning):**
 ```
 Surgical sync: src/retry.py
-  Scope widened: +RetryConfig (return type change required by calculate_delay)
-  Modified: calculate_delay, retry, RetryConfig (3 symbols)
+  Modified: calculate_delay, retry (2 symbols)
+  WARNING: RetryConfig was also modified (not in affected_symbols)
   Preserved: MaxRetriesExceeded, T (2 symbols)
 ```
 
 **Full regeneration:**
 ```
 Full regeneration: src/retry.py
-  Mode: --refactor (structural optimization requested)
-  Symbols: 4 written
+  Mode: --refactor
+  Symbols: 5 written
 ```
 
-### --refactor Flag
+---
+
+## 6. `--refactor` Flag
 
 Added to `/unslop:sync` and `/unslop:generate`. Bypasses surgical mode entirely:
 
-1. Intent Lock fires normally
-2. Stage A (Architect) runs normally
-3. Stage A.2 (Strategist) runs with directive: "Ignore existing implementation structure"
-4. Stage B (Builder) receives specs but NO Existing Code, NO Spec Diff, NO Affected Symbols
-5. Surgicality Linter is skipped
-6. Identical to current v0.15.0 full-regen behavior
+1. Stage A (Architect) runs normally
+2. Stage A.2 (Strategist) runs with directive: "Ignore existing implementation structure"
+3. Stage B (Builder) receives specs but NO Existing Code, NO Spec Diff, NO Affected Symbols
+4. Post-hoc drift check is skipped
+5. Identical to current v0.15.0 full-regen behavior
 
 `--refactor` is the opt-out from surgical mode, not a new feature. The default shifts from full-regen to surgical; `--refactor` restores the old behavior.
-
-### BLOCKED Hint
-
-When surgical sync exhausts all 3 attempts:
-```
-BLOCKED: src/retry.py -- surgical sync exhausted after 3 attempts.
-
-The spec change may require structural reorganization beyond symbol-level
-patching. Consider:
-  - /unslop:sync src/retry.py --refactor  (full regeneration)
-  - Review the spec for decomposition opportunities
-```
 
 ---
 
@@ -466,8 +253,7 @@ patching. Consider:
 When the Orchestrator detects `modified` state (user hand-edited the code) before a surgical sync:
 
 ```
-Conflict: src/retry.py has manual edits (modified state).
-The spec also changed. Choose:
+src/retry.py has manual edits (modified state). The spec also changed.
   [a] Overwrite -- discard manual edits, regenerate from spec
   [b] Absorb -- incorporate manual edits into the spec first, then regenerate
   [c] Skip -- leave this file alone for now
@@ -477,58 +263,41 @@ Option (b) routes to `/unslop:change`. The Builder never sees a `modified` file 
 
 ---
 
-## Implementation Plan (Vertical Slice -- Approach 3)
+## Files Changed
 
-Validated against `stress-tests/jitter/src/retry.py` end to end.
+### Modified
+- `unslop/skills/generation/SKILL.md` -- add Surgical Context blocks (Existing Code, Spec Diff, Affected Symbols), update mode dispatch logic
+- `unslop/commands/sync.md` -- add `--refactor` flag, update dispatch to surgical default, modified-file pre-flight
+- `unslop/commands/generate.md` -- add `--refactor` flag, update dispatch to surgical default
+- `unslop/scripts/validation/symbol_audit.py` -- extend with `check_drift()` function for post-hoc soft check
+- `unslop/scripts/orchestrator.py` -- add `spec-diff` CLI subcommand, re-export `check_drift`
+- `unslop/.claude-plugin/plugin.json` -- version bump to 0.16.0
 
-### PR #1: Symbol-Block Splitter + Normalization Engine
+### No new files
 
-- New module: `unslop/scripts/surgical/splitter.py`
-- Tree-sitter integration: parse file, extract top-level symbols
-- Normalization functions for whitespace/newline handling
-- Tests against `stress-tests/jitter/src/retry.py` (4 symbols + imports + constants)
-- Language support: Python, JS/TS, Go
-
-### PR #2: Spec-Diff Parser + Architect affected_symbols Extraction
-
-- New module: `unslop/scripts/surgical/spec_diff.py`
-- Section-level markdown diff (old spec via `git show`, new spec from disk)
-- Orchestrator command: `spec-diff <spec_path>` for debugging
-- Update Stage A.2 instructions to produce `affected_symbols` in concrete spec frontmatter
-- Test: modify `retry.py.spec.md` Behavior section, verify affected symbols list
-
-### PR #3: Surgicality Linter + Builder Prompt + BLOCKED_SCOPE Protocol
-
-- New module: `unslop/scripts/surgical/linter.py`
-- Linter algorithm: parse both files, compare non-affected blocks
-- Update `skills/generation/SKILL.md`: Surgical Context blocks, BLOCKED_SCOPE status
-- Update sync/generate commands: escalation loop, iteration budget
-- Integration test: one-line spec change to `retry.py`, verify minimal diff
-- Integration test: Builder drift triggers rejection and retry
-
-### PR #4: Generalization + Edge Cases
-
-- Multi-target surgical sync (parallel Builders, each with own affected_symbols)
-- Unit spec handling (multiple files under one spec)
-- Testless takeover compatibility (surgical mode skipped for first-gen)
-- `--refactor` flag implementation
-- Modified file pre-flight check (overwrite/absorb/skip prompt)
+All functionality fits into existing modules. The spec-diff computation is a simple function added to the orchestrator. The drift check extends `symbol_audit.py`.
 
 ---
 
-## Dependency Map
+## Implementation Plan (Single PR)
 
-```
-PR #1 (Splitter)
-    |
-    v
-PR #2 (Spec-Diff + affected_symbols)
-    |
-    v
-PR #3 (Linter + Builder Prompt + BLOCKED_SCOPE)
-    |
-    v
-PR #4 (Generalization)
-```
+One PR ships the full feature:
 
-Strictly sequential. Each PR builds on the prior one's infrastructure.
+1. **Extend `symbol_audit.py`** with `check_drift(old_path, new_path, affected_symbols)` -- returns a drift report with warnings for any protected symbol that changed. Uses `ast` for Python, skips for other languages.
+2. **Add spec-diff function** to orchestrator -- section-level markdown comparison, exposed as `spec-diff` CLI subcommand.
+3. **Update generation SKILL.md** -- add Surgical Context blocks, update mode dispatch logic, `--refactor` documentation.
+4. **Update sync.md and generate.md** -- surgical default, `--refactor` flag, `--incremental` deprecation, modified-file pre-flight.
+5. **Tests** for `check_drift()` and spec-diff computation.
+6. **Version bump** to 0.16.0.
+
+---
+
+## Validation Criteria
+
+Run against `stress-tests/jitter/src/retry.py` with a one-line spec change (e.g., change max retries from 3 to 5):
+
+- **Success:** Builder's diff touches only the affected symbol(s). No method reordering, no reformatting of protected symbols.
+- **Acceptable:** Builder touches 1-2 additional symbols. Drift warning fires. User accepts.
+- **Failure:** Builder gratuitously reformats the entire file despite surgical context. This would justify the full Surgicality Linter (tree-sitter, hard gate, BLOCKED_SCOPE) in v0.17.0.
+
+The validation result determines whether v0.17.0 invests in deterministic enforcement or moves on to other milestones.

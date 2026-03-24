@@ -82,7 +82,7 @@ from .freshness.manifest import (
 )
 
 # validation
-from .validation.symbol_audit import audit_symbols
+from .validation.symbol_audit import audit_symbols, check_drift, compute_spec_diff
 
 # planning
 from .planning.bulk_sync import compute_bulk_sync_plan
@@ -142,6 +142,8 @@ __all__ = [
     "ripple_check",
     # validation
     "audit_symbols",
+    "check_drift",
+    "compute_spec_diff",
 ]
 
 
@@ -151,7 +153,7 @@ def main():
         cmds = (
             "discover|build-order|deps|check-freshness|concrete-order"
             "|concrete-deps|ripple-check|deep-sync-plan|bulk-sync-plan"
-            "|resume-sync-plan|graph|file-tree|symbol-audit"
+            "|resume-sync-plan|graph|file-tree|symbol-audit|check-drift|spec-diff"
         )
         print(f"Usage: orchestrator.py <{cmds}> [args]", file=sys.stderr)
         sys.exit(1)
@@ -516,6 +518,51 @@ def main():
         if result["status"] == "error":
             sys.exit(2)
         sys.exit(0 if result["status"] == "pass" else 1)
+
+    elif command == "check-drift":
+        if len(sys.argv) < 4:
+            print(
+                "Usage: orchestrator.py check-drift <old> <new> --affected s1,s2",
+                file=sys.stderr,
+            )
+            sys.exit(1)
+        old_file = sys.argv[2]
+        new_file = sys.argv[3]
+        affected: list[str] = []
+        if "--affected" in sys.argv:
+            aidx = sys.argv.index("--affected")
+            if aidx + 1 >= len(sys.argv):
+                print("check-drift: --affected requires a comma-separated value", file=sys.stderr)
+                sys.exit(1)
+            affected = [s for s in sys.argv[aidx + 1].split(",") if s]
+        try:
+            result = check_drift(old_file, new_file, affected)
+        except Exception as e:
+            print(json.dumps({"error": str(e)}), file=sys.stderr)
+            sys.exit(2)
+        print(json.dumps(result, indent=2))
+        if result["status"] == "error":
+            sys.exit(2)
+        sys.exit(0 if result["status"] != "drift" else 1)
+
+    elif command == "spec-diff":
+        if len(sys.argv) < 4:
+            print(
+                "Usage: orchestrator.py spec-diff <old-spec> <new-spec>",
+                file=sys.stderr,
+            )
+            sys.exit(1)
+        old_spec_path = sys.argv[2]
+        new_spec_path = sys.argv[3]
+        try:
+            old_text = Path(old_spec_path).read_text(encoding="utf-8")
+            new_text = Path(new_spec_path).read_text(encoding="utf-8")
+            result = compute_spec_diff(old_text, new_text)
+        except (OSError, UnicodeDecodeError) as e:
+            print(json.dumps({"error": str(e)}), file=sys.stderr)
+            sys.exit(2)
+        print(json.dumps(result, indent=2))
+        sys.exit(0 if not result["changed_sections"] else 1)
 
     else:
         print(f"Unknown command: {command}", file=sys.stderr)
