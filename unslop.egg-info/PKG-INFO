@@ -1,7 +1,0 @@
-Metadata-Version: 2.4
-Name: unslop
-Version: 0.4.0
-Summary: Spec-driven code management — orchestrator and validation scripts
-Requires-Python: >=3.8
-License-File: LICENSE
-Dynamic: license-file
