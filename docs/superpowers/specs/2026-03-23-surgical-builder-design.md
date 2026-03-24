@@ -18,6 +18,26 @@ The existing code is not "user intent" -- it is a serialized state of the previo
 
 **Negative Constraint:** The Builder is prohibited from using the existing code as a reason to ignore a spec change. If the Spec Diff contradicts the Code, the Spec Diff wins. Always.
 
+## Relationship to Existing Generation Modes
+
+The generation skill currently defines two modes:
+- **Mode A (Full Regeneration):** Builder generates from scratch. Current default.
+- **Mode B (Incremental, `--incremental` flag):** Builder reads the existing file and produces targeted diffs.
+
+Surgical mode **replaces both** as the new default for files that already exist:
+
+| Scenario | v0.15.0 | v0.16.0 |
+|----------|---------|---------|
+| First generation (no existing code) | Mode A | Mode A (unchanged) |
+| Existing file, spec changed | Mode A (default) or Mode B (`--incremental`) | **Surgical** (new default) |
+| User wants full restructure | Mode A | `--refactor` flag (equivalent to Mode A) |
+
+**Mode B (`--incremental`) is deprecated.** Surgical mode subsumes it with deterministic enforcement. The `--incremental` flag becomes an alias for the new default behavior (surgical sync) and emits a deprecation warning: `"--incremental is deprecated. Surgical mode is now the default. Use --refactor for full regeneration."`
+
+The dispatch logic in `generate.md` and `sync.md` changes from:
+- Old: "New files use Mode A. Existing files default to Mode A; use Mode B if `--incremental`."
+- New: "New files use Mode A. Existing files use Surgical mode. Use `--refactor` for Mode A on existing files."
+
 ---
 
 ## 1. Symbol-Block Splitter
@@ -32,7 +52,18 @@ Tree-sitter produces Concrete Syntax Trees that preserve comments, whitespace, a
 
 **Language support (v0.16.0):** Python, JavaScript, TypeScript, Go. Additional languages via `tree-sitter-{lang}` packages.
 
-**Fallback:** If no tree-sitter grammar is available for a file's language, fall back to a line-based heuristic (top-level definition boundaries via indentation/brace-depth) and emit a warning: `"WARNING: No Tree-sitter grammar for .{ext}. Surgicality check is less precise."`
+**Dependency bootstrap:** Tree-sitter packages are installed via `uv pip install tree-sitter tree-sitter-python tree-sitter-javascript tree-sitter-typescript tree-sitter-go`. On first surgical sync, if `import tree_sitter` fails, the Orchestrator prompts:
+
+```
+Surgical mode requires tree-sitter for symbol-level diffing.
+Install? uv pip install tree-sitter tree-sitter-python tree-sitter-javascript \
+  tree-sitter-typescript tree-sitter-go
+[y/N]
+```
+
+On user confirmation, install and proceed. On decline, fall back to line-based heuristic with reduced precision warning.
+
+**Fallback:** If no tree-sitter grammar is available for a file's language (or tree-sitter is not installed), fall back to a line-based heuristic (top-level definition boundaries via indentation/brace-depth) and emit a warning: `"WARNING: No Tree-sitter grammar for .{ext}. Surgicality check is less precise."`
 
 ### Algorithm
 
@@ -41,7 +72,7 @@ Tree-sitter produces Concrete Syntax Trees that preserve comments, whitespace, a
 3. Extract top-level declaration nodes (function_definition, class_definition, and language equivalents)
 4. Each top-level node becomes a named block including its decorators/annotations and leading comments
 5. Everything before the first declaration splits into:
-   - `__imports__`: all import statements (compared as a sorted set, not positionally)
+   - `__imports__`: import statements, compared using language-specific set semantics (see Import Comparison below)
    - `__constants__`: module-level assignments, each its own named entry (protected unless in `affected_symbols`)
 6. Nested classes/functions belong to their parent block (not split further)
 
@@ -49,7 +80,11 @@ Tree-sitter produces Concrete Syntax Trees that preserve comments, whitespace, a
 
 ```python
 {
-    "__imports__": {"import random", "import time", "from dataclasses import dataclass", ...},
+    "__imports__": [
+        {"raw": "import random", "key": "random"},
+        {"raw": "from dataclasses import dataclass", "key": "dataclasses.dataclass"},
+        ...
+    ],
     "T": "T = TypeVar('T')\n",
     "MaxRetriesExceeded": "class MaxRetriesExceeded(Exception):\n    ...",
     "RetryConfig": "@dataclass(frozen=True)\nclass RetryConfig:\n    ...",
@@ -65,6 +100,18 @@ Tree-sitter produces Concrete Syntax Trees that preserve comments, whitespace, a
 - Strip leading/trailing blank lines from each block
 
 After normalization, exact match required. No "it's just a docstring" exceptions.
+
+### Import Comparison (Language-Specific)
+
+Imports are compared as sets keyed by a normalized identifier, not by raw text or position. Each language adapter defines how to extract the key and how to handle ordering semantics.
+
+**Python:** Key is the imported name (`random`, `dataclasses.dataclass`). Order is not semantically meaningful. Set comparison: same keys = same imports.
+
+**JavaScript/TypeScript:** Key is the module specifier + imported binding (`bar.foo` for `import { foo } from 'bar'`). **Exception:** bare side-effect imports (`import './polyfill'`, `import 'reflect-metadata'`) are order-sensitive and position-pinned. The linter treats side-effect imports as individual named entries (keyed by module specifier) that must appear in the same relative order. Adding a new side-effect import for an affected symbol is allowed; reordering existing ones is a violation.
+
+**Go:** Key is the import path (`"fmt"`, `"encoding/json"`). Blank-identifier imports (`_ "net/http/pprof"`) are treated like JS side-effect imports -- position-pinned and order-sensitive. Named imports (`myjson "encoding/json"`) are keyed by the alias.
+
+**General rule:** If a language has imports with side effects that depend on execution order, those imports are position-pinned. All other imports use unordered set comparison.
 
 ---
 
@@ -112,6 +159,34 @@ reason: "Behavior section changed delay calculation formula"
 - The spec text (to map requirements to symbols)
 
 The Architect sees symbol *names*, not *implementations*. This preserves the No-Peeking boundary -- symbol names are already visible in the file tree.
+
+### Multi-Target Concrete Specs
+
+For multi-target concrete specs (dispatching parallel Builders across languages), each target gets its own `affected_symbols` list. Different languages may have different symbol names for the same logical unit (e.g., `calculate_delay` in Python vs `calculateDelay` in TypeScript).
+
+The `affected_symbols` list is placed per-target in the `targets[]` array, not at the top-level frontmatter:
+
+```yaml
+---
+source-spec: src/retry.spec.md
+targets:
+  - path: src/retry.py
+    language: python
+    affected_symbols:
+      - calculate_delay
+      - retry
+  - path: frontend/src/retry.ts
+    language: typescript
+    affected_symbols:
+      - calculateDelay
+      - retry
+reason: "Behavior section changed delay calculation formula"
+---
+```
+
+Each parallel Builder receives only its target's `affected_symbols`. Each target's output is linted independently.
+
+For single-target specs (`target-language` instead of `targets[]`), `affected_symbols` remains at the top-level frontmatter as shown in Part 2.
 
 ### Edge Cases
 
@@ -164,7 +239,7 @@ Deterministic post-hoc enforcement that the Builder only modified authorized sym
 
 ### Preamble Rules
 
-- `__imports__`: compared as a sorted set. New imports for affected symbols allowed. Removed imports for deleted symbols allowed. Reordering is not a violation.
+- `__imports__`: compared using language-specific set semantics (see Section 1, Import Comparison). New imports required by affected symbols are allowed. Removed imports for deleted symbols are allowed. For non-side-effect imports, reordering is not a violation. Side-effect imports are position-pinned.
 - `__constants__`: each constant is a named symbol entry. Protected unless listed in `affected_symbols`.
 
 ### Rejection Output
@@ -238,8 +313,9 @@ Previous Surgicality Violation:
 Full regeneration mode (no Existing Code, no Spec Diff, no Affected Symbols, Linter skipped):
 - First generation (no existing code)
 - File state is `conflict` and user chose "Overwrite"
-- `--force` flag
-- `--refactor` flag
+- `--refactor` flag (explicit opt-in to full regen)
+
+**Note on `--force`:** The `--force` flag retains its existing meaning ("proceed on modified/conflict files without confirmation"). It does NOT bypass surgical mode. A `--force` sync on a `modified` file skips the overwrite/absorb/skip prompt and proceeds with surgical sync using the existing code as-is. To bypass surgical linting, use `--refactor`.
 
 ---
 
@@ -325,7 +401,7 @@ Builder attempt 3 (post-escalation)
     -> Any failure -> BLOCKED (user decides)
 ```
 
-Maximum 3 Builder dispatches per file per sync. Matches existing convergence budget.
+Maximum 3 Builder dispatches per file per sync. This **replaces** the existing Stage A/B convergence loop budget (not additive). The 3-attempt budget covers all retry reasons: test failures, surgicality violations, and scope escalations. A BLOCKED_SCOPE escalation that triggers re-dispatch counts as one of the 3 attempts.
 
 ---
 
