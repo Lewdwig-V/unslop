@@ -1,9 +1,9 @@
 ---
 description: Regenerate managed files from their specs
-argument-hint: "[<file-path>] [--force] [--force-ambiguous] [--force-pseudocode] [--force-strategy] [--incremental] [--deep] [--dry-run] [--stale-only] [--resume] [--max-batch N]"
+argument-hint: "[<file-path>] [--force] [--force-ambiguous] [--force-pseudocode] [--force-strategy] [--incremental] [--refactor] [--deep] [--dry-run] [--stale-only] [--resume] [--max-batch N]"
 ---
 
-**Parse arguments:** `$ARGUMENTS` may contain the file path and optional flags. Extract the file path (the first argument that does not start with `--`) and check for flags (`--force`, `--force-ambiguous`, `--force-pseudocode`, `--force-strategy`, `--incremental`, `--deep`, `--dry-run`, `--stale-only`, `--resume`, `--max-batch`). Strip flags before using the path in subsequent steps. Note: `--stale-only` and `--resume` do not require a file path.
+**Parse arguments:** `$ARGUMENTS` may contain the file path and optional flags. Extract the file path (the first argument that does not start with `--`) and check for flags (`--force`, `--force-ambiguous`, `--force-pseudocode`, `--force-strategy`, `--incremental`, `--refactor`, `--deep`, `--dry-run`, `--stale-only`, `--resume`, `--max-batch`). Strip flags before using the path in subsequent steps. Note: `--stale-only` and `--resume` do not require a file path.
 
 **Check for `--force` flag:** If `$ARGUMENTS` contains `--force`, note this — it allows regeneration to proceed on modified and conflict files without requiring user confirmation.
 
@@ -247,11 +247,26 @@ If a `*.change.md` sidecar exists for this file with pending entries, run the ge
 - Propose spec updates for each entry, get user approval.
 - Stage approved spec updates (`git add`). Do NOT commit.
 
+**Modified file pre-flight (surgical mode only):**
+
+If the managed file has state `modified` (user hand-edited the code) and the spec also changed:
+
+> "src/file.py has manual edits (modified state). The spec also changed.
+>   [a] Overwrite -- discard manual edits, regenerate from spec (Mode A)
+>   [b] Absorb -- incorporate manual edits into the spec first, then regenerate
+>   [c] Skip -- leave this file alone for now"
+
+Option (a) uses Mode A (full regen). Option (b) routes to `/unslop:change`. Option (c) skips.
+
 **Stage B (Builder -- worktree isolation):**
 Dispatch a Builder Agent using the generation skill's two-stage execution model:
 - test_policy: `"Do NOT create or modify spec-backed test files. Use existing tests for validation only. Tests marked @unslop-incidental may be updated or removed if they fail against regenerated code that correctly follows the spec."` See the generation skill's `@unslop-incidental Test Lifecycle` section for details.
-- If `--incremental` was passed: pass through to Builder prompt for Mode B.
-- If the managed file does not yet exist: always Mode A.
+
+**Mode selection:**
+- If the managed file does not exist: Mode A (full generation).
+- If `--refactor` was passed: Mode A (full generation, ignore existing structure).
+- If `--incremental` was passed: emit deprecation warning `"--incremental is deprecated. Surgical mode is now the default. Use --refactor for full regeneration."` and proceed with Surgical mode.
+- Otherwise: **Surgical mode** (default). The Builder receives the existing file as Compilation Target with Spec Diff and Affected Symbols context. See the generation skill's Surgical Context section.
 
 **4. Verify result**
 

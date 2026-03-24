@@ -1,6 +1,6 @@
 ---
 description: Regenerate all stale managed files from their specs
-argument-hint: "[--force] [--force-ambiguous] [--force-pseudocode] [--force-strategy] [--incremental] [--dry-run]"
+argument-hint: "[--force] [--force-ambiguous] [--force-pseudocode] [--force-strategy] [--incremental] [--refactor] [--dry-run]"
 ---
 
 **1. Verify prerequisites**
@@ -119,10 +119,14 @@ This gives the user a complete view of the "blast radius" before committing to a
 
 For each file classified as new, stale, modified (confirmed), or conflict (confirmed), in build order:
 
-1. **Select generation mode.** New files always use Mode A. For others, default is Mode A; use Mode B if `--incremental` was passed.
+1. **Select generation mode:**
+   - New file (no existing code): Mode A (full generation).
+   - `--refactor` flag: Mode A (full generation, ignore existing structure).
+   - `--incremental` flag: emit deprecation warning `"--incremental is deprecated. Surgical mode is now the default. Use --refactor for full regeneration."` and proceed with Surgical mode.
+   - Otherwise: **Surgical mode** (default). See the generation skill's Surgical Context section.
 2. **Dispatch a Builder Agent** using the generation skill's two-stage execution model:
    - test_policy: `"Do NOT create or modify spec-backed test files. Use existing tests for validation only. Tests marked @unslop-incidental may be updated or removed if they fail against regenerated code that correctly follows the spec."`
-   - Pass `--incremental` to the Builder prompt if Mode B was selected.
+   - For Surgical mode: include Existing Code, Spec Diff, and Affected Symbols context blocks.
 3. **Verify result:**
    - If DONE with green tests: worktree merges automatically. Compute `output-hash`, update header.
    - If BLOCKED or tests fail: discard worktree, revert ALL staged spec updates from Step 3c (`git checkout HEAD -- <spec_path>` for every spec that was staged), not just the failing file's spec. Report failure and **stop immediately**. Do not process remaining files.
