@@ -541,6 +541,8 @@ def main():
             print(json.dumps({"error": str(e)}), file=sys.stderr)
             sys.exit(2)
         print(json.dumps(result, indent=2))
+        if result["status"] == "error":
+            sys.exit(2)
         sys.exit(0 if result["status"] != "drift" else 1)
 
     elif command == "spec-diff":
@@ -560,6 +562,7 @@ def main():
             print(json.dumps({"error": str(e)}), file=sys.stderr)
             sys.exit(2)
         print(json.dumps(result, indent=2))
+        sys.exit(0 if not result["changed_sections"] else 1)
 
     else:
         print(f"Unknown command: {command}", file=sys.stderr)

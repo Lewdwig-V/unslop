@@ -137,42 +137,37 @@ def _extract_symbol_sources(source: str) -> dict[str, str]:
     tree = ast.parse(source)  # Let SyntaxError propagate to caller
     lines = source.splitlines(keepends=True)
 
-    # Collect all trackable nodes with their names and line ranges
-    named_nodes: list[tuple[str, int, int | None]] = []  # (name, start_line, decorator_line)
+    # Collect (name, start_line, end_line) tuples using node.end_lineno
+    # for precise per-symbol ranges (no inter-symbol contamination)
+    named_nodes: list[tuple[str, int, int]] = []
 
     for node in ast.iter_child_nodes(tree):
         if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
             if not node.name.startswith("_"):
-                # Include decorators: decorator_list[0].lineno is above the def/class line
-                dec_start = node.decorator_list[0].lineno - 1 if node.decorator_list else node.lineno - 1
-                named_nodes.append((node.name, dec_start, None))
+                # Include decorators: start at first decorator, not def/class line
+                start = node.decorator_list[0].lineno - 1 if node.decorator_list else node.lineno - 1
+                end = node.end_lineno  # 1-indexed inclusive -> use as exclusive slice bound
+                named_nodes.append((node.name, start, end))
         elif isinstance(node, ast.Assign):
             for target in node.targets:
                 if isinstance(target, ast.Name):
                     name = target.id
                     if not name.startswith("_") and name == name.upper() and any(c.isalpha() for c in name):
-                        named_nodes.append((name, node.lineno - 1, None))
+                        named_nodes.append((name, node.lineno - 1, node.end_lineno))
         elif isinstance(node, ast.AnnAssign):
             if isinstance(node.target, ast.Name):
                 name = node.target.id
                 if not name.startswith("_") and name == name.upper() and any(c.isalpha() for c in name):
-                    named_nodes.append((name, node.lineno - 1, None))
+                    named_nodes.append((name, node.lineno - 1, node.end_lineno))
         elif isinstance(node, ast.ImportFrom):
             if node.names:
                 for alias in node.names:
                     imp_name = alias.asname if alias.asname else alias.name
                     if imp_name != "*" and not imp_name.startswith("_"):
-                        named_nodes.append((imp_name, node.lineno - 1, None))
-
-    # Sort by start line for boundary calculation
-    named_nodes.sort(key=lambda x: x[1])
+                        named_nodes.append((imp_name, node.lineno - 1, node.end_lineno))
 
     result: dict[str, str] = {}
-    for i, (name, start, _) in enumerate(named_nodes):
-        if i + 1 < len(named_nodes):
-            end = named_nodes[i + 1][1]
-        else:
-            end = len(lines)
+    for name, start, end in named_nodes:
         raw = "".join(lines[start:end])
         result[name] = _normalize_source(raw)
     return result

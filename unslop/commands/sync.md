@@ -3,7 +3,7 @@ description: Regenerate managed files from their specs
 argument-hint: "[<file-path>] [--force] [--force-ambiguous] [--force-pseudocode] [--force-strategy] [--incremental] [--refactor] [--deep] [--dry-run] [--stale-only] [--resume] [--max-batch N]"
 ---
 
-**Parse arguments:** `$ARGUMENTS` may contain the file path and optional flags. Extract the file path (the first argument that does not start with `--`) and check for flags (`--force`, `--force-ambiguous`, `--force-pseudocode`, `--force-strategy`, `--incremental`, `--deep`, `--dry-run`, `--stale-only`, `--resume`, `--max-batch`). Strip flags before using the path in subsequent steps. Note: `--stale-only` and `--resume` do not require a file path.
+**Parse arguments:** `$ARGUMENTS` may contain the file path and optional flags. Extract the file path (the first argument that does not start with `--`) and check for flags (`--force`, `--force-ambiguous`, `--force-pseudocode`, `--force-strategy`, `--incremental`, `--refactor`, `--deep`, `--dry-run`, `--stale-only`, `--resume`, `--max-batch`). Strip flags before using the path in subsequent steps. Note: `--stale-only` and `--resume` do not require a file path.
 
 **Check for `--force` flag:** If `$ARGUMENTS` contains `--force`, note this — it allows regeneration to proceed on modified and conflict files without requiring user confirmation.
 
