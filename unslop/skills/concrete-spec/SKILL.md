@@ -289,7 +289,7 @@ Each section follows one of three inheritance behaviors:
 
 | Policy | Sections | Behavior |
 |---|---|---|
-| **Strict Child-Only** | `## Strategy`, `## Type Sketch`, `## Representation Invariants`, `## Safety Contracts`, `## Concurrency Model`, `## State Machine` | Parent section is **purged** during resolution. If the child omits it, the resolved spec has no such section. The parent's version is never silently inherited. For Strategy and Type Sketch, absence triggers Phase 0a.1 validation failure. For architectural invariant sections, absence is valid (the child simply has no such constraints). |
+| **Strict Child-Only** | `## Strategy`, `## Type Sketch`, `## Representation Invariants`, `## Safety Contracts`, `## Concurrency Model`, `## State Machine`, `## Migration Notes` | Parent section is **purged** during resolution. If the child omits it, the resolved spec has no such section. The parent's version is never silently inherited. For Strategy and Type Sketch, absence triggers Phase 0a.1 validation failure. For architectural invariant and migration sections, absence is valid (the child simply has no such constraints). |
 | **Additive** | `## Lowering Notes` | Parent and child are **merged**. Child entries override matching parent entries (keyed by language heading). Non-conflicting parent entries are preserved. |
 | **Overridable** | `## Pattern` | Child replaces parent if present. If the child omits `## Pattern`, the parent's version persists. |
 
@@ -622,6 +622,35 @@ INVALID:
 INITIAL: Idle
 TERMINAL: none (cyclic protocol)
 ```
+
+#### `## Migration Notes` (optional)
+
+Documents intentional type changes, API shifts, or signature corrections that the Builder must apply when regenerating from a spec that describes the *new* contract while the old code used a different one. This is critical during takeover when the Architect has fixed unsound or suboptimal patterns in the spec, and the Builder must not regress to the old signatures.
+
+Each entry records: what changed, from what to what, and why. The Builder treats these as authoritative -- if a Migration Note says the type changed from `ObjectReference` to `*mut u8`, the Builder uses `*mut u8` even if other context suggests the old type.
+
+```markdown
+## Migration Notes
+
+CHANGED: post_alloc parameter type
+  FROM: object_ref: ObjectReference
+  TO: ptr: *mut u8
+  REASON: alloc_facade now returns raw pointer directly; ObjectReference
+          wrapping happens after post_alloc, not before
+
+CHANGED: allocate return type
+  FROM: GcResult<Address>
+  TO: GcResult<*mut u8>
+  REASON: Address wrapper removed during alloc_facade takeover;
+          raw pointer is the canonical allocation result type
+
+REMOVED: unsafe Address::to_object_reference() call in allocation path
+  REASON: unnecessary indirection; ptr is used directly for header writes
+```
+
+**When to include:** During takeover when the Architect corrects types, signatures, or API patterns that the old code got wrong. During `/unslop:change` when a spec change intentionally alters a public interface. Any time the Builder needs to know "the old way was X, the new way is Y, do not regress."
+
+**Not for:** Internal refactoring that doesn't change types or signatures. If the change is purely structural (reordering functions, renaming locals), the Strategy section handles it.
 
 ---
 

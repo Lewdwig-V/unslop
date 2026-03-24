@@ -80,6 +80,7 @@ STRICT_CHILD_ONLY = {
     "Safety Contracts",
     "Concurrency Model",
     "State Machine",
+    "Migration Notes",
 }
 
 
