@@ -95,6 +95,8 @@ The `model` parameter controls which Claude model runs the subagent. Valid value
 
 The Builder generates code from the specs. It runs as a fresh Agent in an isolated git worktree with zero conversation history.
 
+**HARD RULE: The Architect (you, in the controlling session) MUST NOT write code to managed files directly. ALL code generation MUST go through a Builder Agent dispatched with `isolation="worktree"`. If you find yourself writing code, creating files, or using the Edit/Write tools on a managed source file -- STOP. You are violating worktree isolation. Dispatch a Builder instead.** This is not a preference. It is the structural guarantee that failed Builders can be discarded without corrupting main.
+
 **Multi-target dispatch:** If the concrete spec has `targets` (instead of `target-language`), Stage B dispatches **parallel Builders** — one per target. Each Builder runs in its own worktree on branch `unslop/builder/<target-path-hash>`. All Builders receive the same Abstract Spec and `## Strategy`, but each gets its target-specific `## Lowering Notes` (filtered by language heading) and `targets[].notes`. See the `unslop/concrete-spec` skill for the full multi-target lowering specification.
 
 **Atomic merge for multi-target:** The controlling session waits for ALL parallel Builders to complete. If all report DONE with green tests: merge all worktrees and commit atomically. If any Builder fails: discard ALL worktrees and revert ALL staged spec updates. This all-or-nothing semantics prevents partial updates across language boundaries.
@@ -184,8 +186,25 @@ Agent(
        - On conflict: Abstract Spec wins — always
     6. {test_policy}
     7. Run tests: {test_command}
-    8. If tests pass, report DONE with the list of changed files
-    9. If tests fail, iterate until green or report BLOCKED
+    8. If tests pass: report your status and changed files, then WAIT.
+       Do NOT exit. Do NOT terminate. The controlling session must
+       validate your output before authorizing merge.
+       Report format:
+         STATUS: DONE (or DONE_WITH_CONCERNS)
+         Changed files: [list]
+         Test results: [pass count]
+       Then say: "Awaiting Architect validation before merge."
+    9. If tests fail and you cannot fix them: report BLOCKED with
+       diagnostic details and EXIT IMMEDIATELY. Do not wait for
+       authorization on failure -- the controlling session needs to
+       discard the worktree and enter convergence.
+
+    IMPORTANT: The hold-and-wait applies to SUCCESS states only
+    (DONE, DONE_WITH_CONCERNS). You must NOT exit on success until
+    the controlling session sends "Validation passed. You are
+    authorized to exit." This keeps the worktree alive for inspection.
+    BLOCKED states exit immediately -- failed worktrees are discarded,
+    not merged.
 
     The abstract spec is your primary source of truth. The concrete spec
     is strategic guidance. Do not look for or follow any change requests.
@@ -244,9 +263,11 @@ def test_retry_limit_enforced():
 
 ### Verification (Controlling Session)
 
-After the Builder Agent completes:
+The Builder does NOT exit on its own. It reports status and waits for the Architect's authorization. This keeps the worktree alive for inspection.
+
+After the Builder reports its status:
 1. Check result status: DONE / DONE_WITH_CONCERNS / BLOCKED
-2. If DONE with green tests: Claude Code handles worktree merge automatically
+2. If DONE with green tests: inspect the Builder's output if needed (the worktree is still live). When satisfied, send via `SendMessage` to the Builder: `"Validation passed. You are authorized to exit."` The Builder then exits, triggering the worktree merge.
 3. Compute `output-hash` on merged code, update `@unslop-managed` header
 4. Handle the Concrete Spec artifact:
    - If `ephemeral: true` (default): ensure the `*.impl.md` is NOT included in the merge — it served its purpose
