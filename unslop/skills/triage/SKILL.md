@@ -1,7 +1,7 @@
 ---
 name: triage
 description: Use when the user wants to change, fix, refactor, add, or review code in a project managed by unslop (has a .unslop/ directory). Activates for any intent that would modify source files, ask about code quality, or plan structural changes. Routes the user to the correct unslop command based on their intent.
-version: 0.2.0
+version: 0.3.0
 ---
 
 # Triage Skill
@@ -62,10 +62,15 @@ If the user is working with multiple related specs and asks about consistency, c
 
 ## The Adversarial Quality Check
 
-If the user wants to validate test quality, run mutation tests, or generate black-box tests against a spec, route to adversarial.
+Two commands address test quality. Route to the right one based on intent:
 
-**Pattern:** "Run mutation tests", "Generate black-box tests", "Are my tests any good?", "Validate test coverage", "Adversarial check"
-**Route:** `/unslop:adversarial <spec-path>` to run the adversarial quality pipeline -- mutation testing, black-box test generation, and test quality validation against the spec's constraints.
+**Pattern:** "Generate tests from scratch", "Full adversarial pipeline", "Black-box test generation"
+**Route:** `/unslop:adversarial <spec-path>` -- runs the full Archaeologist -> Mason -> Saboteur pipeline. Generates all tests from the behaviour.yaml. Use when the file has no tests or the user wants to replace the entire test suite.
+
+**Pattern:** "Find weak tests", "What mutations survive?", "Harden my tests", "Grow test coverage", "Are my existing tests any good?", "Check for test scum"
+**Route:** `/unslop:cover <file>` -- mutation-driven discovery of gaps in existing tests. The Saboteur finds what survives, the Archaeologist identifies the missing constraint, the Mason writes a targeted test. Use when the file already has tests and the user wants to strengthen them.
+
+**Key distinction:** `adversarial` generates tests from scratch. `cover` finds gaps in existing tests. If the user says "validate test coverage" and the file already has tests, route to `cover`.
 
 ## The Staleness Check
 
@@ -102,12 +107,39 @@ If the user has existing code that is not yet managed by unslop, or wants to bri
 **Pattern:** "Bring this under spec management", "Extract the intent from this file", "Let's spec this out"
 **Route:** `/unslop:takeover <file-or-directory>`
 
+**Flags:**
+- If the file has no tests and the user mentions mutation testing is impractical (pure I/O, GUI code): suggest `--skip-adversarial`
+- If the user wants maximum test rigour on a risky module: suggest `--full-adversarial`
+
 ## The New File Path
 
 If the user wants to create a new file from scratch (it doesn't exist yet), start with a spec.
 
 **Pattern:** "Create a new X", "I need a module for Y", "Add a new file that does Z"
 **Route:** `/unslop:spec <file-path>` to create the spec first, then `/unslop:sync <file-path>` to generate.
+
+## The Init Path
+
+If the user is setting up unslop for the first time or asking about project configuration.
+
+**Pattern:** "Set up unslop", "Initialize this project", "Configure unslop", "What's in .unslop?"
+**Route:** `/unslop:init`
+
+## The Full Regeneration Override
+
+If the user wants to regenerate a file from scratch, ignoring the existing code structure entirely. This bypasses Surgical mode's diff-minimizing behaviour.
+
+**Pattern:** "Regenerate from scratch", "Full regen", "Ignore the existing code", "Start fresh on this file", "Restructure the implementation"
+**Route:** `/unslop:sync <file> --refactor` (single file) or `/unslop:generate --refactor` (all stale files)
+
+Do not suggest `--refactor` for routine syncs. It is the escape hatch when the user explicitly wants a structural rewrite.
+
+## The Resume Path
+
+If a bulk sync partially failed and the user wants to continue from where it stopped.
+
+**Pattern:** "Resume the sync", "Retry the failed files", "Continue where we left off", "Pick up the sync"
+**Route:** `/unslop:sync --stale-only --resume` -- recomputes the plan, excludes already-succeeded files, and retries failed files plus their downstream dependents.
 
 ---
 
@@ -125,3 +157,28 @@ When a generation command completes with DONE_WITH_CONCERNS, display concerns as
 > "Generation complete. Tests green. N concern(s) flagged -- run `/unslop:harden` or ask to review."
 
 Do NOT auto-expand the concerns. The user chooses when to engage. This respects their flow and avoids unsolicited context-switching.
+
+## Plugin Feedback
+
+When a workflow ends with a result that suggests a **plugin-level improvement** (not a user code issue), offer to raise it as a GitHub issue. This applies when:
+
+- A convergence loop exhausts iterations due to a skill gap (not a spec gap)
+- A command produces a confusing error that could have a better message
+- A pipeline step behaves unexpectedly in a way the user didn't cause
+- The Builder or Mason makes a systematic mistake that better prompt engineering could prevent
+
+**How to offer:**
+
+> "I noticed [specific issue]. This looks like it could be improved in the unslop plugin itself. Would you like me to raise a GitHub issue?"
+
+If the user agrees, create the issue:
+
+```
+gh issue create --repo Lewdwig-V/unslop \
+  --title "<concise description>" \
+  --body "<structured report: what happened, expected behaviour, reproduction context>"
+```
+
+**What NOT to file:** User-side issues (bad specs, missing tests, config problems). Only file when the plugin's skills, commands, or scripts could be improved to handle the situation better.
+
+**Do not file automatically.** Always ask first. The user decides what reaches the maintainer.

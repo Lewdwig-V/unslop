@@ -265,58 +265,27 @@ Do NOT auto-expand the concerns list. The user chooses when to engage.
 
 If BLOCKED or tests fail: discard the worktree AND revert the staged spec update (`git checkout HEAD -- <spec_path>`). Main branch is untouched. Write the Builder's failure report to the diagnostic cache (see below).
 
-### Post-Hoc Surgicality Drift Check
+### Optional Drift Check (Diagnostic Tool)
 
-After the Builder completes in Surgical mode and tests are green, the controlling session runs a drift check before merging. This verifies the Builder respected its Affected Symbols authorization boundary.
-
-**Invocation:**
+The `check-drift` CLI command is available as a diagnostic tool for users who want to verify the Builder respected its Affected Symbols boundary. It is NOT run automatically during the pipeline -- the Surgical Context prompt blocks are the primary enforcement mechanism, and they work for all languages.
 
 ```
 python ${CLAUDE_PLUGIN_ROOT}/scripts/orchestrator.py check-drift <old-file> <new-file> --affected s1,s2,s3
 ```
 
-Where `<old-file>` is the Existing Code (pre-generation), `<new-file>` is the Builder's output, and `s1,s2,s3` are the symbol names from the Affected Symbols block.
-
-**Result parsing:**
-
-| Result | Meaning | Action |
-|---|---|---|
-| `clean` | All changes are within authorized symbols | Proceed with merge |
-| `drift` | Builder modified protected symbols | Surface in triage as a warning (see Triage Summary below) |
-| `error` | Drift check could not parse the files | Skip check, proceed with merge |
-
-**This is a WARNING, not a gate.** The merge always proceeds regardless of drift check result. Drift detection is advisory -- it flags potential overreach for the user to review, but does not block the pipeline. A Builder that produced green tests with minor formatting drift is better than a blocked pipeline.
-
-**When the drift check does NOT run:**
-- Mode A (Full Regeneration) -- there is no "previous file" to compare against
-- First generation (new file) -- same reason
-- `check-drift` returns `error` -- skip silently, proceed with merge
+This is currently Python-only (uses `ast` for symbol extraction). Non-Python files return `skipped: true`. The command is useful for spot-checking after a surgical sync, but is not part of the default flow.
 
 ### Triage Summary Templates
 
 After the merge completes, the controlling session emits a triage summary. The format depends on the generation mode and drift check result.
 
-**Clean Surgical Sync:**
+**Surgical Sync:**
 
 ```
 Sync complete: <spec-path>
   Mode: surgical
   Affected symbols: s1, s2, s3
-  Drift check: clean
   Tests: N passed
-```
-
-**Surgical Sync with Drift Warning:**
-
-```
-Sync complete: <spec-path>
-  Mode: surgical
-  Affected symbols: s1, s2, s3
-  Drift check: WARNING -- Builder modified protected symbols:
-    - protected_function (reformatted)
-    - SOME_CONSTANT (reordered)
-  Tests: N passed
-  Review the diff to confirm protected symbol changes are acceptable.
 ```
 
 **Full Regeneration (`--refactor` or new file):**
@@ -806,7 +775,7 @@ The Builder produces a **complete file** -- not a diff, not a patch. But protect
 - If the Spec Diff contradicts the Existing Code, the Spec Diff wins. Always.
 - Update the `@unslop-managed` header with new `output-hash`, `spec-hash`, and timestamp after applying edits. Re-hash the full body content for the output-hash.
 
-**Worktree context:** In worktree isolation, the controlling session prepares the three Surgical Context blocks (see below) and injects them into the Builder Agent's prompt. The Builder generates a complete file in the worktree. After generation, the controlling session runs the Surgicality Drift Check to verify the Builder respected its authorization boundary.
+**Worktree context:** In worktree isolation, the controlling session prepares the three Surgical Context blocks (see below) and injects them into the Builder Agent's prompt. The Builder generates a complete file in the worktree.
 
 **When to use:** The default for all syncs against existing managed files. Covers small spec amendments, added constraints, absorbed change requests, and bug fixes discovered during convergence.
 
@@ -871,10 +840,8 @@ Authorized symbols:
 - RetryError (class) -- governed by "## Error Types"
 - MAX_RETRIES (constant) -- governed by "## Retry Logic"
 
-WARNING: The Surgicality Drift Check will verify your output after generation.
+Modify ONLY the authorized symbols listed above. Copy all other symbols verbatim from the Existing Code.
 ```
-
-The warning is not decorative. The drift check (see Post-Hoc Surgicality Drift Check below) compares the Builder's output against the Existing Code for all non-authorized symbols. If the Builder touched protected symbols, the drift is surfaced in triage.
 
 ### Mode A: Full Regeneration
 
@@ -903,7 +870,7 @@ This rule was established after analyzing generation failures across multiple pr
 
 Mode B is deprecated. The `--incremental` flag is treated as a no-op with a deprecation warning. All existing-file syncs use Surgical mode instead.
 
-Surgical mode supersedes Mode B by providing the same narrowly-scoped editing discipline but with explicit authorization boundaries (Affected Symbols) and post-hoc verification (Drift Check) that Mode B lacked. Mode B's "honor system" approach to scope discipline was the single most common source of generation failures -- the Builder would expand scope mid-generation with no mechanism to detect or prevent it.
+Surgical mode supersedes Mode B by providing the same narrowly-scoped editing discipline but with explicit authorization boundaries (Affected Symbols) and structural context (Compilation Target) that Mode B lacked. Mode B's "honor system" approach to scope discipline was the single most common source of generation failures -- the Builder would expand scope mid-generation with no mechanism to detect or prevent it.
 
 ---
 

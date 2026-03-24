@@ -166,70 +166,37 @@ Full regeneration mode (no Existing Code, no Spec Diff, no Affected Symbols):
 
 ---
 
-## 4. Post-Hoc Drift Check (Soft)
+## 4. Optional Drift Check (Diagnostic Tool)
 
-After the Builder returns DONE, before worktree merge, run a soft check. This is a **warning**, not a gate.
-
-### Python files
-
-Use `_extract_public_symbols()` from `symbol_audit.py` to extract top-level symbol names from both the old and new files. For each symbol NOT in `affected_symbols`:
-
-1. Extract the symbol's source lines from both files (using `ast.get_source_segment` or line-range extraction from the AST node)
-2. Normalize (strip trailing whitespace, collapse blank lines)
-3. Compare
-
-If a protected symbol changed:
+The `check-drift` CLI command is available as a standalone diagnostic for users who want to verify the Builder respected its Affected Symbols boundary after a surgical sync. It is **not part of the default pipeline** -- the Surgical Context prompt blocks are the primary enforcement mechanism, and they work for all languages equally.
 
 ```
-WARNING: Builder modified protected symbol 'RetryConfig' (not in affected_symbols).
-  Affected symbols were: [calculate_delay, retry]
-
-  This may indicate the spec change has broader impact than expected.
-  Options:
-    - Accept the diff (the change may be necessary)
-    - Re-run with --refactor for full regeneration
-    - Edit the spec to decompose the change
+python orchestrator.py check-drift <old-file> <new-file> --affected s1,s2,s3
 ```
 
-The warning is surfaced in the triage summary. The worktree merge proceeds regardless -- the user decides whether to accept.
+Currently Python-only (uses `ast` for symbol extraction). Non-Python files return `skipped: true`. Useful for spot-checking, not for gating.
 
-### Non-Python files
-
-Prompt enforcement only. No post-hoc check. The Builder's "minimize changes" instruction is the only guard. A future version may add tree-sitter-based checking for JS/TS/Go.
-
-### What the check does NOT do
-
-- It does not reject the Builder's output
-- It does not retry the Builder
-- It does not escalate to a new protocol
-- It does not compare imports (import changes are almost always consequences of symbol changes)
+**Design principle:** unslop does not privilege any language. The Surgical Builder's core value -- Compilation Target, Spec Diff, Affected Symbols -- is language-agnostic prompt context. Language-specific tooling (like the Python drift check) is opt-in diagnostic, never automatic pipeline.
 
 ---
 
 ## 5. Triage Summary
 
-Generated from the drift check output. No LLM involved.
+After merge, the controlling session emits a triage summary. No LLM involved.
 
-**Surgical sync (clean):**
+**Surgical sync:**
 ```
-Surgical sync: src/retry.py
-  Modified: calculate_delay, retry (2 symbols)
-  Preserved: RetryConfig, MaxRetriesExceeded, T (3 symbols)
-```
-
-**Surgical sync (with drift warning):**
-```
-Surgical sync: src/retry.py
-  Modified: calculate_delay, retry (2 symbols)
-  WARNING: RetryConfig was also modified (not in affected_symbols)
-  Preserved: MaxRetriesExceeded, T (2 symbols)
+Sync complete: src/retry.py.spec.md
+  Mode: surgical
+  Affected symbols: calculate_delay, retry
+  Tests: 12 passed
 ```
 
 **Full regeneration:**
 ```
-Full regeneration: src/retry.py
-  Mode: --refactor
-  Symbols: 5 written
+Generation complete: src/retry.py.spec.md
+  Mode: full regeneration (--refactor)
+  Tests: 12 passed
 ```
 
 ---
@@ -241,8 +208,7 @@ Added to `/unslop:sync` and `/unslop:generate`. Bypasses surgical mode entirely:
 1. Stage A (Architect) runs normally
 2. Stage A.2 (Strategist) runs with directive: "Ignore existing implementation structure"
 3. Stage B (Builder) receives specs but NO Existing Code, NO Spec Diff, NO Affected Symbols
-4. Post-hoc drift check is skipped
-5. Identical to current v0.15.0 full-regen behavior
+4. Identical to current v0.15.0 full-regen behavior
 
 `--refactor` is the opt-out from surgical mode, not a new feature. The default shifts from full-regen to surgical; `--refactor` restores the old behavior.
 
