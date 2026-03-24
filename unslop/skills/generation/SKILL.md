@@ -190,16 +190,21 @@ Agent(
        Do NOT exit. Do NOT terminate. The controlling session must
        validate your output before authorizing merge.
        Report format:
-         STATUS: DONE (or DONE_WITH_CONCERNS or BLOCKED)
+         STATUS: DONE (or DONE_WITH_CONCERNS)
          Changed files: [list]
          Test results: [pass count]
        Then say: "Awaiting Architect validation before merge."
-    9. If tests fail, iterate until green or report BLOCKED (same wait).
+    9. If tests fail and you cannot fix them: report BLOCKED with
+       diagnostic details and EXIT IMMEDIATELY. Do not wait for
+       authorization on failure -- the controlling session needs to
+       discard the worktree and enter convergence.
 
-    IMPORTANT: You must NOT exit until the controlling session sends
-    "Validation passed. You are authorized to exit." This keeps the
-    worktree alive so the Architect can inspect your output before
-    the merge happens. Exiting prematurely causes an unvalidated merge.
+    IMPORTANT: The hold-and-wait applies to SUCCESS states only
+    (DONE, DONE_WITH_CONCERNS). You must NOT exit on success until
+    the controlling session sends "Validation passed. You are
+    authorized to exit." This keeps the worktree alive for inspection.
+    BLOCKED states exit immediately -- failed worktrees are discarded,
+    not merged.
 
     The abstract spec is your primary source of truth. The concrete spec
     is strategic guidance. Do not look for or follow any change requests.
