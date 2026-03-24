@@ -289,7 +289,7 @@ Each section follows one of three inheritance behaviors:
 
 | Policy | Sections | Behavior |
 |---|---|---|
-| **Strict Child-Only** | `## Strategy`, `## Type Sketch` | Parent section is **purged** during resolution. If the child omits it, the resolved spec has no such section — and Phase 0a.1 validation fails. The parent's version is never silently inherited. |
+| **Strict Child-Only** | `## Strategy`, `## Type Sketch`, `## Representation Invariants`, `## Safety Contracts`, `## Concurrency Model`, `## State Machine` | Parent section is **purged** during resolution. If the child omits it, the resolved spec has no such section. The parent's version is never silently inherited. For Strategy and Type Sketch, absence triggers Phase 0a.1 validation failure. For architectural invariant sections, absence is valid (the child simply has no such constraints). |
 | **Additive** | `## Lowering Notes` | Parent and child are **merged**. Child entries override matching parent entries (keyed by language heading). Non-conflicting parent entries are preserved. |
 | **Overridable** | `## Pattern` | Child replaces parent if present. If the child omits `## Pattern`, the parent's version persists. |
 
