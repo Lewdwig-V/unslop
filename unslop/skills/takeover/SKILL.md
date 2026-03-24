@@ -182,7 +182,7 @@ Use the **unslop/generation** skill's multi-stage execution model.
 
 If the file is simple enough that the Concrete Spec would be trivial (single function, no patterns), Stage A.2 still runs -- it produces an ephemeral Concrete Spec that serves as the Builder's strategy guide. Skipping Stage A.2 means the Builder generates with no strategic constraints, producing unpredictable output.
 
-**Stage B (Building):** Dispatch a Builder Agent with:
+**Stage B (Building):** Dispatch a Builder Agent with `isolation="worktree"`. **Do NOT write code directly -- ALL code generation goes through a worktree-isolated Builder Agent.** Dispatch with:
 - test_policy (path-dependent):
   - Tests exist (`testless_mode = false`): `"Write or extend tests as needed for newly explicit constraints"`
   - Testless path (`testless_mode = true`): `"skip"` -- the adversarial pipeline generates tests separately
