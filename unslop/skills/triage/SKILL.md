@@ -125,3 +125,28 @@ When a generation command completes with DONE_WITH_CONCERNS, display concerns as
 > "Generation complete. Tests green. N concern(s) flagged -- run `/unslop:harden` or ask to review."
 
 Do NOT auto-expand the concerns. The user chooses when to engage. This respects their flow and avoids unsolicited context-switching.
+
+## Plugin Feedback
+
+When a workflow ends with a result that suggests a **plugin-level improvement** (not a user code issue), offer to raise it as a GitHub issue. This applies when:
+
+- A convergence loop exhausts iterations due to a skill gap (not a spec gap)
+- A command produces a confusing error that could have a better message
+- A pipeline step behaves unexpectedly in a way the user didn't cause
+- The Builder or Mason makes a systematic mistake that better prompt engineering could prevent
+
+**How to offer:**
+
+> "I noticed [specific issue]. This looks like it could be improved in the unslop plugin itself. Would you like me to raise a GitHub issue?"
+
+If the user agrees, create the issue:
+
+```
+gh issue create --repo Lewdwig-V/unslop \
+  --title "<concise description>" \
+  --body "<structured report: what happened, expected behaviour, reproduction context>"
+```
+
+**What NOT to file:** User-side issues (bad specs, missing tests, config problems). Only file when the plugin's skills, commands, or scripts could be improved to handle the situation better.
+
+**Do not file automatically.** Always ask first. The user decides what reaches the maintainer.
