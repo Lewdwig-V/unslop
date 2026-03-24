@@ -186,8 +186,20 @@ Agent(
        - On conflict: Abstract Spec wins — always
     6. {test_policy}
     7. Run tests: {test_command}
-    8. If tests pass, report DONE with the list of changed files
-    9. If tests fail, iterate until green or report BLOCKED
+    8. If tests pass: report your status and changed files, then WAIT.
+       Do NOT exit. Do NOT terminate. The controlling session must
+       validate your output before authorizing merge.
+       Report format:
+         STATUS: DONE (or DONE_WITH_CONCERNS or BLOCKED)
+         Changed files: [list]
+         Test results: [pass count]
+       Then say: "Awaiting Architect validation before merge."
+    9. If tests fail, iterate until green or report BLOCKED (same wait).
+
+    IMPORTANT: You must NOT exit until the controlling session sends
+    "Validation passed. You are authorized to exit." This keeps the
+    worktree alive so the Architect can inspect your output before
+    the merge happens. Exiting prematurely causes an unvalidated merge.
 
     The abstract spec is your primary source of truth. The concrete spec
     is strategic guidance. Do not look for or follow any change requests.
@@ -246,9 +258,11 @@ def test_retry_limit_enforced():
 
 ### Verification (Controlling Session)
 
-After the Builder Agent completes:
+The Builder does NOT exit on its own. It reports status and waits for the Architect's authorization. This keeps the worktree alive for inspection.
+
+After the Builder reports its status:
 1. Check result status: DONE / DONE_WITH_CONCERNS / BLOCKED
-2. If DONE with green tests: Claude Code handles worktree merge automatically
+2. If DONE with green tests: inspect the Builder's output if needed (the worktree is still live). When satisfied, send via `SendMessage` to the Builder: `"Validation passed. You are authorized to exit."` The Builder then exits, triggering the worktree merge.
 3. Compute `output-hash` on merged code, update `@unslop-managed` header
 4. Handle the Concrete Spec artifact:
    - If `ephemeral: true` (default): ensure the `*.impl.md` is NOT included in the merge — it served its purpose
