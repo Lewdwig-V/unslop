@@ -73,7 +73,14 @@ def resolve_extends_chain(impl_path: str, project_root: str) -> list[str]:
 - Overridable (Pattern, unknown sections): Child replaces parent if present;
   parent persists if child omits.
 """
-STRICT_CHILD_ONLY = {"Strategy", "Type Sketch"}
+STRICT_CHILD_ONLY = {
+    "Strategy",
+    "Type Sketch",
+    "Representation Invariants",
+    "Safety Contracts",
+    "Concurrency Model",
+    "State Machine",
+}
 
 
 def resolve_inherited_sections(impl_path: str, project_root: str) -> dict[str, str]:

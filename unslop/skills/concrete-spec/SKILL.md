@@ -1,7 +1,7 @@
 ---
 name: concrete-spec
 description: Use when generating, reviewing, or promoting concrete specs — the implementation strategy layer between abstract specs (intent) and generated code. Activates during Stage B.1 of generation, during /unslop:harden --promote, and during takeover raising.
-version: 0.12.0
+version: 0.19.0
 ---
 
 # Concrete Spec Skill
@@ -289,7 +289,7 @@ Each section follows one of three inheritance behaviors:
 
 | Policy | Sections | Behavior |
 |---|---|---|
-| **Strict Child-Only** | `## Strategy`, `## Type Sketch` | Parent section is **purged** during resolution. If the child omits it, the resolved spec has no such section — and Phase 0a.1 validation fails. The parent's version is never silently inherited. |
+| **Strict Child-Only** | `## Strategy`, `## Type Sketch`, `## Representation Invariants`, `## Safety Contracts`, `## Concurrency Model`, `## State Machine` | Parent section is **purged** during resolution. If the child omits it, the resolved spec has no such section. The parent's version is never silently inherited. For Strategy and Type Sketch, absence triggers Phase 0a.1 validation failure. For architectural invariant sections, absence is valid (the child simply has no such constraints). |
 | **Additive** | `## Lowering Notes` | Parent and child are **merged**. Child entries override matching parent entries (keyed by language heading). Non-conflicting parent entries are preserved. |
 | **Overridable** | `## Pattern` | Child replaces parent if present. If the child omits `## Pattern`, the parent's version persists. |
 
@@ -432,9 +432,13 @@ Concrete specs can form multi-level inheritance chains: `child extends parent ex
 
 #### `## Strategy`
 
-The core of the concrete spec. Describes the algorithm, data flow, and structural pattern in **language-agnostic pseudocode**. This is not the abstract spec's "what" — it is the "how" at the algorithmic level.
+The core of the concrete spec. Describes the algorithm, data flow, and structural pattern. This is not the abstract spec's "what" -- it is the "how" at the algorithmic level.
 
-Use fenced pseudocode blocks (` ```pseudocode `). **All pseudocode must comply with the Pseudocode Discipline defined in the `unslop/spec-language` skill.** Key requirements: capitalized keywords (`IF`, `SET`, `FUNCTION`), `←` for assignment, no language-specific syntax, no library calls.
+**Pseudocode is optional.** Use pseudocode blocks for non-standard algorithms where the logic is genuinely complex. For standard patterns (retry with backoff, CRUD operations, request routing), a brief prose description or a reference to the Pattern section is sufficient. The Builder already knows how to implement standard algorithms -- pseudocode for them adds noise.
+
+When pseudocode is used, it must comply with the Pseudocode Discipline defined in the `unslop/spec-language` skill (capitalized keywords, `←` for assignment, no language-specific syntax). Use `--force-pseudocode` to bypass linter false positives when language-flavored notation is unavoidable.
+
+**For files with structural constraints** (memory layout, unsafe operations, concurrency), the Strategy section can be minimal -- the architectural invariant sections (Representation Invariants, Safety Contracts, Concurrency Model, State Machine) carry the load-bearing information. A one-line Strategy like "Standard allocator dispatch with pointer-encoded handle selection" is fine when the real complexity is in the layout and safety contracts.
 
 ````markdown
 ## Strategy
@@ -526,6 +530,97 @@ Language-specific considerations that the Builder should know. This is the only 
 - Use `time.Sleep()` for delay
 - `RetryConfig` as a struct with exported fields
 - Jitter via `math/rand`
+```
+
+### Optional Sections: Architectural Invariants
+
+These sections document **non-observable constraints** -- things that are load-bearing but invisible to tests. A wrong return value fails a test; a wrong memory layout causes silent corruption under load. Use these sections when the file has structural constraints that the Builder must respect but the abstract spec cannot express.
+
+**When to include:** If the file involves memory layout, unsafe operations, concurrency primitives, or protocol state machines. If the file is pure business logic with no structural constraints, skip these sections -- the Strategy and Type Sketch are sufficient.
+
+#### `## Representation Invariants` (optional)
+
+Memory layout, alignment, field offsets, and size constraints. Essential for FFI, cache-line optimization, and any code where the physical structure matters.
+
+Use language-agnostic notation with explicit field offsets:
+
+```markdown
+## Representation Invariants
+
+ObjectHeader:
+  LAYOUT: C-compatible, ALIGN 8, SIZE 16 (on 64-bit)
+  FIELD_OFFSET 0: flags (2 bytes, bitmask)
+  FIELD_OFFSET 2: layout_id (2 bytes, index into type table)
+  FIELD_OFFSET 4: body_size (4 bytes, object payload size)
+  FIELD_OFFSET 8: vtable (8 bytes, pointer to dispatch table)
+
+MutatorHandle:
+  LAYOUT: transparent wrapper over non-zero pointer-sized integer
+  INVARIANT: zero is never valid (distinguishes initialized from uninitialized)
+  INTERPRETATION: raw pointer (allocator A) or thread ID (allocator B)
+```
+
+#### `## Safety Contracts` (optional)
+
+Preconditions, postconditions, and violation consequences for unsafe operations. Every unsafe block should have a corresponding contract entry.
+
+```markdown
+## Safety Contracts
+
+OP read_header(ptr):
+  REQUIRES: ptr is non-null, aligned to 8, points to initialized ObjectHeader
+  ENSURES: returned header is a bitwise copy of the memory at ptr
+  VIOLATED_BY: null ptr (undefined behavior), unaligned ptr (undefined behavior),
+               dangling ptr (use-after-free)
+
+OP write_barrier(old_ref, new_ref):
+  REQUIRES: both refs are valid managed pointers or null
+  ENSURES: GC is notified of the reference mutation before the next collection
+  VIOLATED_BY: unmanaged pointer passed as ref (silent memory leak or dangling ref)
+```
+
+#### `## Concurrency Model` (optional)
+
+Atomic operations with their memory orderings and rationale. Locks with their contention model. The "why" matters as much as the "what" -- a Builder that changes `Relaxed` to `SeqCst` "to be safe" may introduce unnecessary contention.
+
+```markdown
+## Concurrency Model
+
+ATOMIC_VAR next_mutator_id:
+  TYPE: atomic unsigned integer
+  ORDERING: Relaxed
+  RATIONALE: IDs need uniqueness, not happens-before. Relaxed is sufficient
+             because the ID is never used to synchronize other memory accesses.
+
+LOCK mutator_registry:
+  TYPE: lazy-initialized mutex over hash map
+  INIT: once-lock (no allocation until first mutator registers)
+  CONTENTION: Mutex not RwLock -- writes are as frequent as reads
+  POISONING: poisoned lock returns empty (graceful degradation, not panic)
+```
+
+#### `## State Machine` (optional)
+
+Formal state transitions for protocol implementations. Replaces brittle conditional logic with a verifiable transition table. Use arrow notation for readability.
+
+```markdown
+## State Machine
+
+STATES: {Idle, Running, RequestReceived, AtSafepoint, Completed}
+
+TRANSITIONS:
+  Idle -> Running                [ON: start]
+  Running -> RequestReceived     [ON: handshake_request]
+  RequestReceived -> AtSafepoint [ON: safepoint_reached]
+  AtSafepoint -> Completed       [ON: coordinator_ack]
+  Completed -> Idle              [ON: reset]
+
+INVALID:
+  Running -> Completed           (must go through safepoint)
+  AtSafepoint -> Running         (must complete before resuming)
+
+INITIAL: Idle
+TERMINAL: none (cyclic protocol)
 ```
 
 ---
