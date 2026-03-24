@@ -50,7 +50,9 @@ If multiple indicators are found, or none are found, ask the user which test com
   "mutation_tool": "builtin",
   "mutation_tool_note": "Mutation engine: 'mutmut' for full mutation testing, 'builtin' for lightweight AST mutator",
   "entropy_threshold": 0.05,
-  "entropy_threshold_note": "Minimum mutation kill rate improvement per iteration. Below this, convergence stalls and triggers radical spec hardening. Set to 0 to disable."
+  "entropy_threshold_note": "Minimum mutation kill rate improvement per iteration. Below this, convergence stalls and triggers radical spec hardening. Set to 0 to disable.",
+  "mutation_budget": 20,
+  "mutation_budget_note": "Maximum actionable mutations per /unslop:cover run. Equivalent mutants don't count. Set to 0 for exhaustive mode."
 }
 ```
 

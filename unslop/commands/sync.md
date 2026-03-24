@@ -249,7 +249,7 @@ If a `*.change.md` sidecar exists for this file with pending entries, run the ge
 
 **Stage B (Builder -- worktree isolation):**
 Dispatch a Builder Agent using the generation skill's two-stage execution model:
-- test_policy: `"Do NOT create or modify test files. Use existing tests for validation only"`
+- test_policy: `"Do NOT create or modify spec-backed test files. Use existing tests for validation only. Tests marked @unslop-incidental may be updated or removed if they fail against regenerated code that correctly follows the spec."` See the generation skill's `@unslop-incidental Test Lifecycle` section for details.
 - If `--incremental` was passed: pass through to Builder prompt for Mode B.
 - If the managed file does not yet exist: always Mode A.
 

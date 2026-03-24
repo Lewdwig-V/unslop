@@ -55,6 +55,8 @@ test generation.
 **Input:** `*.behaviour.yaml` (NO source code access)
 **Output:** `test_*.py` file
 
+**Chinese Wall exception (Cover Mode):** During `/unslop:cover`, the Mason may receive surviving mutant descriptions (original/mutated line pairs) as test guidance. This is a controlled leak -- the Mason sees *what changed* but not the surrounding implementation. The mutant description helps the Mason write assertions that specifically catch the mutation, without exposing the full source code.
+
 The Mason's tests are validated by the **Mock Budget Linter** before they can proceed
 to Phase 3. Tests that mock internal modules are Hard Rejected.
 
@@ -151,6 +153,56 @@ On failure, the Saboteur feedback routes to:
 - **Equivalent mutant** → Prosecutor filters, no retry needed
 
 Maximum iterations: 3 (configurable in `.unslop/config.json` as `adversarial_max_iterations`).
+
+## Prosecutor Routing (Cover Mode)
+
+In `/unslop:cover`, the Prosecutor's verdict determines routing:
+
+- **equivalent**: Discarded. Does not consume the mutation budget.
+- **weak_test**: Routes directly to the Mason with the existing behaviour.yaml constraint and the surviving mutant as guidance. The Archaeologist is skipped -- the constraint already exists, the test just needs strengthening.
+- **spec_gap**: Routes to the Archaeologist for diff-mode discovery. A genuinely missing constraint needs to be identified and added to the behaviour.yaml before the Mason can write a test.
+
+This routing split prevents the Archaeologist from hallucinating duplicate constraints for mutants that are already covered by existing behaviour.yaml entries but weakly tested.
+
+## Archaeologist Diff-Mode (Cover Mode)
+
+When invoked from `/unslop:cover`, the Archaeologist operates differently from takeover mode:
+
+| Aspect | Takeover (N) | Cover (O) |
+|---|---|---|
+| **Who invokes** | The Architect (during Double-Lift) | The cover pipeline (after Saboteur) |
+| **Input** | Source code + spec (extraction from scratch) | spec_gap mutants + existing behaviour.yaml + spec + source + existing tests |
+| **Goal** | Extract ALL behavioural intent | Find ONLY the uncovered constraints |
+| **Output** | Complete behaviour.yaml | Delta: new constraints appended to existing behaviour.yaml |
+
+For each `spec_gap` surviving mutant, the Archaeologist answers one question:
+
+> "What constraint, if it existed in the behaviour.yaml, would have forced the Mason to write a test that kills this mutant?"
+
+**Input per mutant:**
+- The mutation (original line, mutated line, line number)
+- The source file (to understand surrounding context)
+- The existing behaviour.yaml (to avoid duplicating existing constraints)
+- The existing tests (to confirm the constraint is genuinely untested)
+- The spec (to ground the new constraint in the project's intent language)
+
+**Output per mutant:**
+- A new `given`/`when`/`then`, `error`, `invariant`, or `property` entry for the behaviour.yaml
+- A one-line semantic summary (for the triage report)
+
+## Strategic Mutation Selection (Cover Mode)
+
+The Saboteur uses a mutation budget (default 20, configurable as `mutation_budget` in config.json). Equivalent mutants classified by the Prosecutor do not count against the budget.
+
+**Prioritisation (high-entropy areas):**
+1. **Boundary conditions** (`<` vs `<=`, `>` vs `>=`, `==` vs `!=`)
+2. **Logical inversions** (`not x` vs `x`, `and` vs `or`)
+3. **Empty blocks** (removing a side-effect call, replacing function body with `pass`)
+4. **Error handling paths** (removing `raise`, swapping exception types, removing `except` blocks)
+
+**Distribution:** For files with multiple functions, distribute the budget across the most complex functions (by branch count). For a budget of 20 with 4+ functions, allocate ~5 mutations per function. Single-function files get the full budget.
+
+**CLI override:** `--budget N` sets a custom budget. `--exhaustive` removes the budget limit.
 
 ## Integration with Generation Pipeline
 

@@ -121,7 +121,7 @@ For each file classified as new, stale, modified (confirmed), or conflict (confi
 
 1. **Select generation mode.** New files always use Mode A. For others, default is Mode A; use Mode B if `--incremental` was passed.
 2. **Dispatch a Builder Agent** using the generation skill's two-stage execution model:
-   - test_policy: `"Do NOT create or modify test files. Use existing tests for validation only"`
+   - test_policy: `"Do NOT create or modify spec-backed test files. Use existing tests for validation only. Tests marked @unslop-incidental may be updated or removed if they fail against regenerated code that correctly follows the spec."`
    - Pass `--incremental` to the Builder prompt if Mode B was selected.
 3. **Verify result:**
    - If DONE with green tests: worktree merges automatically. Compute `output-hash`, update header.
