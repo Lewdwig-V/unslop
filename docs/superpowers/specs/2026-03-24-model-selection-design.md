@@ -52,9 +52,11 @@ Add a `models` block to `.unslop/config.json`:
 | **Sonnet** (creative) | Builder, Archaeologist, Prosecutor | Code generation, behavioural extraction, mutant classification -- substantial but bounded |
 | **Haiku** (mechanical) | Mason, Saboteur | Test writing from structured YAML, mutation execution -- constrained and formulaic |
 
-### The Architect Key
+### Inline Roles (Architect, Strategist)
 
-The Architect runs inline as the controlling session -- it is not dispatched as a subagent. The `"architect": "opus"` config entry is **documentation of intent**: it tells the user what model this role is designed for and serves as a recommendation for what model to run the session under. No dispatch logic reads this key.
+The Architect (Stage A) and Strategist (Stage A.2) both run inline as part of the controlling session -- they are not dispatched as subagents. The `"architect": "opus"` config entry is **documentation of intent**: it tells the user what model these roles are designed for and serves as a recommendation for what model to run the session under. No dispatch logic reads this key.
+
+The Strategist is not listed separately in the config because it shares the controlling session with the Architect. Both require the same model tier (Opus-class reasoning for spec design and lowering decisions).
 
 ### Valid Values
 
