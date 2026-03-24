@@ -265,9 +265,16 @@ def test_retry_limit_enforced():
 
 The Builder does NOT exit on its own. It reports status and waits for the Architect's authorization. This keeps the worktree alive for inspection.
 
+**Auto-merge detection:** The `isolation="worktree"` tool does not guarantee isolation — it can auto-merge the Builder's changes into the working tree before the Architect has inspected them. Before proceeding, check which state you are in:
+
+- **State A — Worktree live:** The Agent tool returned a `worktreePath`. The Builder is waiting. The normal hold-and-authorize protocol applies.
+- **State B — Auto-merged:** The Agent tool returned no `worktreePath` and the Builder's changes are already on disk. Log `AUTO_MERGE_DETECTED` in the session.
+
 After the Builder reports its status:
 1. Check result status: DONE / DONE_WITH_CONCERNS / BLOCKED
-2. If DONE with green tests: inspect the Builder's output if needed (the worktree is still live). When satisfied, send via `SendMessage` to the Builder: `"Validation passed. You are authorized to exit."` The Builder then exits, triggering the worktree merge.
+2. If DONE with green tests:
+   - **2a. State A (worktree live):** Inspect the Builder's output (worktree is still live). When satisfied, send via `SendMessage` to the Builder: `"Validation passed. You are authorized to exit."` The Builder then exits, triggering the worktree merge. Continue to step 3.
+   - **2b. State B (auto-merged):** Run `git diff HEAD -- <changed-files>` to inspect what was merged. If the output is valid: continue to step 3. If the output is invalid: run `git checkout HEAD -- <changed-files>` to revert the auto-merge, write the failure to the diagnostic cache, and dispatch a new Builder. Do NOT continue to steps 3–6 in the revert case.
 3. Compute `output-hash` on merged code, update `@unslop-managed` header. If the Builder's `generated:` timestamp is missing or `T00:00:00Z`, replace it with the current UTC time via `date -u +%Y-%m-%dT%H:%M:%SZ`.
 4. Handle the Concrete Spec artifact:
    - If `ephemeral: true` (default): ensure the `*.impl.md` is NOT included in the merge — it served its purpose

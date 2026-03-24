@@ -238,11 +238,10 @@ Use the **unslop/adversarial** skill for pipeline execution throughout this step
 
 ## Step 6: Validate (tests-exist path)
 
-After the Builder Agent completes:
+After the Builder Agent completes, follow the Verification protocol from the generation skill (see **Verification (Controlling Session)**), which covers both normal (worktree-live) and auto-merge recovery paths.
 
-**If DONE with green tests:**
+**If DONE with green tests and validated:**
 
-- Worktree merges automatically
 - Proceed to Step 8 (Atomic Commit)
 - Report success to the calling command
 
