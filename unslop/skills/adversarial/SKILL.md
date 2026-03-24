@@ -35,7 +35,22 @@ The pipeline has three independent agents with a **Chinese Wall** between them:
                                                                     └─────────────┘
 ```
 
+### Model Selection
+
+Before dispatching any adversarial agent, read `.unslop/config.json`. If a `models` block exists and contains a key matching the agent role, pass that value as the `model` parameter to `Agent()`. If the `models` block is missing or the role key is absent, use the hardcoded default:
+
+| Role | Default |
+|---|---|
+| archaeologist | sonnet |
+| mason | haiku |
+| saboteur | haiku |
+| prosecutor | sonnet |
+
+The `model` parameter controls which Claude model runs the subagent. Valid values: `sonnet`, `opus`, `haiku`, or a full model ID (e.g., `claude-sonnet-4-6`).
+
 ### Phase 1: Archaeologist (Intent Extraction)
+
+**Dispatch model:** `config.models.archaeologist` (default: sonnet)
 
 The Archaeologist reads source code and extracts behavioural intent into the
 **Behaviour DSL** — a structured YAML format that captures constraints, invariants,
@@ -47,6 +62,8 @@ and error conditions without implementation detail.
 The Archaeologist must NOT write tests. It only writes declarative behaviour specs.
 
 ### Phase 2: Mason (Spec-Blind Test Construction)
+
+**Dispatch model:** `config.models.mason` (default: haiku)
 
 The Mason receives ONLY the behaviour YAML. It is **denied access to source code**.
 This is the critical information asymmetry — the "firewall" — that forces black-box
@@ -62,6 +79,8 @@ to Phase 3. Tests that mock internal modules are Hard Rejected.
 
 ### Phase 3: Saboteur (Mutation Validation)
 
+**Dispatch model:** `config.models.saboteur` (default: haiku)
+
 The Saboteur runs the Mason's tests against mutated versions of the source code.
 If a mutant survives (tests still pass despite a code change), it indicates either:
 
@@ -71,6 +90,8 @@ If a mutant survives (tests still pass despite a code change), it indicates eith
 The Saboteur classifies each surviving mutant and routes feedback to the correct phase.
 
 ### Phase 3b: Prosecutor (Equivalent Mutant Classification)
+
+**Dispatch model:** `config.models.prosecutor` (default: sonnet)
 
 Not all surviving mutants are test failures. Some are **equivalent mutants** —
 mutations that change code but not behaviour (e.g., `i < 10` → `i <= 9`).
