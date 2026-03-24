@@ -205,8 +205,26 @@ def _parse_affected_tag(name: str) -> tuple[str, str]:
     return name, ""
 
 
+def _manifest_to_source_map(manifest, source_lines: list[str]) -> dict[str, str]:
+    """Convert a SymbolManifest to ``{name: normalized_source_text}`` for drift comparison.
+
+    Uses each :class:`SymbolInfo`'s 1-indexed ``start_line`` / ``end_line`` (inclusive)
+    to slice *source_lines*, then normalises the result -- matching the semantics of
+    :func:`_extract_symbol_sources`.
+    """
+    result: dict[str, str] = {}
+    for sym in manifest.symbols:
+        raw = "".join(source_lines[sym.start_line - 1 : sym.end_line])
+        result[sym.name] = _normalize_source(raw)
+    return result
+
+
 def check_drift(old_path: str, new_path: str, affected_symbols: list[str]) -> dict:
-    """Compare two Python files and warn if symbols outside *affected_symbols* changed.
+    """Compare two files and warn if symbols outside *affected_symbols* changed.
+
+    Uses the LSP semantic query layer for symbol extraction when a language
+    server is available, falling back to Python ``ast`` for ``.py`` files.
+    Non-Python files without an LSP server skip the drift check.
 
     Parameters
     ----------
@@ -223,14 +241,9 @@ def check_drift(old_path: str, new_path: str, affected_symbols: list[str]) -> di
     -------
     dict with keys: status ("clean"|"drift"|"error"), drifted, modified, skipped.
     """
+    from .lsp_queries import get_symbol_manifest
+
     base: dict = {"status": "clean", "drifted": [], "modified": [], "skipped": False}
-
-    old_p = Path(old_path)
-    new_p = Path(new_path)
-
-    # Non-Python -> skip
-    if old_p.suffix != ".py" or new_p.suffix != ".py":
-        return {**base, "skipped": True}
 
     # Parse affected tags
     modified_names: set[str] = set()
@@ -245,24 +258,34 @@ def check_drift(old_path: str, new_path: str, affected_symbols: list[str]) -> di
         else:
             modified_names.add(name)
 
+    # Obtain symbol manifests via the LSP semantic query layer
+    old_manifest = get_symbol_manifest(old_path)
+    new_manifest = get_symbol_manifest(new_path)
+
+    # Handle unavailable source (non-Python without LSP)
+    if old_manifest.source == "unavailable" or new_manifest.source == "unavailable":
+        return {**base, "skipped": True}
+
+    # Handle manifest errors
+    if old_manifest.error is not None:
+        print(f"check-drift: cannot parse old file: {old_manifest.error}", file=sys.stderr)
+        return {**base, "status": "error"}
+    if new_manifest.error is not None:
+        print(f"check-drift: cannot parse new file: {new_manifest.error}", file=sys.stderr)
+        return {**base, "status": "error"}
+
+    # Read raw source lines for the bridge function
     try:
-        old_source = old_p.read_text(encoding="utf-8")
-        new_source = new_p.read_text(encoding="utf-8")
+        with open(old_path, encoding="utf-8") as fh:
+            old_lines = fh.readlines()
+        with open(new_path, encoding="utf-8") as fh:
+            new_lines = fh.readlines()
     except (OSError, UnicodeDecodeError) as exc:
         print(f"check-drift: cannot read input: {exc}", file=sys.stderr)
         return {**base, "status": "error"}
 
-    try:
-        old_symbols = _extract_symbol_sources(old_source)
-    except Exception as exc:
-        print(f"check-drift: cannot parse old file: {exc}", file=sys.stderr)
-        return {**base, "status": "error"}
-
-    try:
-        new_symbols = _extract_symbol_sources(new_source)
-    except Exception as exc:
-        print(f"check-drift: cannot parse new file: {exc}", file=sys.stderr)
-        return {**base, "status": "error"}
+    old_symbols = _manifest_to_source_map(old_manifest, old_lines)
+    new_symbols = _manifest_to_source_map(new_manifest, new_lines)
 
     all_affected = modified_names | new_names | deleted_names
     drifted: list[str] = []

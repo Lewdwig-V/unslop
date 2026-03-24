@@ -443,3 +443,26 @@ def test_drift_adjacent_classes():
     finally:
         os.unlink(orig)
         os.unlink(gen)
+
+
+def test_manifest_to_source_map_matches_extract():
+    """Bridge function produces same output as _extract_symbol_sources for Python files."""
+    code = "def foo():\n    return 1\n\nclass Bar:\n    x = 1\n\nMAX = 10\n"
+    orig = _write_tmp(code)
+    try:
+        from unslop.scripts.validation.symbol_audit import _manifest_to_source_map, _extract_symbol_sources
+        from unslop.scripts.validation.lsp_queries import get_symbol_manifest
+
+        # Old path
+        old_result = _extract_symbol_sources(open(orig).read())
+        # New path via manifest
+        manifest = get_symbol_manifest(orig)
+        with open(orig) as f:
+            source_lines = f.readlines()
+        new_result = _manifest_to_source_map(manifest, source_lines)
+        # Same keys, same values
+        assert set(old_result.keys()) == set(new_result.keys())
+        for key in old_result:
+            assert old_result[key] == new_result[key], f"Mismatch for {key}"
+    finally:
+        os.unlink(orig)
