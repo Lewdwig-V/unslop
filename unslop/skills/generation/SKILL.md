@@ -268,7 +268,7 @@ The Builder does NOT exit on its own. It reports status and waits for the Archit
 After the Builder reports its status:
 1. Check result status: DONE / DONE_WITH_CONCERNS / BLOCKED
 2. If DONE with green tests: inspect the Builder's output if needed (the worktree is still live). When satisfied, send via `SendMessage` to the Builder: `"Validation passed. You are authorized to exit."` The Builder then exits, triggering the worktree merge.
-3. Compute `output-hash` on merged code, update `@unslop-managed` header
+3. Compute `output-hash` on merged code, update `@unslop-managed` header. If the Builder's `generated:` timestamp is missing or `T00:00:00Z`, replace it with the current UTC time via `date -u +%Y-%m-%dT%H:%M:%SZ`.
 4. Handle the Concrete Spec artifact:
    - If `ephemeral: true` (default): ensure the `*.impl.md` is NOT included in the merge — it served its purpose
    - If `ephemeral: false` (promoted or high-complexity): include the `*.impl.md` in the merge and commit
@@ -955,7 +955,7 @@ When generating a file, follow this exact sequence:
 3b. If `.unslop/principles.md` exists, hash its content → `principles-hash`
 3c. If a permanent concrete spec (`*.impl.md`) exists with `concrete-dependencies` or `extends`, compute the manifest: call `python ${CLAUDE_PLUGIN_ROOT}/scripts/orchestrator.py concrete-deps <impl-path> --root .` and use the `manifest_header` field from the JSON output
 4. Write header line 1 (spec path — unchanged)
-5. Write header line 2: `spec-hash:<hash> output-hash:<hash> [principles-hash:<hash>] generated:<ISO8601 UTC timestamp>`
+5. Write header line 2: `spec-hash:<hash> output-hash:<hash> [principles-hash:<hash>] generated:<ISO8601 UTC timestamp>`. **The timestamp MUST be computed via shell command** (`date -u +%Y-%m-%dT%H:%M:%SZ`), not approximated. If shell access is unavailable, omit the `generated:` field entirely rather than emitting `T00:00:00Z`.
 5b. If manifest was computed in step 3c, write header line 3: `concrete-manifest:<manifest_header>`
 6. Write the body
 
