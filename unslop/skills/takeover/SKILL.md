@@ -178,7 +178,9 @@ Use the **unslop/generation** skill's multi-stage execution model.
 
 **CRITICAL: Takeover always uses full regeneration mode (Mode A). The Builder does NOT read the archived original.**
 
-**Stage A.2 (Lowering):** The generation skill's Stage A.2 runs to derive a fresh Concrete Spec from the approved Abstract Spec. During takeover, the previously raised Concrete Spec (from Step 2) is available as reference — the Strategist may reuse algorithmic choices that the user confirmed as intentional, but is free to choose a different strategy if the Abstract Spec permits it.
+**Stage A.2 (Lowering) -- MANDATORY:** The generation skill's Stage A.2 MUST run to derive a fresh Concrete Spec from the approved Abstract Spec. Do NOT skip this step, even for simple files. The Concrete Spec constrains the Builder's implementation strategy and provides the `affected_symbols` list for surgical mode in future syncs. During takeover, the previously raised Concrete Spec (from Step 2) is available as reference -- the Strategist may reuse algorithmic choices that the user confirmed as intentional, but is free to choose a different strategy if the Abstract Spec permits it.
+
+If the file is simple enough that the Concrete Spec would be trivial (single function, no patterns), Stage A.2 still runs -- it produces an ephemeral Concrete Spec that serves as the Builder's strategy guide. Skipping Stage A.2 means the Builder generates with no strategic constraints, producing unpredictable output.
 
 **Stage B (Building):** Dispatch a Builder Agent with:
 - test_policy (path-dependent):
@@ -315,7 +317,13 @@ If Radical Spec Hardening also stalls: **DONE_WITH_CONCERNS**. Commit what exist
 
 ## Step 8: Atomic Commit
 
-**Tests-exist path (`testless_mode = false`):** Commit the abstract spec and the generated file (+ concrete spec if promoted) together as a single atomic commit. This is unchanged from the original pipeline.
+**Tests-exist path (`testless_mode = false`):** Commit the abstract spec and the generated file (+ concrete spec if promoted) together as a single atomic commit.
+
+**Post-takeover test hardening (tests-exist path only):** After a successful commit, offer to harden the Builder-generated tests via mutation testing:
+
+> "Takeover complete. The Builder wrote tests based on the spec, but they haven't been validated via mutation testing. Run `/unslop:cover <file>` to check for weak assertions and test scum?"
+
+This is advisory, not automatic. The user decides whether to harden immediately or defer. If they choose to harden, `/unslop:cover` runs the Saboteur against the Builder's tests to discover gaps the Builder missed.
 
 **Testless path (`testless_mode = true`):** Commit all artifacts together as a single atomic commit:
 - Abstract spec

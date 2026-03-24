@@ -111,6 +111,10 @@ If the user has existing code that is not yet managed by unslop, or wants to bri
 - If the file has no tests and the user mentions mutation testing is impractical (pure I/O, GUI code): suggest `--skip-adversarial`
 - If the user wants maximum test rigour on a risky module: suggest `--full-adversarial`
 
+**Post-takeover handoff:** After takeover succeeds with Builder-generated tests (tests-exist path), the takeover skill offers `/unslop:cover` to harden. If the user defers, triage should remind them on next interaction with that file:
+
+> "This file was recently taken over. Its tests haven't been mutation-validated yet. Consider `/unslop:cover <file>`."
+
 ## The New File Path
 
 If the user wants to create a new file from scratch (it doesn't exist yet), start with a spec.
