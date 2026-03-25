@@ -5339,3 +5339,92 @@ blocked-by:
     result = check_freshness(str(tmp_path))
     foo_entry = next(f for f in result["files"] if "foo" in f["managed"])
     assert "blocked_constraints" not in foo_entry
+
+
+# --- protected-regions parsing tests ---
+
+
+def test_parse_concrete_frontmatter_protected_regions_single():
+    content = """---
+source-spec: src/foo.rs.spec.md
+target-language: Rust
+ephemeral: false
+protected-regions:
+  - marker: "compile-time test conditional"
+    position: tail
+    semantics: test-suite
+    starts-at: "line 847"
+---
+"""
+    result = parse_concrete_frontmatter(content)
+    assert len(result["protected_regions"]) == 1
+    entry = result["protected_regions"][0]
+    assert entry["marker"] == "compile-time test conditional"
+    assert entry["position"] == "tail"
+    assert entry["semantics"] == "test-suite"
+    assert entry["starts_at"] == "line 847"
+
+
+def test_parse_concrete_frontmatter_protected_regions_missing_field(capsys):
+    content = """---
+source-spec: src/foo.rs.spec.md
+ephemeral: false
+protected-regions:
+  - marker: "test block"
+    position: tail
+---
+"""
+    result = parse_concrete_frontmatter(content)
+    assert "protected_regions" not in result
+    captured = capsys.readouterr()
+    assert "missing" in captured.err.lower()
+
+
+def test_parse_concrete_frontmatter_protected_regions_unknown_semantics(capsys):
+    content = """---
+source-spec: src/foo.rs.spec.md
+ephemeral: false
+protected-regions:
+  - marker: "custom block"
+    position: tail
+    semantics: unknown-type
+    starts-at: "line 100"
+---
+"""
+    result = parse_concrete_frontmatter(content)
+    assert len(result["protected_regions"]) == 1
+    assert result["protected_regions"][0]["semantics"] == "unknown-type"
+    captured = capsys.readouterr()
+    assert "unknown-type" in captured.err
+
+
+def test_parse_concrete_frontmatter_protected_regions_with_blocked_by():
+    """protected-regions coexists with blocked-by."""
+    content = """---
+source-spec: src/foo.rs.spec.md
+ephemeral: false
+blocked-by:
+  - symbol: "bar::Baz"
+    reason: "r"
+    resolution: "res"
+    affects: "aff"
+protected-regions:
+  - marker: "test block"
+    position: tail
+    semantics: test-suite
+    starts-at: "line 500"
+---
+"""
+    result = parse_concrete_frontmatter(content)
+    assert len(result["blocked_by"]) == 1
+    assert len(result["protected_regions"]) == 1
+
+
+def test_parse_concrete_frontmatter_no_protected_regions():
+    content = """---
+source-spec: src/foo.rs.spec.md
+ephemeral: false
+---
+"""
+    result = parse_concrete_frontmatter(content)
+    assert "protected_regions" not in result
