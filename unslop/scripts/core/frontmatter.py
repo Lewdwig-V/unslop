@@ -55,7 +55,8 @@ def parse_concrete_frontmatter(content: str) -> dict:
     """Parse frontmatter from a concrete spec (.impl.md) file.
 
     Returns dict with: source_spec, target_language, ephemeral, complexity,
-    concrete_dependencies (list of paths).
+    concrete_dependencies (list of paths), targets (list of dicts),
+    blocked_by (list of dicts with symbol, reason, resolution, affects).
     """
     lines = content.split("\n")
     if not lines or lines[0].strip() != "---":
@@ -75,6 +76,9 @@ def parse_concrete_frontmatter(content: str) -> dict:
     in_concrete_deps = False
     in_targets = False
     current_target = None
+    blocked_by = []
+    in_blocked_by = False
+    current_blocker = None
 
     for line in lines[1:end]:
         stripped = line.strip()
@@ -96,6 +100,23 @@ def parse_concrete_frontmatter(content: str) -> dict:
                     targets.append(current_target)
                     current_target = None
                 in_targets = False
+
+        if in_blocked_by:
+            if re.match(r"^  - symbol:", line):
+                if current_blocker:
+                    blocked_by.append(current_blocker)
+                current_blocker = {"symbol": line.split(":", 1)[1].strip().strip('"').strip("'")}
+                continue
+            elif current_blocker and re.match(r"^    \w", line):
+                key, _, val = stripped.partition(":")
+                if key.strip() and val.strip():
+                    current_blocker[key.strip()] = val.strip().strip('"').strip("'")
+                continue
+            else:
+                if current_blocker:
+                    blocked_by.append(current_blocker)
+                    current_blocker = None
+                in_blocked_by = False
 
         if in_concrete_deps:
             match = re.match(r"^  - (.+)$", line)
@@ -120,14 +141,38 @@ def parse_concrete_frontmatter(content: str) -> dict:
             in_targets = True
         elif stripped == "concrete-dependencies:":
             in_concrete_deps = True
+        elif stripped == "blocked-by:":
+            in_blocked_by = True
 
     # Flush final target
     if current_target:
         targets.append(current_target)
 
+    if current_blocker:
+        blocked_by.append(current_blocker)
+
     if concrete_deps:
         result["concrete_dependencies"] = concrete_deps
     if targets:
         result["targets"] = targets
+
+    _required_blocker_fields = {"symbol", "reason", "resolution", "affects"}
+    validated_blockers = []
+    for entry in blocked_by:
+        missing = _required_blocker_fields - set(entry.keys())
+        if missing:
+            print(
+                f"Warning: blocked-by entry missing required field(s) {sorted(missing)}, skipping: {entry}",
+                file=sys.stderr,
+            )
+        else:
+            validated_blockers.append(entry)
+    if validated_blockers:
+        result["blocked_by"] = validated_blockers
+        if result.get("ephemeral", True):
+            print(
+                "Warning: blocked-by on ephemeral concrete spec has no effect -- promote to permanent first",
+                file=sys.stderr,
+            )
 
     return result

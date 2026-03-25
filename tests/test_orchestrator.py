@@ -5111,3 +5111,141 @@ def test_resume_plan_cli(tmp_path):
     assert "batches" in result
     assert "resumed_from" in result
     assert result["resumed_from"] == ["b.py"]
+
+
+# --- blocked-by parsing tests ---
+
+
+def test_parse_concrete_frontmatter_blocked_by_single():
+    content = """---
+source-spec: src/roots.rs.spec.md
+target-language: Rust
+ephemeral: false
+blocked-by:
+  - symbol: "binding::vm_impl::RustVM::VMScanning"
+    reason: "unconditionally aliases RustScanning"
+    resolution: "cfg-gate VMScanning alias in binding/vm_impl.rs"
+    affects: "Scanning<RustVM> impl"
+---
+"""
+    result = parse_concrete_frontmatter(content)
+    assert result["source_spec"] == "src/roots.rs.spec.md"
+    assert result["ephemeral"] is False
+    assert len(result["blocked_by"]) == 1
+    entry = result["blocked_by"][0]
+    assert entry["symbol"] == "binding::vm_impl::RustVM::VMScanning"
+    assert entry["reason"] == "unconditionally aliases RustScanning"
+    assert entry["resolution"] == "cfg-gate VMScanning alias in binding/vm_impl.rs"
+    assert entry["affects"] == "Scanning<RustVM> impl"
+
+
+def test_parse_concrete_frontmatter_blocked_by_multiple():
+    content = """---
+source-spec: src/roots.rs.spec.md
+ephemeral: false
+blocked-by:
+  - symbol: "mod_a::TypeA"
+    reason: "reason A"
+    resolution: "fix A"
+    affects: "part A"
+  - symbol: "mod_b::TypeB"
+    reason: "reason B"
+    resolution: "fix B"
+    affects: "part B"
+---
+"""
+    result = parse_concrete_frontmatter(content)
+    assert len(result["blocked_by"]) == 2
+    assert result["blocked_by"][0]["symbol"] == "mod_a::TypeA"
+    assert result["blocked_by"][1]["symbol"] == "mod_b::TypeB"
+
+
+def test_parse_concrete_frontmatter_blocked_by_missing_field_skipped(capsys):
+    content = """---
+source-spec: src/foo.spec.md
+ephemeral: false
+blocked-by:
+  - symbol: "some::Symbol"
+    reason: "missing resolution and affects"
+---
+"""
+    result = parse_concrete_frontmatter(content)
+    assert "blocked_by" not in result or len(result.get("blocked_by", [])) == 0
+    captured = capsys.readouterr()
+    assert "Warning" in captured.err or "missing" in captured.err.lower()
+
+
+def test_parse_concrete_frontmatter_blocked_by_with_other_fields():
+    """blocked-by coexists with targets and concrete-dependencies."""
+    content = """---
+source-spec: src/foo.spec.md
+ephemeral: false
+targets:
+  - path: src/foo.py
+    language: python
+blocked-by:
+  - symbol: "bar::Baz"
+    reason: "needs migration"
+    resolution: "migrate bar module"
+    affects: "Baz usage"
+concrete-dependencies:
+  - src/bar.py.impl.md
+---
+"""
+    result = parse_concrete_frontmatter(content)
+    assert len(result["targets"]) == 1
+    assert result["targets"][0]["path"] == "src/foo.py"
+    assert len(result["blocked_by"]) == 1
+    assert result["blocked_by"][0]["symbol"] == "bar::Baz"
+    assert result["concrete_dependencies"] == ["src/bar.py.impl.md"]
+
+
+def test_parse_concrete_frontmatter_no_blocked_by():
+    """No blocked-by field means no blocked_by key in result."""
+    content = """---
+source-spec: src/foo.spec.md
+ephemeral: false
+---
+"""
+    result = parse_concrete_frontmatter(content)
+    assert "blocked_by" not in result
+
+
+def test_parse_concrete_frontmatter_blocked_by_ephemeral_warning(capsys):
+    """blocked-by on ephemeral spec emits warning but still parses."""
+    content = """---
+source-spec: src/foo.spec.md
+ephemeral: true
+blocked-by:
+  - symbol: "bar::Baz"
+    reason: "r"
+    resolution: "res"
+    affects: "aff"
+---
+"""
+    result = parse_concrete_frontmatter(content)
+    assert len(result["blocked_by"]) == 1
+    assert result["blocked_by"][0]["symbol"] == "bar::Baz"
+    captured = capsys.readouterr()
+    assert "ephemeral" in captured.err.lower()
+    assert "promote" in captured.err.lower()
+
+
+def test_parse_concrete_frontmatter_blocked_by_before_targets():
+    """blocked-by appearing before targets parses both correctly."""
+    content = """---
+source-spec: src/foo.spec.md
+ephemeral: false
+blocked-by:
+  - symbol: "a::B"
+    reason: "r"
+    resolution: "res"
+    affects: "aff"
+targets:
+  - path: src/foo.py
+    language: python
+---
+"""
+    result = parse_concrete_frontmatter(content)
+    assert len(result["blocked_by"]) == 1
+    assert len(result["targets"]) == 1
