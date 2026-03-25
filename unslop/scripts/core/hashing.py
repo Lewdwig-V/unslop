@@ -75,9 +75,11 @@ def parse_header(content: str) -> dict | None:
             gen_match = re.search(r"generated:(\S+)", stripped)
             if gen_match:
                 generated = gen_match.group(1)
-            mel_match = re.search(r"managed-end-line:(\d+)", stripped)
-            if mel_match:
-                managed_end_line = int(mel_match.group(1))
+
+        # Parse managed-end-line (can appear on the same line as hashes or on its own line)
+        mel_match = re.search(r"managed-end-line:(\d+)", stripped)
+        if mel_match:
+            managed_end_line = int(mel_match.group(1))
 
         # Parse concrete-manifest (new per-dep format)
         manifest_match = re.search(r"concrete-manifest:(.+?)(?:\s|$)", stripped)

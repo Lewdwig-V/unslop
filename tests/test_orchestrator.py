@@ -5456,6 +5456,19 @@ def test_parse_header_without_managed_end_line():
     assert result["managed_end_line"] is None
 
 
+def test_parse_header_managed_end_line_on_separate_line():
+    """managed-end-line on its own header line (not same line as spec-hash)."""
+    lines = [
+        "// @unslop-managed -- do not edit directly. Edit src/foo.rs.spec.md instead.",
+        "// spec-hash:a3f8c2e9b7d1 output-hash:4e2f1a8c9b03 generated:2026-03-25T12:00:00Z",
+        "// managed-end-line:847",
+    ]
+    result = parse_header("\n".join(lines))
+    assert result is not None
+    assert result["managed_end_line"] == 847
+    assert result["spec_hash"] == "a3f8c2e9b7d1"
+
+
 def test_get_body_below_header_with_end_line():
     content = "\n".join(
         [
