@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import re
+import sys
 
 
 # Sentinels stored in concrete-manifest when a transitive dep is missing/unreadable.
@@ -139,5 +140,12 @@ def get_body_below_header(content: str, end_line: int | None = None) -> str:
         else:
             break
     if end_line is not None:
+        if end_line < 1 or end_line <= body_start + 1:
+            print(
+                f"Warning: managed-end-line:{end_line} is at or before the header "
+                f"(body starts at line {body_start + 1}). Ignoring and hashing full body.",
+                file=sys.stderr,
+            )
+            return "\n".join(lines[body_start:])
         return "\n".join(lines[body_start : end_line - 1])
     return "\n".join(lines[body_start:])

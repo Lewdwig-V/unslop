@@ -580,6 +580,7 @@ def check_freshness(directory: str, exclude_dirs: list[str] | None = None) -> di
 
     # Scan for concrete spec ghost staleness
     impl_files = sorted(root.rglob("*.impl.md"))
+    impl_meta_cache: dict[Path, dict] = {}  # cache parsed metadata to avoid double I/O
     for impl_path in impl_files:
         rel_impl = str(impl_path.relative_to(root))
         try:
@@ -589,6 +590,7 @@ def check_freshness(directory: str, exclude_dirs: list[str] | None = None) -> di
             continue
 
         meta = parse_concrete_frontmatter(impl_content)
+        impl_meta_cache[impl_path] = meta
         if meta.get("ephemeral", True):
             continue  # Skip ephemeral concrete specs
 
@@ -709,15 +711,11 @@ def check_freshness(directory: str, exclude_dirs: list[str] | None = None) -> di
                         break
 
     # Scan for blocked constraints (deferred constraints from blocked-by frontmatter)
+    # Uses impl_meta_cache from the ghost-staleness scan to avoid double I/O and duplicate warnings
     for impl_path in impl_files:
-        rel_impl = str(impl_path.relative_to(root))
-        try:
-            impl_content = impl_path.read_text(encoding="utf-8")
-        except (OSError, UnicodeDecodeError) as e:
-            print(json.dumps({"warning": f"Skipping unreadable impl for blocked-by scan: {rel_impl} ({e})"}), file=sys.stderr)
-            continue
-
-        meta = parse_concrete_frontmatter(impl_content)
+        meta = impl_meta_cache.get(impl_path)
+        if meta is None:
+            continue  # file was unreadable during ghost-staleness scan
         if meta.get("ephemeral", True):
             continue  # blocked-by on ephemeral specs is ignored
 
