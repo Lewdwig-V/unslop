@@ -54,7 +54,7 @@ Read `.unslop/config.json` (or `.unslop/config.md` as legacy fallback) to obtain
 The pipeline operates in two stages:
 
 - **Stage A (Architect -- current session):** Step 0 (Pre-flight) analyzes complexity and splits large files. Step 1 (Discover) reads the existing code and tests. Then **Phase 0a.0 (Intent Lock)** fires: the Architect presents "From the existing code, I understand this module's purpose is [intent]. I'll draft a spec that captures [behaviors]. Does this match your understanding?" If rejected, the Architect reformulates; if abandoned, no artifacts are left. After Intent Lock approval, the Architect raises through two levels:
-  - **Step 2 (Raise to Concrete):** Extract the implementation strategy into a Concrete Spec (`*.impl.md`) -- algorithms, patterns, type structure. This is mandatory even for simple files; it provides the Builder's strategic guide.
+  - **Step 2 (Raise to Concrete):** Extract the implementation strategy into a Concrete Spec (`*.impl.md`) -- algorithms, patterns, type structure. This is mandatory even for simple files; it provides the Builder's strategic guide. The Concrete Spec raised in Step 2 is ephemeral by default -- it is passed to the Builder as strategic guidance but NOT committed. Only the Abstract Spec is committed alongside the generated code.
   - **Step 2b (Raise to Abstract):** Extract observable behavior into the Abstract Spec (`*.spec.md`). Present to user for approval.
   - **Step 3 (Archive):** Archive originals to `.unslop/archive/`.
 
@@ -76,6 +76,7 @@ The pipeline operates in two stages:
 > 2. **Skipping concrete spec** -- Going from abstract spec directly to code. The Builder generates with no strategic constraints, producing unpredictable output even for "simple" files.
 > 3. **Batch commits without validation** -- Committing specs without running the Builder first. The spec's sufficiency is unproven.
 > 4. **Passing archive to Builder** -- Giving the Builder access to the original code, defeating the spec-completeness proof.
+> 5. **Committing ephemeral concrete specs** -- Concrete specs with `ephemeral: true` (the default) live only in the Builder's worktree and are discarded after successful generation. Only permanent concrete specs (promoted via `/unslop:harden --promote`) are committed.
 
 The spec update is staged but not committed until the Builder succeeds. On convergence failure, the staged spec is reverted.
 
