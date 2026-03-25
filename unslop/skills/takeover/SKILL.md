@@ -19,7 +19,7 @@ Steps:
 2b. **Raise to Abstract** -- Extract observable behavior and constraints into an Abstract Spec (the original "Why")
 2c. **Generate Behaviour YAML** -- (testless path only) Extract given/when/then constraints for adversarial validation
 3. **Archive** -- Archive the original to `.unslop/archive/` before it is replaced
-4. **Lower & Generate** -- Lower through a (possibly new) Concrete Spec and regenerate code; symbol audit (testless path)
+4. **Lower & Generate** -- Stage A.2 (fresh Concrete Spec), Stage B.1 (auditable implementation strategy), Stage B.2 (worktree-isolated Builder); symbol audit (testless path)
 5. **Adversarial Validation** -- (testless path only) Mason/Saboteur pipeline as quality gate
 6. **Validate** -- (tests-exist path) Run tests; commit if green, enter convergence loop if red
 7. **Convergence Loop** -- Enrich the spec and regenerate until tests pass or iterations are exhausted
@@ -271,7 +271,7 @@ This archive is a safety net. The user can manually recover the original from it
 
 ---
 
-## Step 4: Lower & Generate (Stage A.2 + Stage B)
+## Step 4: Lower & Generate (Stage A.2 + Stage B.1 + Stage B.2)
 
 Use the **unslop/generation** skill's multi-stage execution model.
 
@@ -281,15 +281,17 @@ Use the **unslop/generation** skill's multi-stage execution model.
 
 If the file is simple enough that the Concrete Spec would be trivial (single function, no patterns), Stage A.2 still runs -- it produces an ephemeral Concrete Spec that serves as the Builder's strategy guide. Skipping Stage A.2 means the Builder generates with no strategic constraints, producing unpredictable output.
 
-**Stage B (Building):** Dispatch a Builder Agent with `isolation="worktree"`. **Do NOT write code directly -- ALL code generation goes through a worktree-isolated Builder Agent.** Dispatch with:
+**Stage B.1 (Concrete Spec):** Before generating code, the Builder writes a concrete spec (`.impl.md` sidecar next to the abstract spec) documenting implementation strategy: struct layout, algorithm choices, iterator patterns, test helper design, and any decisions not dictated by the abstract spec. This is the auditable reasoning step -- reviewers can verify the Builder's plan before seeing generated code. Use the **unslop/concrete-spec** skill for format guidance. During takeover, the previously raised Concrete Spec (from Step 2) is available as reference -- the Strategist may reuse algorithmic choices that the user confirmed as intentional, but is free to choose a different strategy if the Abstract Spec permits it.
+
+**Stage B.2 (Generate):** Dispatch a Builder Agent with `isolation="worktree"`. The Builder MUST run in an isolated worktree subagent that receives ONLY the spec file(s) and `.unslop/config.json` -- never the archived originals or the Architect's conversation context. This isolation is the integrity guarantee: if the Builder can reproduce the code from the spec alone, the spec is proven sufficient. Generating inline (in the Architect session) violates this because the Architect has already seen the original source code during Stage A discovery. **Do NOT write code directly -- ALL code generation goes through a worktree-isolated Builder Agent.**
+
+Dispatch with:
 - test_policy (path-dependent):
   - Tests exist (`testless_mode = false`): `"Write or extend tests as needed for newly explicit constraints"`
   - Testless path (`testless_mode = true`): `"skip"` -- the adversarial pipeline generates tests separately
 - Mode A (full regeneration) -- always, no incremental for takeover
 - The abstract spec path as the primary source of truth
-- The concrete spec (from Stage A.2) as strategic guidance
-
-The Architect stage (Steps 1-2c) already ran in the user's session -- it read the code, raised through concrete to abstract, and got user approval. The Builder starts fresh with zero knowledge of the original code.
+- The concrete spec (from Stage B.1) as strategic guidance
 
 ### Step 4b: Symbol Audit (testless path only)
 
@@ -372,7 +374,7 @@ e. **Stage the spec update** -- `git add <spec_path>`. Do NOT commit.
 
 f. **Re-lower (Stage A.2)** -- The Strategist derives a fresh Concrete Spec from the enriched Abstract Spec.
 
-g. **Dispatch a new Builder (Stage B)** -- Fresh Agent, new worktree. The Builder never knows why the spec changed. test_policy: `"Write or extend tests as needed for newly explicit constraints"`.
+g. **Dispatch a new Builder (Stage B.1 + B.2)** -- Re-lower through a fresh Concrete Spec (B.1), then dispatch a fresh Builder Agent in a new worktree (B.2). The Builder never knows why the spec changed. test_policy: `"Write or extend tests as needed for newly explicit constraints"`.
 
 h. **Verify** -- Same as Step 6. If green: commit atomically, done. If red: next iteration.
 
