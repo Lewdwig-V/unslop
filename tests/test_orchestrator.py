@@ -5249,3 +5249,8 @@ targets:
     result = parse_concrete_frontmatter(content)
     assert len(result["blocked_by"]) == 1
     assert len(result["targets"]) == 1
+
+
+def test_strict_child_only_includes_error_taxonomy_and_test_seams():
+    assert "Error Taxonomy" in STRICT_CHILD_ONLY
+    assert "Test Seams" in STRICT_CHILD_ONLY
