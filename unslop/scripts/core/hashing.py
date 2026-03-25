@@ -42,6 +42,7 @@ def parse_header(content: str) -> dict | None:
     concrete_manifest = None
     generated = None
     old_format = False
+    managed_end_line = None
 
     for line in lines:
         stripped = line.strip()
@@ -73,6 +74,9 @@ def parse_header(content: str) -> dict | None:
             gen_match = re.search(r"generated:(\S+)", stripped)
             if gen_match:
                 generated = gen_match.group(1)
+            mel_match = re.search(r"managed-end-line:(\d+)", stripped)
+            if mel_match:
+                managed_end_line = int(mel_match.group(1))
 
         # Parse concrete-manifest (new per-dep format)
         manifest_match = re.search(r"concrete-manifest:(.+?)(?:\s|$)", stripped)
@@ -109,16 +113,21 @@ def parse_header(content: str) -> dict | None:
         "principles_hash": principles_hash,
         "concrete_deps_hash": concrete_deps_hash,
         "concrete_manifest": concrete_manifest,
+        "managed_end_line": managed_end_line,
         "generated": generated,
         "old_format": old_format,
     }
 
 
-def get_body_below_header(content: str) -> str:
+def get_body_below_header(content: str, end_line: int | None = None) -> str:
     """Extract managed file content below the @unslop-managed header.
 
     Scans the first 5 lines for header markers, skipping blank lines.
     Returns everything after the last header line.
+
+    If end_line is provided (1-indexed line number), returns only lines
+    from below the header up to but not including end_line. This supports
+    protected regions where the managed content ends before the file does.
     """
     lines = content.split("\n")
     header_markers = ("@unslop-managed", "spec-hash:", "output-hash:", "Generated from spec at", "concrete-manifest:")
@@ -129,4 +138,6 @@ def get_body_below_header(content: str) -> str:
             body_start = i + 1
         else:
             break
+    if end_line is not None:
+        return "\n".join(lines[body_start : end_line - 1])
     return "\n".join(lines[body_start:])

@@ -39,6 +39,7 @@ from unslop.scripts.orchestrator import (
     STRICT_CHILD_ONLY,
     MISSING_SENTINEL,
     UNREADABLE_SENTINEL,
+    get_body_below_header,
 )
 
 
@@ -5428,3 +5429,90 @@ ephemeral: false
 """
     result = parse_concrete_frontmatter(content)
     assert "protected_regions" not in result
+
+
+# --- managed-end-line tests ---
+
+
+def test_parse_header_with_managed_end_line():
+    lines = [
+        "// @unslop-managed -- do not edit directly. Edit src/foo.rs.spec.md instead.",
+        "// spec-hash:a3f8c2e9b7d1 output-hash:4e2f1a8c9b03 managed-end-line:847 generated:2026-03-25T12:00:00Z",
+    ]
+    result = parse_header("\n".join(lines))
+    assert result is not None
+    assert result["managed_end_line"] == 847
+    assert result["spec_hash"] == "a3f8c2e9b7d1"
+    assert result["output_hash"] == "4e2f1a8c9b03"
+
+
+def test_parse_header_without_managed_end_line():
+    lines = [
+        "// @unslop-managed -- do not edit directly. Edit src/foo.rs.spec.md instead.",
+        "// spec-hash:a3f8c2e9b7d1 output-hash:4e2f1a8c9b03 generated:2026-03-25T12:00:00Z",
+    ]
+    result = parse_header("\n".join(lines))
+    assert result is not None
+    assert result["managed_end_line"] is None
+
+
+def test_get_body_below_header_with_end_line():
+    content = "\n".join(
+        [
+            "// @unslop-managed -- do not edit directly. Edit src/foo.rs.spec.md instead.",
+            "// spec-hash:a3f8c2e9b7d1 output-hash:4e2f1a8c9b03 managed-end-line:5 generated:2026-03-25T12:00:00Z",
+            "fn implementation() {}",
+            "fn more_impl() {}",
+            "#[cfg(test)]",
+            "mod tests {",
+            "    #[test]",
+            "    fn it_works() {}",
+            "}",
+        ]
+    )
+    # managed-end-line:5 means line 5 (1-indexed) is first protected line (#[cfg(test)])
+    # Body starts at line 3 (after 2 header lines)
+    # Should return lines 3-4 only, not lines 5+
+    body = get_body_below_header(content, end_line=5)
+    assert "fn implementation() {}" in body
+    assert "fn more_impl() {}" in body
+    assert "#[cfg(test)]" not in body
+    assert "mod tests" not in body
+
+
+def test_get_body_below_header_without_end_line():
+    content = "\n".join(
+        [
+            "// @unslop-managed -- do not edit directly. Edit src/foo.rs.spec.md instead.",
+            "// spec-hash:a3f8c2e9b7d1 output-hash:4e2f1a8c9b03 generated:2026-03-25T12:00:00Z",
+            "fn implementation() {}",
+            "fn more_impl() {}",
+        ]
+    )
+    body = get_body_below_header(content)
+    assert "fn implementation() {}" in body
+    assert "fn more_impl() {}" in body
+
+
+def test_protected_region_edit_does_not_change_hash():
+    """Editing a protected region should not change the output hash."""
+    header = "\n".join(
+        [
+            "// @unslop-managed -- do not edit directly. Edit src/foo.rs.spec.md instead.",
+            "// spec-hash:a3f8c2e9b7d1 output-hash:placeholder managed-end-line:5 generated:2026-03-25T12:00:00Z",
+        ]
+    )
+    impl_lines = "fn implementation() {}\nfn more_impl() {}"
+    protected_v1 = "#[cfg(test)]\nmod tests { fn v1() {} }"
+    protected_v2 = "#[cfg(test)]\nmod tests { fn v2_edited() {} }"
+
+    content_v1 = f"{header}\n{impl_lines}\n{protected_v1}"
+    content_v2 = f"{header}\n{impl_lines}\n{protected_v2}"
+
+    body_v1 = get_body_below_header(content_v1, end_line=5)
+    body_v2 = get_body_below_header(content_v2, end_line=5)
+
+    hash_v1 = compute_hash(body_v1)
+    hash_v2 = compute_hash(body_v2)
+
+    assert hash_v1 == hash_v2
