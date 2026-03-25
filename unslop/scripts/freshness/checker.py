@@ -708,6 +708,51 @@ def check_freshness(directory: str, exclude_dirs: list[str] | None = None) -> di
                             f["multi_target"] = f"[target {idx}/{total}]"
                         break
 
+    # Scan for blocked constraints (deferred constraints from blocked-by frontmatter)
+    for impl_path in impl_files:
+        rel_impl = str(impl_path.relative_to(root))
+        try:
+            impl_content = impl_path.read_text(encoding="utf-8")
+        except (OSError, UnicodeDecodeError):
+            continue
+
+        meta = parse_concrete_frontmatter(impl_content)
+        if meta.get("ephemeral", True):
+            continue  # blocked-by on ephemeral specs is ignored
+
+        blocked_by = meta.get("blocked_by", [])
+        if not blocked_by:
+            continue
+
+        # Determine which managed files this impl affects
+        target_paths = []
+        targets_list = meta.get("targets", [])
+        if targets_list:
+            target_paths = [t["path"] for t in targets_list if "path" in t]
+        else:
+            source_spec = meta.get("source_spec", "")
+            if source_spec:
+                target_paths = [get_registry_key_for_spec(source_spec)]
+
+        constraints = [
+            {
+                "symbol": entry["symbol"],
+                "affects": entry["affects"],
+                "reason": entry["reason"],
+                "resolution": entry["resolution"],
+            }
+            for entry in blocked_by
+        ]
+
+        for managed_rel in target_paths:
+            for f in files:
+                if f["managed"] == managed_rel:
+                    if "blocked_constraints" in f:
+                        f["blocked_constraints"].extend(constraints)
+                    else:
+                        f["blocked_constraints"] = list(constraints)
+                    break
+
     # Scan for pending change requests
     change_files = sorted(root.rglob("*.change.md"))
     for change_path in change_files:

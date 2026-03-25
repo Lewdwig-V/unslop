@@ -5254,3 +5254,88 @@ targets:
 def test_strict_child_only_includes_error_taxonomy_and_test_seams():
     assert "Error Taxonomy" in STRICT_CHILD_ONLY
     assert "Test Seams" in STRICT_CHILD_ONLY
+
+
+def test_check_freshness_surfaces_blocked_constraints(tmp_path):
+    """Permanent impl with blocked-by adds blocked_constraints to file result."""
+    spec = tmp_path / "src" / "roots.rs.spec.md"
+    spec.parent.mkdir(parents=True)
+    spec_content = "# roots.rs spec\n\nBlackwall compliance.\n"
+    spec.write_text(spec_content)
+
+    spec_hash = compute_hash(spec_content)
+
+    managed = tmp_path / "src" / "roots.rs"
+    managed_body = "// managed code"
+    output_hash = compute_hash(managed_body)
+    managed.write_text(
+        f"// @unslop-managed -- do not edit directly. Edit src/roots.rs.spec.md instead.\n"
+        f"// spec-hash:{spec_hash} output-hash:{output_hash} generated:2026-03-25T00:00:00Z\n"
+        f"{managed_body}"
+    )
+
+    impl_file = tmp_path / "src" / "roots.rs.impl.md"
+    impl_file.write_text("""---
+source-spec: src/roots.rs.spec.md
+target-language: Rust
+ephemeral: false
+blocked-by:
+  - symbol: "binding::vm_impl::RustVM::VMScanning"
+    reason: "unconditionally aliases RustScanning"
+    resolution: "cfg-gate VMScanning alias"
+    affects: "Scanning<RustVM> impl"
+---
+
+## Strategy
+Some strategy.
+""")
+
+    (tmp_path / ".unslop").mkdir()
+
+    result = check_freshness(str(tmp_path))
+    roots_entry = next(f for f in result["files"] if "roots" in f["managed"])
+    assert "blocked_constraints" in roots_entry
+    assert len(roots_entry["blocked_constraints"]) == 1
+    assert roots_entry["blocked_constraints"][0]["symbol"] == "binding::vm_impl::RustVM::VMScanning"
+    assert roots_entry["blocked_constraints"][0]["affects"] == "Scanning<RustVM> impl"
+    assert roots_entry["blocked_constraints"][0]["reason"] == "unconditionally aliases RustScanning"
+    assert roots_entry["blocked_constraints"][0]["resolution"] == "cfg-gate VMScanning alias"
+    # Blocked constraints do NOT change staleness state
+    assert roots_entry["state"] == "fresh"
+
+
+def test_check_freshness_ignores_blocked_by_on_ephemeral(tmp_path):
+    """Ephemeral impl with blocked-by does NOT add blocked_constraints."""
+    spec = tmp_path / "src" / "foo.py.spec.md"
+    spec.parent.mkdir(parents=True)
+    spec_content = "# foo spec\n"
+    spec.write_text(spec_content)
+
+    spec_hash = compute_hash(spec_content)
+    managed = tmp_path / "src" / "foo.py"
+    managed_body = "# managed"
+    output_hash = compute_hash(managed_body)
+    managed.write_text(
+        f"# @unslop-managed -- do not edit directly. Edit src/foo.py.spec.md instead.\n"
+        f"# spec-hash:{spec_hash} output-hash:{output_hash} generated:2026-03-25T00:00:00Z\n"
+        f"{managed_body}"
+    )
+
+    impl_file = tmp_path / "src" / "foo.py.impl.md"
+    impl_file.write_text("""---
+source-spec: src/foo.py.spec.md
+target-language: python
+ephemeral: true
+blocked-by:
+  - symbol: "bar::Baz"
+    reason: "r"
+    resolution: "res"
+    affects: "aff"
+---
+""")
+
+    (tmp_path / ".unslop").mkdir()
+
+    result = check_freshness(str(tmp_path))
+    foo_entry = next(f for f in result["files"] if "foo" in f["managed"])
+    assert "blocked_constraints" not in foo_entry
