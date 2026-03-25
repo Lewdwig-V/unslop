@@ -119,6 +119,15 @@ After classifying each managed file, check for a corresponding `*.change.md` sid
 
 The Δ indicator appears regardless of the file's staleness state.
 
+After classifying each managed file, check for `blocked_constraints` in the freshness result. If present, display a summary line indented below the file entry:
+
+```
+             ⊘ N blocked constraint(s): <affects-1>, <affects-2>
+               waiting on <symbol-1>, <symbol-2>
+```
+
+The ⊘ indicator is a new annotation type parallel to Δ (pending changes). It appears regardless of the file's staleness state. A file can show both ⊘ and Δ simultaneously. Blocked constraints do NOT change the file's staleness classification -- they are informational only.
+
 ---
 
 This command is read-only. Do not modify any files, generate any code, or run any tests.

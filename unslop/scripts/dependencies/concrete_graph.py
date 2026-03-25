@@ -81,6 +81,8 @@ STRICT_CHILD_ONLY = {
     "Concurrency Model",
     "State Machine",
     "Migration Notes",
+    "Error Taxonomy",
+    "Test Seams",
 }
 
 

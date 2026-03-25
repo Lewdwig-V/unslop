@@ -141,6 +141,27 @@ Do NOT declare dependencies on:
 
 Paths are relative to the project root. Only list direct dependencies — the orchestrator resolves transitive dependencies automatically.
 
+## Deferred Constraints in Concrete Specs
+
+When a concrete spec (`*.impl.md`) needs to track symbol-level blockers -- constraints the abstract spec wants to express but the implementation can't fulfill yet -- use `blocked-by` in the concrete spec frontmatter:
+
+```markdown
+---
+source-spec: src/roots.rs.spec.md
+target-language: Rust
+ephemeral: false
+blocked-by:
+  - symbol: "binding::vm_impl::RustVM::VMScanning"
+    reason: "unconditionally aliases RustScanning -- needs cfg-gate"
+    resolution: "cfg-gate VMScanning alias in binding/vm_impl.rs takeover"
+    affects: "Scanning<RustVM> impl"
+---
+```
+
+All four fields (`symbol`, `reason`, `resolution`, `affects`) are required. `blocked-by` is only meaningful on permanent concrete specs (`ephemeral: false`).
+
+Unlike `depends-on` (file-level, passive), `blocked-by` is symbol-level and names a specific resolution action. It's a directed action item that can be removed once the upstream change happens.
+
 ## Per-Unit Specs
 
 For tightly coupled files that form a logical unit (a Python module, a Rust crate), you can write a single spec that describes the entire unit.

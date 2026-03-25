@@ -89,6 +89,23 @@ For each concrete spec pair, apply the same checks defined in Phase 0e.1 of the 
 - **Pattern compatibility**: architectural approach conflicts
 - **Lowering notes conflict**: conflicting assumptions for the same target language
 
+**5b.1 Blocked constraint awareness:**
+
+For each concrete spec pair being checked, read the `blocked-by` frontmatter of both specs. If either spec has `blocked-by` entries:
+
+- Display the blocked constraint with `⊘` (not `✗`):
+  ```
+    ⊘ blocked constraint: <affects> (known -- tracked in blocked-by)
+  ```
+- Do NOT count blocked constraints toward the incoherence total
+- If the upstream concrete spec in the pair is ghost-stale (already flagged by cascade detection or ghost-staleness logic), append an advisory:
+  ```
+    ⊘ blocked constraint: <affects> (known -- tracked in blocked-by)
+      ℹ upstream <impl-path> is ghost-stale -- blocker may be resolved
+  ```
+
+The lookup boundary is the same as step 5a -- only concrete spec pairs derived from abstract spec `depends-on` relationships are checked. Coherence does NOT scan all `.impl.md` files in the project looking for symbol matches, and does NOT use `concrete-dependencies` or `extends` edges for pair discovery. If a `blocked-by` entry's symbol lives in a file with no abstract-level `depends-on` edge, the blocker is invisible to coherence (it still appears in `/unslop:status`). No additional pair discovery or pairing logic changes are needed.
+
 **5c. Cascade detection:**
 
 For each concrete spec that has changed since its last generation (compare `source-spec` hash in frontmatter against current abstract spec hash):
