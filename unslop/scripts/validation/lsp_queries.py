@@ -55,7 +55,7 @@ _LSP_KIND_MAP: dict[int, str] = {
     20: "symbol",  # Key
     21: "symbol",  # Null
     22: "symbol",  # EnumMember
-    23: "symbol",  # Struct (mapped to class)
+    23: "class",  # Struct
     24: "symbol",  # Event
     25: "symbol",  # Operator
     26: "symbol",  # TypeParameter
@@ -176,7 +176,12 @@ def _python_ast_manifest(file_path: str, language: str) -> SymbolManifest:
             )
         elif isinstance(node, ast.Assign):
             for target in node.targets:
-                if isinstance(target, ast.Name) and target.id.isupper() and not target.id.startswith("_"):
+                if (
+                    isinstance(target, ast.Name)
+                    and not target.id.startswith("_")
+                    and target.id == target.id.upper()
+                    and any(c.isalpha() for c in target.id)
+                ):
                     symbols.append(
                         SymbolInfo(
                             name=target.id,
@@ -187,7 +192,12 @@ def _python_ast_manifest(file_path: str, language: str) -> SymbolManifest:
                         )
                     )
         elif isinstance(node, ast.AnnAssign):
-            if isinstance(node.target, ast.Name) and node.target.id.isupper() and not node.target.id.startswith("_"):
+            if (
+                isinstance(node.target, ast.Name)
+                and not node.target.id.startswith("_")
+                and node.target.id == node.target.id.upper()
+                and any(c.isalpha() for c in node.target.id)
+            ):
                 symbols.append(
                     SymbolInfo(
                         name=node.target.id,
