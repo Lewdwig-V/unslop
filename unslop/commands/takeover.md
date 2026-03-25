@@ -82,7 +82,7 @@ The pipeline operates in two stages:
 - **Abstract spec** = committed source of truth (the "what")
 - **Concrete spec** = ephemeral Builder guidance (the "how"), derived fresh each time
 - If the Builder needs something in the concrete spec to succeed, the abstract spec has a gap -- enrich the abstract spec, never persist the concrete spec as the fix
-- Promoting a concrete spec to permanent (`/unslop:harden --promote`) is the escape hatch for genuinely complex implementation strategies that can't be captured as abstract constraints -- the exception, not the norm
+- Promoting a concrete spec to permanent (`/unslop:promote <spec-path>`) is the escape hatch for genuinely complex implementation strategies that can't be captured as abstract constraints -- the exception, not the norm
 
 The spec update is staged but not committed until the Builder succeeds. On convergence failure, the staged spec is reverted.
 
