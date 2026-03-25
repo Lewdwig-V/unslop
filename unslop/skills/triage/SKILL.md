@@ -164,25 +164,66 @@ Do NOT auto-expand the concerns. The user chooses when to engage. This respects 
 
 ## Plugin Feedback
 
-When a workflow ends with a result that suggests a **plugin-level improvement** (not a user code issue), offer to raise it as a GitHub issue. This applies when:
+**IMPORTANT: Actively offer to file feedback at every workflow checkpoint.** The unslop plugin improves through real-world usage. Every completed workflow, convergence loop, or pipeline surprise is an opportunity to improve the plugin for all users.
 
-- A convergence loop exhausts iterations due to a skill gap (not a spec gap)
-- A command produces a confusing error that could have a better message
-- A pipeline step behaves unexpectedly in a way the user didn't cause
-- The Builder or Mason makes a systematic mistake that better prompt engineering could prevent
+### When to offer
 
-**How to offer:**
+Offer to raise a GitHub issue at these checkpoints:
 
-> "I noticed [specific issue]. This looks like it could be improved in the unslop plugin itself. Would you like me to raise a GitHub issue?"
+- **After any completed takeover** -- "The takeover completed. Did any part of the pipeline feel wrong, confusing, or slower than expected? I can file that as a GitHub issue."
+- **After convergence succeeds or fails** -- "Convergence took N iterations. If the spec enrichment felt like it was fighting the pipeline rather than working with it, I can file feedback."
+- **After any Builder dispatch** -- especially if the Builder drifted, auto-merged unexpectedly, or produced output that needed manual correction.
+- **After any command produces a surprising result** -- confusing error messages, unexpected staleness states, wrong routing, missing features.
+- **When you notice a systematic pattern** -- if the same kind of spec gap or Builder mistake keeps recurring, that's a skill improvement opportunity.
+- **When a workaround is needed** -- if you had to use `--force-pseudocode`, `--skip-adversarial`, or any escape hatch, the need for the workaround is itself feedback.
 
-If the user agrees, create the issue:
+### How to offer
+
+Be specific about what you observed. Don't wait for the user to complain -- proactively surface what you noticed:
+
+> "I noticed the Builder ignored the concrete spec's Type Sketch section and chose its own type names. This might be a prompt enforcement gap in the generation skill. Want me to file this as a GitHub issue so the maintainer can tighten the Builder instructions?"
+
+> "The convergence loop needed 3 iterations because the abstract spec didn't pin the error type hierarchy. The spec-language skill could add guidance about when to pin error types. Should I file this?"
+
+> "The auto-merge recovery kicked in during this sync -- the Builder's worktree merged before I could inspect it. This is a known gap. Want me to file it with today's reproduction details?"
+
+### Filing the issue
+
+If the user agrees:
 
 ```
 gh issue create --repo Lewdwig-V/unslop \
-  --title "<concise description>" \
-  --body "<structured report: what happened, expected behaviour, reproduction context>"
+  --title "<concise description of the improvement>" \
+  --body "<structured report>"
 ```
 
-**What NOT to file:** User-side issues (bad specs, missing tests, config problems). Only file when the plugin's skills, commands, or scripts could be improved to handle the situation better.
+**Issue body format:**
 
-**Do not file automatically.** Always ask first. The user decides what reaches the maintainer.
+```markdown
+## Observation
+
+<What happened, with specifics>
+
+## Expected Behavior
+
+<What should have happened>
+
+## Reproduction Context
+
+- Command: <which unslop command was running>
+- File type: <language/framework>
+- Complexity: <simple/medium/high>
+- Convergence iterations: <if applicable>
+
+## Suggested Improvement
+
+<Actionable suggestion for the skill/command/script that could prevent this>
+```
+
+### What NOT to file
+
+User-side issues (bad specs, missing tests, config problems). Only file when the plugin's skills, commands, or scripts could be improved. The test: "Would a change to the plugin have prevented this?" If yes, file it. If the user just needs to write a better spec, don't.
+
+### Do not file automatically
+
+Always ask first. The user decides what reaches the maintainer. But do ask -- every time you notice something. The worst outcome is not "too many issues filed" but "the maintainer never hears about a fixable problem."
