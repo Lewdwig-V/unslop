@@ -713,7 +713,8 @@ def check_freshness(directory: str, exclude_dirs: list[str] | None = None) -> di
         rel_impl = str(impl_path.relative_to(root))
         try:
             impl_content = impl_path.read_text(encoding="utf-8")
-        except (OSError, UnicodeDecodeError):
+        except (OSError, UnicodeDecodeError) as e:
+            print(json.dumps({"warning": f"Skipping unreadable impl for blocked-by scan: {rel_impl} ({e})"}), file=sys.stderr)
             continue
 
         meta = parse_concrete_frontmatter(impl_content)

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import re
 import sys
 
@@ -162,7 +163,7 @@ def parse_concrete_frontmatter(content: str) -> dict:
         missing = _required_blocker_fields - set(entry.keys())
         if missing:
             print(
-                f"Warning: blocked-by entry missing required field(s) {sorted(missing)}, skipping: {entry}",
+                json.dumps({"warning": f"blocked-by entry missing required field(s) {sorted(missing)}, skipping: {entry}"}),
                 file=sys.stderr,
             )
         else:
@@ -171,7 +172,7 @@ def parse_concrete_frontmatter(content: str) -> dict:
         result["blocked_by"] = validated_blockers
         if result.get("ephemeral", True):
             print(
-                "Warning: blocked-by on ephemeral concrete spec has no effect -- promote to permanent first",
+                json.dumps({"warning": "blocked-by on ephemeral concrete spec has no effect -- promote to permanent first"}),
                 file=sys.stderr,
             )
 

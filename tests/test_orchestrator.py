@@ -5170,9 +5170,9 @@ blocked-by:
 ---
 """
     result = parse_concrete_frontmatter(content)
-    assert "blocked_by" not in result or len(result.get("blocked_by", [])) == 0
+    assert "blocked_by" not in result
     captured = capsys.readouterr()
-    assert "Warning" in captured.err or "missing" in captured.err.lower()
+    assert "missing" in captured.err.lower()
 
 
 def test_parse_concrete_frontmatter_blocked_by_with_other_fields():
