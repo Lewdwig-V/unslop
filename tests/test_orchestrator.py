@@ -5516,3 +5516,42 @@ def test_protected_region_edit_does_not_change_hash():
     hash_v2 = compute_hash(body_v2)
 
     assert hash_v1 == hash_v2
+
+
+def test_classify_file_with_managed_end_line(tmp_path):
+    """managed-end-line causes checker to hash only the bounded body."""
+    spec = tmp_path / "src" / "foo.rs.spec.md"
+    spec.parent.mkdir(parents=True)
+    spec_content = "# foo spec\n"
+    spec.write_text(spec_content)
+
+    spec_hash = compute_hash(spec_content)
+
+    impl_body = "fn implementation() {}"
+    output_hash = compute_hash(impl_body)
+
+    # managed-end-line:4 means protected region starts at line 4
+    # Header is lines 1-2, implementation is line 3, protected is line 4+
+    managed = tmp_path / "src" / "foo.rs"
+    managed.write_text(
+        f"// @unslop-managed -- do not edit directly. Edit src/foo.rs.spec.md instead.\n"
+        f"// spec-hash:{spec_hash} output-hash:{output_hash} managed-end-line:4 generated:2026-03-25T12:00:00Z\n"
+        f"{impl_body}\n"
+        f"#[cfg(test)]\n"
+        f"mod tests {{ }}\n"
+    )
+
+    result = classify_file(str(managed), str(spec))
+    assert result["state"] == "fresh"
+
+    # Now edit the protected region -- should still be fresh
+    managed.write_text(
+        f"// @unslop-managed -- do not edit directly. Edit src/foo.rs.spec.md instead.\n"
+        f"// spec-hash:{spec_hash} output-hash:{output_hash} managed-end-line:4 generated:2026-03-25T12:00:00Z\n"
+        f"{impl_body}\n"
+        f"#[cfg(test)]\n"
+        f"mod tests {{ fn edited() {{}} }}\n"
+    )
+
+    result2 = classify_file(str(managed), str(spec))
+    assert result2["state"] == "fresh"

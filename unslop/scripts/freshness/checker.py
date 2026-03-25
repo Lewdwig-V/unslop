@@ -77,7 +77,7 @@ def classify_file(managed_path: str, spec_path: str, project_root: str | None = 
         }
 
     current_spec_hash = compute_hash(spec_content)
-    body = get_body_below_header(managed_content)
+    body = get_body_below_header(managed_content, end_line=header.get("managed_end_line"))
     current_output_hash = compute_hash(body)
 
     spec_match = current_spec_hash == header["spec_hash"]
