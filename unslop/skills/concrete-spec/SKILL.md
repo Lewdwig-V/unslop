@@ -51,6 +51,11 @@ blocked-by:
     reason: "unconditionally aliases RustScanning -- needs cfg-gate"
     resolution: "cfg-gate VMScanning alias in binding/vm_impl.rs takeover"
     affects: "Scanning<RustVM> impl"
+protected-regions:
+  - marker: "compile-time test conditional"
+    position: tail
+    semantics: test-suite
+    starts-at: "line 847"
 ---
 ```
 
@@ -84,6 +89,7 @@ targets:
 | `extends` | no | Path to a base `*.impl.md` whose sections are inherited. Child sections override parent sections. See Strategy Inheritance |
 | `concrete-dependencies` | no | Paths to upstream `*.impl.md` files whose strategy choices affect this spec's lowering. Changes in upstream concrete specs trigger ghost staleness |
 | `blocked-by` | no | List of deferred constraints -- symbol-level blockers that the spec wants to express but can't fulfill yet. Each entry has `symbol`, `reason`, `resolution`, `affects` (all required). Only meaningful on permanent specs (`ephemeral: false`) |
+| `protected-regions` | no | List of contiguous tail blocks the Builder preserves verbatim. Each entry has `marker`, `position` (always `tail`), `semantics` (`test-suite`, `entry-point`, `examples`, `benchmarks`), `starts-at` (1-indexed line reference, updated each generation). No mid-file regions -- split the file first |
 
 **Ephemeral restriction:** `blocked-by` is only meaningful on permanent concrete specs. If present on an ephemeral spec, entries are parsed but ignored by the freshness checker and coherence command. Promote to permanent first via `/unslop:promote`.
 
@@ -715,6 +721,12 @@ Entry types:
 - **`BOUNDARY`** -- testability boundary (`OBSERVABLE_VIA`, `NOT_OBSERVABLE_VIA`)
 
 **When to include:** When the file has external dependencies (I/O, time, allocators) that must be injectable for testing.
+
+#### Protected Regions (frontmatter, not a body section)
+
+Protected regions are declared in the frontmatter, not as body sections. They represent contiguous tail blocks (inline test suites, main entry guards, example blocks) that the spec does not describe and the Builder does not touch. See the `protected-regions` frontmatter field above.
+
+Protected regions are discovered during the takeover pre-flight phase (Step 0a) and recorded in the frontmatter. The Builder preserves them verbatim during generation and writes `managed-end-line` to the managed file header so the freshness checker can exclude them from hash comparison.
 
 ---
 
