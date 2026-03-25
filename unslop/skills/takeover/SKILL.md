@@ -12,6 +12,7 @@ The takeover pipeline brings an existing file under spec management by **raising
 
 Steps:
 
+0. **Pre-flight** -- Analyze complexity, split large files, detect protected regions
 1. **Discover** -- Read the target file, locate its tests, determine `testless_mode`
 1b. **Intent Lock** -- Articulate the extracted product intent; get user approval before drafting specs
 2. **Raise to Concrete** -- Extract the algorithm, patterns, and type structure into a Concrete Spec (the current "How")
@@ -23,6 +24,104 @@ Steps:
 6. **Validate** -- (tests-exist path) Run tests; commit if green, enter convergence loop if red
 7. **Convergence Loop** -- Enrich the spec and regenerate until tests pass or iterations are exhausted
 8. **Atomic Commit** -- Commit all artifacts together
+
+---
+
+## Step 0: Pre-flight Analysis
+
+Before discovery, the Architect analyzes the target file's complexity to determine if a pre-takeover split is needed and to detect protected regions.
+
+### Step 0a: Measure and Detect
+
+Read the target file and compute:
+
+1. **Line count** -- total lines
+2. **Public symbol count** -- using `get_symbol_manifest()` from `lsp_queries.py` if available, otherwise count by reading the file
+3. **Estimated token weight** -- `file_size_bytes / 4`
+4. **Protected region scan** -- identify tail blocks that serve a different purpose than the implementation above them (e.g., compile-time test conditionals, main entry guards, example/benchmark blocks)
+
+Compare against thresholds (configurable in `.unslop/config.json` under the `preflight` key):
+
+| Metric | Suggest split | Require split |
+|---|---|---|
+| Line count | >1000 | >2000 |
+| Public symbols | >30 | >60 |
+| Token weight | >8000 | >16000 |
+
+Either condition triggers. Present the analysis:
+
+```
+Pre-flight analysis for <file>:
+  N lines | M public symbols | ~Xk tokens
+  [⚠ Exceeds suggest/require threshold (reason)]
+  [N protected region(s) detected: <description>]
+```
+
+**If below all thresholds and no protected regions:** Step 0 is a no-op. Proceed to Step 1.
+
+**If protected regions detected but no split needed:** Record them for inclusion in the concrete spec's `protected-regions` frontmatter during Step 2 (Raise to Concrete). Proceed to Step 1.
+
+### Step 0b: Split Planning (only if thresholds exceeded)
+
+Draft an interactive split plan:
+
+```
+Proposed split into N submodules + facade:
+
+  src/parser.rs    (~X lines, Y symbols) -- description
+  src/emitter.rs   (~X lines, Y symbols) -- description
+  src/lib.rs       (facade) -- re-exports preserving current public API
+
+  Protected region: test block stays in <facade> (tests integration scope)
+
+  Proceed with split? (y/n/edit)
+```
+
+**Split plan rules:**
+- **API preservation is the prime directive.** Every public symbol accessible via the original module path MUST remain accessible after the split via re-exports in the facade.
+- Group symbols by cohesion (symbols that call each other), not by size.
+- Protected regions stay in the facade by default (the user can override via "edit").
+- Naming follows language convention (snake_case, camelCase, etc.).
+- "edit" lets the user rename modules, move symbols between groups, or exclude symbols.
+
+The plan does NOT change any logic, signatures, behavior, or rename any public symbols.
+
+The `--force` flag overrides "require" thresholds with a warning that generation quality will degrade.
+
+### Step 0c: Split Execution (only if user approved)
+
+Execute the mechanical refactor:
+
+1. **Create submodule files** -- move assigned symbol blocks, preserve internal ordering
+2. **Write the facade** -- replace original with re-exports; shared internal symbols get appropriate internal visibility
+3. **Update internal references** -- add imports between submodules as needed
+4. **Verify compilation** -- run the project's build check command (from `.unslop/config.json`). If not configured, ask the user.
+5. **Verify tests pass** -- if tests exist, run them. Any failure means the split broke something.
+6. **Commit** -- `refactor: split <file> into submodules (pre-takeover)`. Standalone commit, separate from takeover.
+
+**On failure (compilation or tests):**
+- Delete created submodule files
+- Restore original from git (`git checkout -- <file>`)
+- Report the error
+- Offer: (1) Fix and retry, (2) Proceed unsplit (only if below "require" threshold), (3) Abort
+
+**On success:**
+
+Queue submodules for individual takeover. The facade is taken over last (its spec is trivial and may reference submodule specs). The facade spec SHOULD declare `depends-on` entries for each submodule spec.
+
+```
+Split complete. N submodules created, build check passes, M tests pass.
+Committed: refactor: split <file> into submodules (pre-takeover)
+
+Queuing takeover for N+1 files:
+  1. src/parser.rs (X lines)
+  ...
+  N+1. src/lib.rs (facade)
+
+Proceeding with src/parser.rs...
+```
+
+All language used in Step 0 is language-agnostic. Describe patterns ("compile-time test conditional", "main entry guard") not syntax. The Architect identifies protected regions by reading the file.
 
 ---
 
