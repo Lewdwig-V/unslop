@@ -238,7 +238,7 @@ Use the **unslop/adversarial** skill for pipeline execution throughout this step
 
 ## Step 6: Validate (tests-exist path)
 
-After the Builder Agent completes, follow the Verification protocol from the generation skill (see **Verification (Controlling Session)**), which covers both normal (worktree-live) and auto-merge recovery paths.
+After the Builder Agent completes, follow the Verification protocol from the **unslop/generation** skill. This includes auto-merge detection (worktree-live vs auto-merged), ground-truth file inspection, and the Revert Protocol for invalid auto-merges. The key steps: check outcome, inspect output, compute hashes, commit atomically.
 
 **If DONE with green tests and validated:**
 

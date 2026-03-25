@@ -265,22 +265,33 @@ def test_retry_limit_enforced():
 
 The Builder does NOT exit on its own. It reports status and waits for the Architect's authorization. This keeps the worktree alive for inspection.
 
-**Auto-merge detection:** The `isolation="worktree"` tool does not guarantee isolation — it can auto-merge the Builder's changes into the working tree before the Architect has inspected them. Before proceeding, check which state you are in:
+**Auto-merge detection:** The `isolation="worktree"` tool does not guarantee isolation -- it can auto-merge the Builder's changes into the working tree before the Architect has inspected them. Before proceeding, check which outcome occurred:
 
-- **State A — Worktree live:** The Agent tool returned a `worktreePath`. The Builder is waiting. The normal hold-and-authorize protocol applies.
-- **State B — Auto-merged:** The Agent tool returned no `worktreePath` and the Builder's changes are already on disk. Log `AUTO_MERGE_DETECTED` in the session.
+- **Outcome: worktree-live** -- The Agent tool returned a `worktreePath`. The Builder is waiting. The normal hold-and-authorize protocol applies.
+- **Outcome: auto-merged** -- The Agent tool returned no `worktreePath` and the Builder's changes are already on disk.
+
+**Ground-truth detection (auto-merged only):** Do NOT rely on the Builder's self-reported file list. Use `git diff HEAD --name-only` (no filter) to detect all modified files, and `git ls-files --others --exclude-standard` to detect new untracked files the Builder created. These two commands give the complete picture of what changed.
+
+**Committed vs working-tree check:** Run `git status --porcelain` first. If the output shows changes in the working tree (unstaged), the auto-merge only touched the working tree. If `git status` is clean but `git diff HEAD~1 --name-only` shows the Builder's files, the auto-merge was committed. Use `HEAD~1` instead of `HEAD` for the diff/revert in this case.
 
 After the Builder reports its status:
+
 1. Check result status: DONE / DONE_WITH_CONCERNS / BLOCKED
-2. If DONE with green tests:
-   - **2a. State A (worktree live):** Inspect the Builder's output (worktree is still live). When satisfied, send via `SendMessage` to the Builder: `"Validation passed. You are authorized to exit."` The Builder then exits, triggering the worktree merge. Continue to step 3.
-   - **2b. State B (auto-merged):** Run `git diff HEAD -- <changed-files>` to inspect what was merged. If the output is valid: continue to step 3. If the output is invalid: revert the auto-merge by running `git checkout HEAD -- <changed-files>` for modified files AND `git clean -f -- <new-files>` for any files the Builder created that don't exist in HEAD. Then write the failure to the diagnostic cache and dispatch a new Builder. Do NOT continue to steps 3-6 in the revert case.
-3. Compute `output-hash` on merged code, update `@unslop-managed` header. If the Builder's `generated:` timestamp is missing or `T00:00:00Z`, replace it with the current UTC time via `date -u +%Y-%m-%dT%H:%M:%SZ`.
+
+2. **If DONE with green tests:**
+   - **Worktree-live:** Inspect the Builder's output (worktree is still live). When satisfied, send via `SendMessage` to the Builder: `"Validation passed. You are authorized to exit."` The Builder then exits, triggering the worktree merge. Continue to step 3.
+   - **Auto-merged:** Run `git diff HEAD --name-only` to see all changes (ground truth, not Builder's report). Inspect the diff. If valid: continue to step 3. If invalid: revert (see Revert Protocol below) and dispatch a new Builder. Do NOT continue to steps 3-6 in the revert case.
+
+3. Compute `output-hash` on merged code, update `@unslop-managed` header. If the Builder's `generated:` timestamp is missing, `T00:00:00Z`, or older than the session start time, replace it with the current UTC time via `date -u +%Y-%m-%dT%H:%M:%SZ`.
+
 4. Handle the Concrete Spec artifact:
-   - If `ephemeral: true` (default): ensure the `*.impl.md` is NOT included in the merge — it served its purpose
+   - If `ephemeral: true` (default): ensure the `*.impl.md` is NOT included in the merge -- it served its purpose
    - If `ephemeral: false` (promoted or high-complexity): include the `*.impl.md` in the merge and commit
+
 5. Commit the staged spec update + merged code (+ concrete spec if permanent) as a single atomic commit
+
 6. Delete `.unslop/last-failure/<cache-key>.md` if it exists (previous failure is now resolved)
+
 7. If DONE_WITH_CONCERNS and includes COMPLEXITY_UPGRADE: re-evaluate the concrete spec's complexity score. If the new score meets the project's `promote-threshold`, update the concrete spec's frontmatter to `ephemeral: false` and include it in the merge. Notify the user:
 
 > "Builder proposed complexity upgrade: [old] → [new]. Reason: [explanation]. Concrete spec promoted to permanent."
@@ -291,7 +302,38 @@ After the Builder reports its status:
 
 Do NOT auto-expand the concerns list. The user chooses when to engage.
 
-If BLOCKED or tests fail: discard the worktree AND revert the staged spec update (`git checkout HEAD -- <spec_path>`). Main branch is untouched. Write the Builder's failure report to the diagnostic cache (see below).
+**If BLOCKED or tests fail:**
+- **Worktree-live:** Discard the worktree. Revert the staged spec update (`git checkout HEAD -- <spec_path>`). Main branch is untouched.
+- **Auto-merged:** Run the Revert Protocol (below) to undo the auto-merge, then revert the staged spec update.
+
+Write the Builder's failure report to the diagnostic cache (see below).
+
+### Revert Protocol (Auto-Merge Recovery)
+
+When an auto-merged Builder output needs to be undone (invalid DONE or BLOCKED):
+
+```
+1. git checkout HEAD -- <modified-files>      # revert modified files to HEAD
+2. git clean -f -- <new-files>                # remove Builder-created files not in HEAD
+3. git reset HEAD -- <staged-files>           # clear index of auto-merged entries
+4. git diff HEAD --name-only                  # verify: should be empty
+```
+
+Use `git diff HEAD --name-only` (step 1) and `git ls-files --others --exclude-standard` (step 2) for ground-truth file lists -- do NOT use the Builder's self-reported list.
+
+**Pre-existing dirty state:** If the working tree was dirty before the Builder ran (Architect's own staged spec update), `git checkout HEAD` will revert that too. Re-stage the spec update after the revert: `git add <spec_path>`.
+
+**Diagnostic cache entry for auto-merge revert:** Write to `.unslop/last-failure/<cache-key>.md` with:
+```markdown
+## Auto-Merge Revert
+
+Reason: <why the output was invalid>
+Builder status: <DONE/BLOCKED>
+Files reverted: <list from git diff>
+Files cleaned: <list from git ls-files --others>
+```
+
+This uses the same cache path and lifecycle as normal Builder failure reports.
 
 ### Optional Drift Check (Diagnostic Tool)
 
