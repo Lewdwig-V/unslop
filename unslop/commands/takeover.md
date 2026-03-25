@@ -78,6 +78,12 @@ The pipeline operates in two stages:
 > 4. **Passing archive to Builder** -- Giving the Builder access to the original code, defeating the spec-completeness proof.
 > 5. **Committing ephemeral concrete specs** -- Concrete specs with `ephemeral: true` (the default) live only in the Builder's worktree and are discarded after successful generation. Only permanent concrete specs (promoted via `/unslop:harden --promote`) are committed.
 
+**Spec hierarchy (strict):**
+- **Abstract spec** = committed source of truth (the "what")
+- **Concrete spec** = ephemeral Builder guidance (the "how"), derived fresh each time
+- If the Builder needs something in the concrete spec to succeed, the abstract spec has a gap -- enrich the abstract spec, never persist the concrete spec as the fix
+- Promoting a concrete spec to permanent (`/unslop:harden --promote`) is the escape hatch for genuinely complex implementation strategies that can't be captured as abstract constraints -- the exception, not the norm
+
 The spec update is staged but not committed until the Builder succeeds. On convergence failure, the staged spec is reverted.
 
 Use the **unslop/spec-language** skill for spec drafting guidance.
