@@ -274,7 +274,7 @@ After the Builder reports its status:
 1. Check result status: DONE / DONE_WITH_CONCERNS / BLOCKED
 2. If DONE with green tests:
    - **2a. State A (worktree live):** Inspect the Builder's output (worktree is still live). When satisfied, send via `SendMessage` to the Builder: `"Validation passed. You are authorized to exit."` The Builder then exits, triggering the worktree merge. Continue to step 3.
-   - **2b. State B (auto-merged):** Run `git diff HEAD -- <changed-files>` to inspect what was merged. If the output is valid: continue to step 3. If the output is invalid: run `git checkout HEAD -- <changed-files>` to revert the auto-merge, write the failure to the diagnostic cache, and dispatch a new Builder. Do NOT continue to steps 3–6 in the revert case.
+   - **2b. State B (auto-merged):** Run `git diff HEAD -- <changed-files>` to inspect what was merged. If the output is valid: continue to step 3. If the output is invalid: revert the auto-merge by running `git checkout HEAD -- <changed-files>` for modified files AND `git clean -f -- <new-files>` for any files the Builder created that don't exist in HEAD. Then write the failure to the diagnostic cache and dispatch a new Builder. Do NOT continue to steps 3-6 in the revert case.
 3. Compute `output-hash` on merged code, update `@unslop-managed` header. If the Builder's `generated:` timestamp is missing or `T00:00:00Z`, replace it with the current UTC time via `date -u +%Y-%m-%dT%H:%M:%SZ`.
 4. Handle the Concrete Spec artifact:
    - If `ephemeral: true` (default): ensure the `*.impl.md` is NOT included in the merge — it served its purpose
