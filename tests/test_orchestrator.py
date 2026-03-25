@@ -39,6 +39,7 @@ from unslop.scripts.orchestrator import (
     STRICT_CHILD_ONLY,
     MISSING_SENTINEL,
     UNREADABLE_SENTINEL,
+    get_body_below_header,
 )
 
 
@@ -5339,3 +5340,231 @@ blocked-by:
     result = check_freshness(str(tmp_path))
     foo_entry = next(f for f in result["files"] if "foo" in f["managed"])
     assert "blocked_constraints" not in foo_entry
+
+
+# --- protected-regions parsing tests ---
+
+
+def test_parse_concrete_frontmatter_protected_regions_single():
+    content = """---
+source-spec: src/foo.rs.spec.md
+target-language: Rust
+ephemeral: false
+protected-regions:
+  - marker: "compile-time test conditional"
+    position: tail
+    semantics: test-suite
+    starts-at: "line 847"
+---
+"""
+    result = parse_concrete_frontmatter(content)
+    assert len(result["protected_regions"]) == 1
+    entry = result["protected_regions"][0]
+    assert entry["marker"] == "compile-time test conditional"
+    assert entry["position"] == "tail"
+    assert entry["semantics"] == "test-suite"
+    assert entry["starts_at"] == "line 847"
+
+
+def test_parse_concrete_frontmatter_protected_regions_missing_field(capsys):
+    content = """---
+source-spec: src/foo.rs.spec.md
+ephemeral: false
+protected-regions:
+  - marker: "test block"
+    position: tail
+---
+"""
+    result = parse_concrete_frontmatter(content)
+    assert "protected_regions" not in result
+    captured = capsys.readouterr()
+    assert "missing" in captured.err.lower()
+
+
+def test_parse_concrete_frontmatter_protected_regions_unknown_semantics(capsys):
+    content = """---
+source-spec: src/foo.rs.spec.md
+ephemeral: false
+protected-regions:
+  - marker: "custom block"
+    position: tail
+    semantics: unknown-type
+    starts-at: "line 100"
+---
+"""
+    result = parse_concrete_frontmatter(content)
+    assert len(result["protected_regions"]) == 1
+    assert result["protected_regions"][0]["semantics"] == "unknown-type"
+    captured = capsys.readouterr()
+    assert "unknown-type" in captured.err
+
+
+def test_parse_concrete_frontmatter_protected_regions_with_blocked_by():
+    """protected-regions coexists with blocked-by."""
+    content = """---
+source-spec: src/foo.rs.spec.md
+ephemeral: false
+blocked-by:
+  - symbol: "bar::Baz"
+    reason: "r"
+    resolution: "res"
+    affects: "aff"
+protected-regions:
+  - marker: "test block"
+    position: tail
+    semantics: test-suite
+    starts-at: "line 500"
+---
+"""
+    result = parse_concrete_frontmatter(content)
+    assert len(result["blocked_by"]) == 1
+    assert len(result["protected_regions"]) == 1
+
+
+def test_parse_concrete_frontmatter_no_protected_regions():
+    content = """---
+source-spec: src/foo.rs.spec.md
+ephemeral: false
+---
+"""
+    result = parse_concrete_frontmatter(content)
+    assert "protected_regions" not in result
+
+
+# --- managed-end-line tests ---
+
+
+def test_parse_header_with_managed_end_line():
+    lines = [
+        "// @unslop-managed -- do not edit directly. Edit src/foo.rs.spec.md instead.",
+        "// spec-hash:a3f8c2e9b7d1 output-hash:4e2f1a8c9b03 managed-end-line:847 generated:2026-03-25T12:00:00Z",
+    ]
+    result = parse_header("\n".join(lines))
+    assert result is not None
+    assert result["managed_end_line"] == 847
+    assert result["spec_hash"] == "a3f8c2e9b7d1"
+    assert result["output_hash"] == "4e2f1a8c9b03"
+
+
+def test_parse_header_without_managed_end_line():
+    lines = [
+        "// @unslop-managed -- do not edit directly. Edit src/foo.rs.spec.md instead.",
+        "// spec-hash:a3f8c2e9b7d1 output-hash:4e2f1a8c9b03 generated:2026-03-25T12:00:00Z",
+    ]
+    result = parse_header("\n".join(lines))
+    assert result is not None
+    assert result["managed_end_line"] is None
+
+
+def test_parse_header_managed_end_line_on_separate_line():
+    """managed-end-line on its own header line (not same line as spec-hash)."""
+    lines = [
+        "// @unslop-managed -- do not edit directly. Edit src/foo.rs.spec.md instead.",
+        "// spec-hash:a3f8c2e9b7d1 output-hash:4e2f1a8c9b03 generated:2026-03-25T12:00:00Z",
+        "// managed-end-line:847",
+    ]
+    result = parse_header("\n".join(lines))
+    assert result is not None
+    assert result["managed_end_line"] == 847
+    assert result["spec_hash"] == "a3f8c2e9b7d1"
+
+
+def test_get_body_below_header_with_end_line():
+    content = "\n".join(
+        [
+            "// @unslop-managed -- do not edit directly. Edit src/foo.rs.spec.md instead.",
+            "// spec-hash:a3f8c2e9b7d1 output-hash:4e2f1a8c9b03 managed-end-line:5 generated:2026-03-25T12:00:00Z",
+            "fn implementation() {}",
+            "fn more_impl() {}",
+            "#[cfg(test)]",
+            "mod tests {",
+            "    #[test]",
+            "    fn it_works() {}",
+            "}",
+        ]
+    )
+    # managed-end-line:5 means line 5 (1-indexed) is first protected line (#[cfg(test)])
+    # Body starts at line 3 (after 2 header lines)
+    # Should return lines 3-4 only, not lines 5+
+    body = get_body_below_header(content, end_line=5)
+    assert "fn implementation() {}" in body
+    assert "fn more_impl() {}" in body
+    assert "#[cfg(test)]" not in body
+    assert "mod tests" not in body
+
+
+def test_get_body_below_header_without_end_line():
+    content = "\n".join(
+        [
+            "// @unslop-managed -- do not edit directly. Edit src/foo.rs.spec.md instead.",
+            "// spec-hash:a3f8c2e9b7d1 output-hash:4e2f1a8c9b03 generated:2026-03-25T12:00:00Z",
+            "fn implementation() {}",
+            "fn more_impl() {}",
+        ]
+    )
+    body = get_body_below_header(content)
+    assert "fn implementation() {}" in body
+    assert "fn more_impl() {}" in body
+
+
+def test_protected_region_edit_does_not_change_hash():
+    """Editing a protected region should not change the output hash."""
+    header = "\n".join(
+        [
+            "// @unslop-managed -- do not edit directly. Edit src/foo.rs.spec.md instead.",
+            "// spec-hash:a3f8c2e9b7d1 output-hash:placeholder managed-end-line:5 generated:2026-03-25T12:00:00Z",
+        ]
+    )
+    impl_lines = "fn implementation() {}\nfn more_impl() {}"
+    protected_v1 = "#[cfg(test)]\nmod tests { fn v1() {} }"
+    protected_v2 = "#[cfg(test)]\nmod tests { fn v2_edited() {} }"
+
+    content_v1 = f"{header}\n{impl_lines}\n{protected_v1}"
+    content_v2 = f"{header}\n{impl_lines}\n{protected_v2}"
+
+    body_v1 = get_body_below_header(content_v1, end_line=5)
+    body_v2 = get_body_below_header(content_v2, end_line=5)
+
+    hash_v1 = compute_hash(body_v1)
+    hash_v2 = compute_hash(body_v2)
+
+    assert hash_v1 == hash_v2
+
+
+def test_classify_file_with_managed_end_line(tmp_path):
+    """managed-end-line causes checker to hash only the bounded body."""
+    spec = tmp_path / "src" / "foo.rs.spec.md"
+    spec.parent.mkdir(parents=True)
+    spec_content = "# foo spec\n"
+    spec.write_text(spec_content)
+
+    spec_hash = compute_hash(spec_content)
+
+    impl_body = "fn implementation() {}"
+    output_hash = compute_hash(impl_body)
+
+    # managed-end-line:4 means protected region starts at line 4
+    # Header is lines 1-2, implementation is line 3, protected is line 4+
+    managed = tmp_path / "src" / "foo.rs"
+    managed.write_text(
+        f"// @unslop-managed -- do not edit directly. Edit src/foo.rs.spec.md instead.\n"
+        f"// spec-hash:{spec_hash} output-hash:{output_hash} managed-end-line:4 generated:2026-03-25T12:00:00Z\n"
+        f"{impl_body}\n"
+        f"#[cfg(test)]\n"
+        f"mod tests {{ }}\n"
+    )
+
+    result = classify_file(str(managed), str(spec))
+    assert result["state"] == "fresh"
+
+    # Now edit the protected region -- should still be fresh
+    managed.write_text(
+        f"// @unslop-managed -- do not edit directly. Edit src/foo.rs.spec.md instead.\n"
+        f"// spec-hash:{spec_hash} output-hash:{output_hash} managed-end-line:4 generated:2026-03-25T12:00:00Z\n"
+        f"{impl_body}\n"
+        f"#[cfg(test)]\n"
+        f"mod tests {{ fn edited() {{}} }}\n"
+    )
+
+    result2 = classify_file(str(managed), str(spec))
+    assert result2["state"] == "fresh"

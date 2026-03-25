@@ -57,7 +57,8 @@ def parse_concrete_frontmatter(content: str) -> dict:
 
     Returns dict with: source_spec, target_language, ephemeral, complexity,
     concrete_dependencies (list of paths), targets (list of dicts),
-    blocked_by (list of dicts with symbol, reason, resolution, affects).
+    blocked_by (list of dicts with symbol, reason, resolution, affects),
+    protected_regions (list of dicts with marker, position, semantics, starts_at).
     """
     lines = content.split("\n")
     if not lines or lines[0].strip() != "---":
@@ -80,6 +81,9 @@ def parse_concrete_frontmatter(content: str) -> dict:
     blocked_by = []
     in_blocked_by = False
     current_blocker = None
+    protected_regions = []
+    in_protected_regions = False
+    current_region = None
 
     for line in lines[1:end]:
         stripped = line.strip()
@@ -119,6 +123,24 @@ def parse_concrete_frontmatter(content: str) -> dict:
                     current_blocker = None
                 in_blocked_by = False
 
+        if in_protected_regions:
+            if re.match(r"^  - marker:", line):
+                if current_region:
+                    protected_regions.append(current_region)
+                current_region = {"marker": line.split(":", 1)[1].strip().strip('"').strip("'")}
+                continue
+            elif current_region and re.match(r"^    \w", line):
+                key, _, val = stripped.partition(":")
+                if key.strip() and val.strip():
+                    parsed_key = key.strip().replace("-", "_")
+                    current_region[parsed_key] = val.strip().strip('"').strip("'")
+                continue
+            else:
+                if current_region:
+                    protected_regions.append(current_region)
+                    current_region = None
+                in_protected_regions = False
+
         if in_concrete_deps:
             match = re.match(r"^  - (.+)$", line)
             if match:
@@ -144,6 +166,8 @@ def parse_concrete_frontmatter(content: str) -> dict:
             in_concrete_deps = True
         elif stripped == "blocked-by:":
             in_blocked_by = True
+        elif stripped == "protected-regions:":
+            in_protected_regions = True
 
     # Flush final target
     if current_target:
@@ -151,6 +175,9 @@ def parse_concrete_frontmatter(content: str) -> dict:
 
     if current_blocker:
         blocked_by.append(current_blocker)
+
+    if current_region:
+        protected_regions.append(current_region)
 
     if concrete_deps:
         result["concrete_dependencies"] = concrete_deps
@@ -175,5 +202,29 @@ def parse_concrete_frontmatter(content: str) -> dict:
                 json.dumps({"warning": "blocked-by on ephemeral concrete spec has no effect -- promote to permanent first"}),
                 file=sys.stderr,
             )
+
+    _required_region_fields = {"marker", "position", "semantics", "starts_at"}
+    _valid_semantics = {"test-suite", "entry-point", "examples", "benchmarks"}
+    validated_regions = []
+    for entry in protected_regions:
+        missing = _required_region_fields - set(entry.keys())
+        if missing:
+            print(
+                json.dumps(
+                    {"warning": f"protected-regions entry missing required field(s) {sorted(missing)}, skipping: {entry}"}
+                ),
+                file=sys.stderr,
+            )
+        else:
+            if entry["semantics"] not in _valid_semantics:
+                print(
+                    json.dumps(
+                        {"warning": f"protected-regions entry has unknown semantics {entry['semantics']!r} -- keeping entry"}
+                    ),
+                    file=sys.stderr,
+                )
+            validated_regions.append(entry)
+    if validated_regions:
+        result["protected_regions"] = validated_regions
 
     return result
