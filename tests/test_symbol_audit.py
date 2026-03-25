@@ -443,3 +443,49 @@ def test_drift_adjacent_classes():
     finally:
         os.unlink(orig)
         os.unlink(gen)
+
+
+def _assert_bridge_equivalence(code: str):
+    """Helper: verify _manifest_to_source_map matches _extract_symbol_sources for a given code snippet."""
+    from unslop.scripts.validation.symbol_audit import _manifest_to_source_map, _extract_symbol_sources
+    from unslop.scripts.validation.lsp_queries import get_symbol_manifest
+
+    orig = _write_tmp(code)
+    try:
+        old_result = _extract_symbol_sources(open(orig, encoding="utf-8").read())
+        manifest = get_symbol_manifest(orig)
+        with open(orig, encoding="utf-8") as f:
+            source_lines = f.readlines()
+        new_result = _manifest_to_source_map(manifest, source_lines)
+        assert set(old_result.keys()) == set(new_result.keys()), (
+            f"Key mismatch: old={sorted(old_result.keys())} new={sorted(new_result.keys())}"
+        )
+        for key in old_result:
+            assert old_result[key] == new_result[key], f"Mismatch for '{key}'"
+    finally:
+        os.unlink(orig)
+
+
+def test_bridge_basic():
+    """Bridge equivalence: functions, classes, constants."""
+    _assert_bridge_equivalence("def foo():\n    return 1\n\nclass Bar:\n    x = 1\n\nMAX = 10\n")
+
+
+def test_bridge_decorated():
+    """Bridge equivalence: decorated functions and classes."""
+    _assert_bridge_equivalence("@decorator\ndef foo():\n    return 1\n\n@other\nclass Bar:\n    pass\n")
+
+
+def test_bridge_async():
+    """Bridge equivalence: async functions."""
+    _assert_bridge_equivalence("async def fetch():\n    return await get()\n\ndef sync():\n    pass\n")
+
+
+def test_bridge_annotated_constants():
+    """Bridge equivalence: annotated assignments (AnnAssign)."""
+    _assert_bridge_equivalence("MAX: int = 10\nTIMEOUT: float = 30.0\ndef run():\n    pass\n")
+
+
+def test_bridge_imports():
+    """Bridge equivalence: ImportFrom re-exports."""
+    _assert_bridge_equivalence("from .core import Foo, Bar\nfrom .utils import Helper\n")
