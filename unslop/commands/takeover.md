@@ -54,7 +54,7 @@ Read `.unslop/config.json` (or `.unslop/config.md` as legacy fallback) to obtain
 The pipeline operates in two stages:
 
 - **Stage A (Architect -- current session):** Step 0 (Pre-flight) analyzes complexity and splits large files. Step 1 (Discover) reads the existing code and tests. Then **Phase 0a.0 (Intent Lock)** fires: the Architect presents "From the existing code, I understand this module's purpose is [intent]. I'll draft a spec that captures [behaviors]. Does this match your understanding?" If rejected, the Architect reformulates; if abandoned, no artifacts are left. After Intent Lock approval, the Architect raises through two levels:
-  - **Step 2 (Raise to Concrete):** Extract the implementation strategy into a Concrete Spec (`*.impl.md`) -- algorithms, patterns, type structure. This is mandatory even for simple files; it provides the Builder's strategic guide.
+  - **Step 2 (Raise to Concrete):** Extract the implementation strategy into a Concrete Spec (`*.impl.md`) -- algorithms, patterns, type structure. This is mandatory even for simple files; it provides the Builder's strategic guide. The Concrete Spec raised in Step 2 is ephemeral by default. It is passed to the Builder as strategic guidance but NEVER committed. If a detail in the concrete spec turns out to be load-bearing for correctness, that is a signal the abstract spec has a gap -- enrich the abstract spec, don't persist the concrete spec. Only the Abstract Spec and the generated code are committed together.
   - **Step 2b (Raise to Abstract):** Extract observable behavior into the Abstract Spec (`*.spec.md`). Present to user for approval.
   - **Step 3 (Archive):** Archive originals to `.unslop/archive/`.
 
@@ -76,6 +76,13 @@ The pipeline operates in two stages:
 > 2. **Skipping concrete spec** -- Going from abstract spec directly to code. The Builder generates with no strategic constraints, producing unpredictable output even for "simple" files.
 > 3. **Batch commits without validation** -- Committing specs without running the Builder first. The spec's sufficiency is unproven.
 > 4. **Passing archive to Builder** -- Giving the Builder access to the original code, defeating the spec-completeness proof.
+> 5. **Committing ephemeral concrete specs** -- Concrete specs with `ephemeral: true` are Builder scratch pads, not committed artifacts. If something in the concrete spec matters for correctness, re-raise it into the abstract spec as a high-level constraint.
+
+**Spec hierarchy (strict):**
+- **Abstract spec** = committed source of truth (the "what")
+- **Concrete spec** = ephemeral Builder guidance (the "how"), derived fresh each time
+- If the Builder needs something in the concrete spec to succeed, the abstract spec has a gap -- enrich the abstract spec, never persist the concrete spec as the fix
+- Promoting a concrete spec to permanent (`/unslop:promote <spec-path>`) is the escape hatch for genuinely complex implementation strategies that can't be captured as abstract constraints -- the exception, not the norm
 
 The spec update is staged but not committed until the Builder succeeds. On convergence failure, the staged spec is reverted.
 
