@@ -59,9 +59,13 @@ After the Architect finalizes the Abstract Spec (Stage A.1) and before dispatchi
 - **Skipped** if a permanent Concrete Spec (`ephemeral: false`) already exists and the Abstract Spec hasn't changed
 
 **Ephemeral vs Permanent:**
-- By default, the Concrete Spec is **ephemeral** — generated in the worktree as the Builder's strategic input, discarded after successful generation
-- Promoted to **permanent** via `/unslop:harden --promote`, or automatically if the project or spec is marked `complexity: high` in `.unslop/config.json` or spec frontmatter
+- By default, the Concrete Spec is **ephemeral** — generated as the Builder's strategic input, discarded after successful generation
+- Promoted to **permanent** via `/unslop:promote <spec-path>`, or automatically if the project or spec is marked `complexity: high` in `.unslop/config.json` or spec frontmatter
 - When permanent: lives alongside the Abstract Spec as `<file>.impl.md`, version-controlled, code-reviewed
+
+**Ephemeral delivery:** The Architect produces the ephemeral concrete spec content during Stage A.2. Two delivery methods:
+- **File-based (preferred for permanent specs):** Write the `.impl.md` file to disk. The Builder reads it from the path listed in the prompt template.
+- **Prompt-embedded (acceptable for ephemeral specs):** Embed the concrete spec content directly in the Builder's dispatch prompt under the `## Ephemeral Concrete Spec` section. This avoids creating a file that will be immediately discarded. Either method is valid -- the Builder receives the same strategic guidance.
 
 **Concrete Spec format:** See the `unslop/concrete-spec` skill for the full format specification. The key sections are:
 - `## Strategy` — pseudocode for the core algorithm
@@ -72,6 +76,8 @@ After the Architect finalizes the Abstract Spec (Stage A.1) and before dispatchi
 **Deferred Constraints (blocked-by):** If the concrete spec's frontmatter contains `blocked-by` entries, the Builder treats each entry as an **explicit deviation permit**. The `affects` field names which part of the abstract spec can't be fulfilled yet; the `reason` field explains why. The Builder MUST proceed normally with all unblocked constraints. For the blocked scope, the Builder handles pragmatically -- keeping existing imports, using compatibility shims, or preserving legacy code paths. The Builder MUST NOT silently deviate on constraints not listed in `blocked-by`. The Builder SHOULD add a code comment at each deviation site: `// blocked-by: <symbol> -- <reason>`.
 
 **Protected Regions:** If the concrete spec's frontmatter contains `protected-regions` entries, the Builder MUST preserve these regions verbatim during generation. Before writing any output, the Builder reads the existing managed file and extracts the protected region into memory (everything from `starts-at` to EOF for `tail` position). After generating the implementation, the Builder appends the protected region verbatim. The Builder then: (1) verifies the protected region is present in the output -- if missing, report BLOCKED; (2) counts the 1-indexed line number where the protected region starts and writes it as `managed-end-line` in the header; (3) updates the `starts-at` field in the concrete spec frontmatter to match; (4) computes `output-hash` over the implementation portion only (excluding the protected region). The Builder MUST NOT modify, reformat, or reorder the protected region content.
+
+**Protected Region Hash Verification (Controlling Session):** After the Builder completes, the Architect MUST verify the protected region was preserved exactly. Hash the protected region content before the Builder runs and after. If the hashes differ, the Builder corrupted the region -- discard the worktree and re-dispatch. Do not rely on visual inspection for large protected regions (e.g., 3900-line test blocks).
 
 **Strategy Inheritance:** If the concrete spec has `extends: <base.impl.md>` in its frontmatter, the Strategist resolves the inheritance chain via `resolve_inherited_sections()` before presenting the concrete spec to the Builder. The Builder receives the **resolved** concrete spec — it never sees the raw `extends` directive. Resolution uses three section-specific policies: `## Strategy` and `## Type Sketch` are **strict child-only** (parent is purged — a child that omits these fails Phase 0a.1 validation); `## Pattern` is **overridable** (child replaces parent by key, parent persists if child omits); `## Lowering Notes` is **additive** (parent + child merged by language heading). See the `unslop/concrete-spec` skill for full resolution semantics.
 
@@ -100,6 +106,47 @@ The `model` parameter controls which Claude model runs the subagent. Valid value
 The Builder generates code from the specs. It runs as a fresh Agent in an isolated git worktree with zero conversation history.
 
 **HARD RULE: The Architect (you, in the controlling session) MUST NOT write code to managed files directly. ALL code generation MUST go through a Builder Agent dispatched with `isolation="worktree"`. If you find yourself writing code, creating files, or using the Edit/Write tools on a managed source file -- STOP. You are violating worktree isolation. Dispatch a Builder instead.** This is not a preference. It is the structural guarantee that failed Builders can be discarded without corrupting main.
+
+#### Builder Prompt Template
+
+The Architect MUST construct the Builder's prompt using this template. Do not improvise the format -- variance in prompt structure causes variance in output quality.
+
+```
+## Task
+Generate: <comma-separated list of managed file paths>
+Mode: <Mode A (full regeneration) | Surgical>
+
+## Specs to read
+- Abstract: <path to *.spec.md>
+- Concrete: <path to *.impl.md OR "embedded below">
+- Config: .unslop/config.json
+- Principles: .unslop/principles.md (if it exists)
+
+## Ephemeral Concrete Spec (if embedded)
+<full concrete spec content, only if not written as a file>
+
+## Protected Regions
+<for each protected region from the concrete spec frontmatter:>
+- File: <managed file path>
+  Region: <marker description> at line <starts-at>
+  Action: Read and hold in memory BEFORE writing. Append verbatim after generated code.
+  Verification: Hash the region before and after -- they MUST match.
+<or "None" if no protected regions>
+
+## Validation
+- Test command: <from .unslop/config.json>
+- Additional checks: <e.g., "cargo clippy", "tsc --noEmit">
+- Expected: all tests pass, no warnings
+
+## Rules
+- Generate a COMPLETE file, not a diff
+- Write the @unslop-managed header with spec-hash, output-hash, generated timestamp
+- If protected regions exist, write managed-end-line in the header
+- Do NOT read archived originals or any file not listed above
+- Report DONE, DONE_WITH_CONCERNS, or BLOCKED per the hold-and-wait protocol
+```
+
+For **takeover** (Mode A), the Builder always generates from scratch. For **sync** (Surgical mode), include the three Surgical Context blocks (Existing Code, Spec Diff, Affected Symbols) instead of the concrete spec embedding.
 
 **Multi-target dispatch:** If the concrete spec has `targets` (instead of `target-language`), Stage B dispatches **parallel Builders** — one per target. Each Builder runs in its own worktree on branch `unslop/builder/<target-path-hash>`. All Builders receive the same Abstract Spec and `## Strategy`, but each gets its target-specific `## Lowering Notes` (filtered by language heading) and `targets[].notes`. See the `unslop/concrete-spec` skill for the full multi-target lowering specification.
 
@@ -285,6 +332,8 @@ After the Builder reports its status:
 2. **If DONE with green tests:**
    - **Worktree-live:** Inspect the Builder's output (worktree is still live). When satisfied, send via `SendMessage` to the Builder: `"Validation passed. You are authorized to exit."` The Builder then exits, triggering the worktree merge. Continue to step 3.
    - **Auto-merged:** Run `git diff HEAD --name-only` to see all changes (ground truth, not Builder's report). Inspect the diff. If valid: continue to step 3. If invalid: revert (see Revert Protocol below) and dispatch a new Builder. Do NOT continue to steps 3-6 in the revert case.
+
+**Merge decision:** Always merge the Builder's output. For takeover, the Builder's output is the new managed file (with `@unslop-managed` header) -- discarding it would lose the header and the spec-completeness proof. For sync/generate, the Builder's output reflects spec changes. The worktree merge is always the right action when the Builder reports DONE with green tests.
 
 3. Compute `output-hash` on merged code, update `@unslop-managed` header. If the Builder's `generated:` timestamp is missing, `T00:00:00Z`, or older than the session start time, replace it with the current UTC time via `date -u +%Y-%m-%dT%H:%M:%SZ`.
 

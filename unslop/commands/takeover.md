@@ -51,6 +51,8 @@ Read `.unslop/config.json` (or `.unslop/config.md` as legacy fallback) to obtain
 
 **No complexity shortcuts.** The full pipeline (Pre-flight -> Raise to Concrete -> Raise to Abstract -> Archive -> Builder in worktree) runs for ALL files regardless of perceived complexity. A trait definition with zero implementation logic still goes through a worktree Builder. The pipeline is proving the spec, not the code.
 
+**Pre-flight split creates multi-file takeover.** If Step 0 splits a file into submodules, the single-file command becomes a multi-file takeover. Queue all resulting submodules for individual takeover, facade last. Each submodule goes through the full pipeline independently (Intent Lock, Raise to Concrete, Raise to Abstract, Archive, Builder). The pre-flight split commit is already done -- do not re-split.
+
 The pipeline operates in two stages:
 
 - **Stage A (Architect -- current session):** Step 0 (Pre-flight) analyzes complexity and splits large files. Step 1 (Discover) reads the existing code and tests. Then **Phase 0a.0 (Intent Lock)** fires: the Architect presents "From the existing code, I understand this module's purpose is [intent]. I'll draft a spec that captures [behaviors]. Does this match your understanding?" If rejected, the Architect reformulates; if abandoned, no artifacts are left. After Intent Lock approval, the Architect raises through two levels:
