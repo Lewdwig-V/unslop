@@ -46,6 +46,11 @@ complexity: standard
 extends: shared/fastapi-async.impl.md
 concrete-dependencies:
   - src/core/connection_pool.py.impl.md
+blocked-by:
+  - symbol: "binding::vm_impl::RustVM::VMScanning"
+    reason: "unconditionally aliases RustScanning -- needs cfg-gate"
+    resolution: "cfg-gate VMScanning alias in binding/vm_impl.rs takeover"
+    affects: "Scanning<RustVM> impl"
 ---
 ```
 
@@ -78,6 +83,9 @@ targets:
 | `complexity` | no | `low`, `medium`, or `high`. Compared against the project's `promote-threshold` for auto-promotion |
 | `extends` | no | Path to a base `*.impl.md` whose sections are inherited. Child sections override parent sections. See Strategy Inheritance |
 | `concrete-dependencies` | no | Paths to upstream `*.impl.md` files whose strategy choices affect this spec's lowering. Changes in upstream concrete specs trigger ghost staleness |
+| `blocked-by` | no | List of deferred constraints -- symbol-level blockers that the spec wants to express but can't fulfill yet. Each entry has `symbol`, `reason`, `resolution`, `affects` (all required). Only meaningful on permanent specs (`ephemeral: false`) |
+
+**Ephemeral restriction:** `blocked-by` is only meaningful on permanent concrete specs. If present on an ephemeral spec, entries are parsed but ignored by the freshness checker and coherence command. Promote to permanent first via `/unslop:promote`.
 
 ### Concrete Dependencies
 
@@ -653,6 +661,60 @@ REMOVED: unsafe Address::to_object_reference() call in allocation path
 **When to include:** During takeover when the Architect corrects types, signatures, or API patterns that the old code got wrong. During `/unslop:change` when a spec change intentionally alters a public interface. Any time the Builder needs to know "the old way was X, the new way is Y, do not regress."
 
 **Not for:** Internal refactoring that doesn't change types or signatures. If the change is purely structural (reordering functions, renaming locals), the Strategy section handles it.
+
+#### `## Error Taxonomy` (optional)
+
+Error classification hierarchy. Prevents the Builder from over-handling (catching everything, swallowing errors) or under-handling (letting panics propagate where recoverable errors are expected).
+
+```markdown
+## Error Taxonomy
+
+ERROR AllocationFailure:
+  CATEGORY: recoverable
+  HANDLE: return GcResult::Err, caller retries after GC cycle
+  NEVER: panic, log-and-ignore, retry internally
+
+ERROR CorruptedHeader:
+  CATEGORY: fatal
+  HANDLE: panic immediately with diagnostic
+  NEVER: attempt recovery, return default header
+
+ERROR MutatorNotRegistered:
+  CATEGORY: propagated
+  HANDLE: return Result::Err to caller, do not log at this layer
+  NEVER: register a default mutator, silently succeed
+```
+
+Fields per error:
+- **`CATEGORY`** -- one of: `recoverable`, `fatal`, `propagated`
+- **`HANDLE`** -- what the Builder MUST do
+- **`NEVER`** -- what the Builder MUST NOT do
+
+**When to include:** When the file has multiple error paths and the abstract spec's error handling description is ambiguous enough that the Builder might choose wrong.
+
+#### `## Test Seams` (optional)
+
+Testability boundaries and injectable dependencies. Prevents the Builder from generating tightly-coupled code or tests that leak state.
+
+```markdown
+## Test Seams
+
+INJECTABLE allocator:
+  INTERFACE: trait Allocator
+  PRODUCTION: BumpAllocator
+  TEST: MockAllocator (tracks allocation count, zero-cost)
+  ISOLATION: per-test instance, no shared state
+
+BOUNDARY gc_trigger:
+  OBSERVABLE_VIA: callback count on MockAllocator
+  NOT_OBSERVABLE_VIA: internal GC state (opaque to tests)
+```
+
+Entry types:
+- **`INJECTABLE`** -- dependency with a test double (`INTERFACE`, `PRODUCTION`, `TEST`, `ISOLATION`)
+- **`BOUNDARY`** -- testability boundary (`OBSERVABLE_VIA`, `NOT_OBSERVABLE_VIA`)
+
+**When to include:** When the file has external dependencies (I/O, time, allocators) that must be injectable for testing.
 
 ---
 
