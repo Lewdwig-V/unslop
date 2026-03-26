@@ -271,19 +271,19 @@ This archive is a safety net. The user can manually recover the original from it
 
 ---
 
-## Step 4: Lower & Generate (Stage A.2 + Stage B.1 + Stage B.2)
+## Step 4: Lower & Generate (Strategist subagent -> Builder subagent)
 
 Use the **unslop/generation** skill's multi-stage execution model.
 
 **CRITICAL: Takeover always uses full regeneration mode (Mode A). The Builder does NOT read the archived original.**
 
-**Stage A.2 (Lowering) -- MANDATORY:** The generation skill's Stage A.2 MUST run to derive a fresh Concrete Spec from the approved Abstract Spec. Do NOT skip this step, even for simple files. The Concrete Spec constrains the Builder's implementation strategy and provides the `affected_symbols` list for surgical mode in future syncs. During takeover, the previously raised Concrete Spec (from Step 2) is available as reference -- the Strategist may reuse algorithmic choices that the user confirmed as intentional, but is free to choose a different strategy if the Abstract Spec permits it.
+**Strategist (subagent) -- MANDATORY:** Dispatch a Strategist subagent (`model` from config, `strategist` key) to derive a fresh Concrete Spec from the approved Abstract Spec. The Strategist receives the abstract spec, principles, file tree, and domain skills. It returns a concrete spec documenting implementation strategy: algorithms, patterns, type structure, and any decisions not dictated by the abstract spec. This is the auditable reasoning step -- reviewers can verify the implementation plan before seeing generated code. Use the **unslop/concrete-spec** skill for format guidance.
 
-If the file is simple enough that the Concrete Spec would be trivial (single function, no patterns), Stage A.2 still runs -- it produces an ephemeral Concrete Spec that serves as the Builder's strategy guide. Skipping Stage A.2 means the Builder generates with no strategic constraints, producing unpredictable output.
+During takeover, the previously raised Concrete Spec (from Step 2) is available as reference -- the Strategist may reuse algorithmic choices that the user confirmed as intentional, but is free to choose a different strategy if the Abstract Spec permits it.
 
-**Stage B.1 (Concrete Spec):** Before generating code, the Builder writes a concrete spec (`.impl.md` sidecar next to the abstract spec) documenting implementation strategy: struct layout, algorithm choices, iterator patterns, test helper design, and any decisions not dictated by the abstract spec. This is the auditable reasoning step -- reviewers can verify the Builder's plan before seeing generated code. Use the **unslop/concrete-spec** skill for format guidance. During takeover, the previously raised Concrete Spec (from Step 2) is available as reference -- the Strategist may reuse algorithmic choices that the user confirmed as intentional, but is free to choose a different strategy if the Abstract Spec permits it.
+Stage A.2 runs for ALL files regardless of perceived complexity. Even a single-function file gets a Strategist subagent that produces an ephemeral Concrete Spec. The Strategist's context hygiene benefit applies equally to simple and complex files -- the Architect's context stays clean for orchestration. Skipping Stage A.2 means the Builder generates with no strategic constraints, producing unpredictable output.
 
-**Stage B.2 (Generate):** Dispatch a Builder Agent with `isolation="worktree"`. The Builder MUST run in an isolated worktree subagent that receives ONLY the spec file(s) and `.unslop/config.json` -- never the archived originals or the Architect's conversation context. This isolation is the integrity guarantee: if the Builder can reproduce the code from the spec alone, the spec is proven sufficient. Generating inline (in the Architect session) violates this because the Architect has already seen the original source code during Stage A discovery. **Do NOT write code directly -- ALL code generation goes through a worktree-isolated Builder Agent.**
+**Builder (subagent, worktree) -- MANDATORY:** Dispatch a Builder Agent with `isolation="worktree"` and `model` from config (`builder` key). The Builder receives ONLY the spec file(s), the Strategist's concrete spec, and `.unslop/config.json` -- never the archived originals or the Architect's conversation context. This isolation is the integrity guarantee: if the Builder can reproduce the code from the spec alone, the spec is proven sufficient. Generating inline (in the Architect session) violates this because the Architect has already seen the original source code during Stage A discovery. **Do NOT write code directly -- ALL code generation goes through a worktree-isolated Builder Agent.**
 
 Dispatch with:
 - test_policy (path-dependent):

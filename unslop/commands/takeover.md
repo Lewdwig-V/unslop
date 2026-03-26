@@ -49,7 +49,11 @@ Read `.unslop/config.json` (or `.unslop/config.md` as legacy fallback) to obtain
 
 **Load and follow** the **unslop/takeover** skill step-by-step. Do not summarize or abbreviate the pipeline. Each step (0 through 8) MUST execute in order.
 
-**No complexity shortcuts.** The full pipeline (Pre-flight -> Raise to Concrete -> Raise to Abstract -> Archive -> Builder in worktree) runs for ALL files regardless of perceived complexity. A trait definition with zero implementation logic still goes through a worktree Builder. The pipeline is proving the spec, not the code.
+**No complexity shortcuts.** The full pipeline (Pre-flight -> Raise to Concrete -> Raise to Abstract -> Archive -> Strategist subagent -> Builder subagent) runs for ALL files regardless of perceived complexity. A trait definition with zero implementation logic still goes through the full subagent chain. The pipeline is proving the spec, not the code.
+
+**Why subagents, not inline?** Two reasons that compound:
+1. **Context hygiene** -- the Architect's context is a finite resource. Each subagent's detailed work (algorithmic analysis, code generation, test output) stays in the subagent's context and is returned as a summary. This lets the Architect process multiple files sequentially without context exhaustion.
+2. **Correctness** -- the Builder must reproduce code from the spec alone (proving spec sufficiency). Running the Builder inline would let it leverage the Architect's memory of the original source code, defeating the proof.
 
 **Pre-flight split creates multi-file takeover.** If Step 0 splits a file into submodules, the single-file command becomes a multi-file takeover. Queue all resulting submodules for individual takeover, facade last. Each submodule goes through the full pipeline independently (Intent Lock, Raise to Concrete, Raise to Abstract, Archive, Builder). The pre-flight split commit is already done -- do not re-split.
 
@@ -60,11 +64,20 @@ The pipeline operates in two stages:
   - **Step 2b (Raise to Abstract):** Extract observable behavior into the Abstract Spec (`*.spec.md`). Present to user for approval.
   - **Step 3 (Archive):** Archive originals to `.unslop/archive/`.
 
-- **Stage B (Builder -- worktree):** Steps 4-6 of the takeover skill (Generate, Validate, Convergence).
+- **Stage B (Strategist + Builder -- subagents):** Steps 4-6 of the takeover skill (Generate, Validate, Convergence).
 
-  **HARD RULE:** The Builder MUST run as a subagent dispatched with `isolation="worktree"` and `model` from config. The Builder receives ONLY:
+  **Subagent dependency chain (per file):**
+  ```
+  Strategist (subagent) -> Builder (subagent, worktree) -> Validator (Architect)
+  ```
+
+  The Architect dispatches the Strategist subagent first (`model` from config, `strategist` key). The Strategist receives the abstract spec and returns a concrete spec. The Architect then dispatches the Builder with the concrete spec. No step can be skipped or run inline.
+
+  **Multi-file parallelism:** After a pre-flight split, the Architect queues multiple files. Independent files (no `depends-on` relationship) MAY have their Strategist and Builder subagents dispatched in parallel. Dependent files MUST be processed sequentially (leaves first, facade last).
+
+  **HARD RULE:** The Builder MUST run as a subagent dispatched with `isolation="worktree"` and `model` from config (`builder` key). The Builder receives ONLY:
   - The abstract spec (`*.spec.md`)
-  - The concrete spec (`*.impl.md`) from Stage B.1
+  - The concrete spec (`*.impl.md`) from the Strategist
   - `.unslop/config.json`
   - `.unslop/principles.md`
 
