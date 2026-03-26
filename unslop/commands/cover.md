@@ -26,9 +26,14 @@ If you find yourself writing mutations, analysing constraint gaps, or writing te
 
 ```
 Saboteur -> Prosecutor (script) -> Archaeologist -> Mason -> Validator (Architect)
+                                   ^                  ^
+                                   |                  |
+                              spec_gap only      all survivors
+                              weak_test skips ---/
+                              directly to Mason
 ```
 
-Each step's output is the next step's input. No parallelism within a single file's cover run.
+Each step's output is the next step's input. `weak_test` mutants bypass the Archaeologist (the constraint already exists, the test just needs strengthening) and go directly from Prosecutor to Mason. No parallelism within a single file's cover run.
 
 **Multi-file parallelism:** When running `/unslop:cover` on multiple files sequentially, each file's pipeline is independent. The Architect MAY dispatch the next file's Saboteur while the current file's Mason is running, as long as it can track both pipelines. The Architect SHOULD maximize parallelism across independent files to reduce wall-clock time.
 
@@ -94,16 +99,17 @@ Check that `.unslop/boundaries.json` exists. If not, create it with an empty arr
 
 **1. Load context**
 
-Read:
-- The `*.spec.md` (abstract spec)
+The Architect reads only orchestration-level context (not source code or test content -- those stay in subagent contexts):
+- The `*.spec.md` (abstract spec -- the Architect needs this for triage decisions)
 - The `*.behaviour.yaml` (if it exists -- may not for files taken over before v0.14.0)
 - `.unslop/config.json` for `mutation_budget` (default 20), `mutation_tool`, and subagent model keys (`saboteur`, `archaeologist`, `mason`)
+- Determine file paths for the managed source file and test files (for passing to subagents -- do not read their content into the Architect's context)
 
-If no `*.behaviour.yaml` exists, inform the user and generate one first:
+If no `*.behaviour.yaml` exists, inform the user and dispatch an Archaeologist subagent in extraction mode:
 
-> "No behaviour.yaml found for this file. I'll extract one from the existing spec and tests before running coverage analysis."
+> "No behaviour.yaml found for this file. Dispatching Archaeologist to extract one from the spec and source."
 
-Use the **unslop/adversarial** skill's Archaeologist in extraction mode (not diff-mode) to generate the initial behaviour.yaml from the spec and source. Present to the user for approval before proceeding.
+The Archaeologist subagent receives the source file, spec, and test files in its own context. It returns the behaviour.yaml content. Present to the user for approval before proceeding.
 
 **2. Saboteur (subagent)**
 
@@ -151,6 +157,7 @@ Route by verdict:
 - **equivalent**: discard. Does not consume the mutation budget.
 - **weak_test**: queue for Mason (Step 5) with the existing behaviour.yaml constraint and the surviving mutant as guidance.
 - **spec_gap**: queue for Archaeologist analysis (Step 4). A genuinely missing constraint needs to be identified before the Mason can write a test.
+- **inconclusive**: queue for Archaeologist analysis (Step 4), same as spec_gap. The Archaeologist has source context to resolve ambiguity that the deterministic Prosecutor could not.
 
 If no non-equivalent survivors remain: report "All surviving mutants are equivalent. Test suite is strong for this file." and exit.
 

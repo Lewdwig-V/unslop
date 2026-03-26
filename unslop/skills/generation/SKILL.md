@@ -97,13 +97,13 @@ Only block on user rejection.
 
 Before dispatching subagents, read `.unslop/config.json`. If a `models` block exists, use the role-specific key as the `model` parameter to `Agent()`. If the key is absent, use the default:
 
-| Role | Config key | Default |
-|---|---|---|
-| Strategist | `strategist` | sonnet |
-| Builder | `builder` | sonnet |
-| Saboteur | `saboteur` | sonnet |
-| Archaeologist | `archaeologist` | sonnet |
-| Mason | `mason` | sonnet |
+| Role | Config key | Default | Rationale |
+|---|---|---|---|
+| Strategist | `strategist` | sonnet | Algorithmic analysis, pattern selection |
+| Builder | `builder` | sonnet | Code generation from detailed specs |
+| Saboteur | `saboteur` | haiku | Mechanical mutation (swap operators, remove calls) |
+| Archaeologist | `archaeologist` | sonnet | Semantic reasoning about code invariants |
+| Mason | `mason` | sonnet | Chinese Wall removes context, model must compensate with stronger reasoning |
 
 The `model` parameter controls which Claude model runs the subagent. Valid values: `sonnet`, `opus`, `haiku`, or a full model ID (e.g., `claude-sonnet-4-6`).
 
