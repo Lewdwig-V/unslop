@@ -114,6 +114,30 @@ These are not required, but they cover the ground most specs need:
 
 Use all of them, some of them, or none — structure the spec to match the complexity of the file it describes. A 20-line utility doesn't need five headings.
 
+## Spec Naming Conventions
+
+Specs are named `<file>.spec.md` and placed alongside the managed file:
+
+- `src/retry.py` -> `src/retry.py.spec.md`
+- `src/api/handler.ts` -> `src/api/handler.ts.spec.md`
+
+**Directory modules (e.g., Rust `mod.rs`, Python `__init__.py`):** Use the directory name for the spec, not the file name. Add a `managed-file` field to the frontmatter so the resolver knows which file the spec manages:
+
+- `src/dispatch/mod.rs` -> `src/dispatch/dispatch.spec.md` with `managed-file: src/dispatch/mod.rs`
+- `src/auth/__init__.py` -> `src/auth/auth.spec.md` with `managed-file: src/auth/__init__.py`
+
+```markdown
+---
+managed-file: src/dispatch/mod.rs
+depends-on:
+  - src/dispatch/omnibar.spec.md
+---
+
+# dispatch spec
+```
+
+The `managed-file` field overrides the default filename-stripping heuristic. When absent, the resolver falls back to stripping `.spec.md` from the spec filename (the legacy behavior). The same convention applies to concrete specs.
+
 ## Dependencies Between Specs
 
 When a managed file imports from or relies on another managed file, declare the dependency in YAML frontmatter:

@@ -31,7 +31,7 @@ from pathlib import Path
 # Tests and vendored CI scripts import directly from this module.
 
 # core
-from .core.frontmatter import parse_concrete_frontmatter, parse_frontmatter
+from .core.frontmatter import parse_concrete_frontmatter, parse_frontmatter, parse_managed_file
 from .core.hashing import (
     MISSING_SENTINEL,
     UNREADABLE_SENTINEL,
@@ -109,6 +109,7 @@ __all__ = [
     "get_registry_key_for_spec",
     "parse_concrete_frontmatter",
     "parse_frontmatter",
+    "parse_managed_file",
     "parse_header",
     "parse_unit_spec_files",
     # dependencies

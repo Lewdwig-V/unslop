@@ -27,6 +27,7 @@ from unslop.scripts.orchestrator import (
     resolve_inherited_sections,
     get_all_strategy_providers,
     get_registry_key_for_spec,
+    parse_managed_file,
     parse_unit_spec_files,
     flatten_inheritance_chain,
     ripple_check,
@@ -5568,3 +5569,67 @@ def test_classify_file_with_managed_end_line(tmp_path):
 
     result2 = classify_file(str(managed), str(spec))
     assert result2["state"] == "fresh"
+
+
+# --- managed-file frontmatter tests ---
+
+
+def test_parse_managed_file_present():
+    content = """---
+managed-file: src/dispatch/mod.rs
+depends-on:
+  - src/utils.spec.md
+---
+
+# dispatch spec
+"""
+    assert parse_managed_file(content) == "src/dispatch/mod.rs"
+
+
+def test_parse_managed_file_absent():
+    content = """---
+depends-on:
+  - src/utils.spec.md
+---
+
+# dispatch spec
+"""
+    assert parse_managed_file(content) is None
+
+
+def test_parse_managed_file_no_frontmatter():
+    content = "# just a markdown file\n"
+    assert parse_managed_file(content) is None
+
+
+def test_check_freshness_managed_file_override(tmp_path):
+    """Spec with managed-file frontmatter resolves to the overridden path."""
+    # Create src/dispatch/mod.rs as the managed file
+    dispatch_dir = tmp_path / "src" / "dispatch"
+    dispatch_dir.mkdir(parents=True)
+
+    spec_content = "---\nmanaged-file: src/dispatch/mod.rs\n---\n\n# dispatch spec\n"
+    spec = dispatch_dir / "dispatch.spec.md"
+    spec.write_text(spec_content)
+
+    spec_hash = compute_hash(spec_content)
+    managed_body = "fn dispatch() {}"
+    output_hash = compute_hash(managed_body)
+
+    managed = dispatch_dir / "mod.rs"
+    managed.write_text(
+        f"// @unslop-managed -- do not edit directly. Edit src/dispatch/dispatch.spec.md instead.\n"
+        f"// spec-hash:{spec_hash} output-hash:{output_hash} generated:2026-03-26T12:00:00Z\n"
+        f"{managed_body}\n"
+    )
+
+    (tmp_path / ".unslop").mkdir()
+
+    result = check_freshness(str(tmp_path))
+    # Should find mod.rs as managed, not look for "dispatch" (the stripped name)
+    dispatch_entry = next(
+        (f for f in result["files"] if "mod.rs" in f["managed"]),
+        None,
+    )
+    assert dispatch_entry is not None, f"Expected mod.rs entry, got: {[f['managed'] for f in result['files']]}"
+    assert dispatch_entry["state"] == "fresh"
