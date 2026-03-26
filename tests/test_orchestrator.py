@@ -2045,6 +2045,22 @@ def test_get_registry_key_unit_spec_nested():
     assert get_registry_key_for_spec("src/utils/helpers.unit.spec.md") == "src/utils"
 
 
+def test_get_registry_key_with_managed_file_frontmatter(tmp_path):
+    """managed-file frontmatter overrides filename-stripping heuristic."""
+    spec = tmp_path / "src" / "dispatch" / "dispatch.spec.md"
+    spec.parent.mkdir(parents=True)
+    spec.write_text("---\nmanaged-file: src/dispatch/mod.rs\n---\n\n# dispatch spec\n")
+
+    result = get_registry_key_for_spec("src/dispatch/dispatch.spec.md", project_root=str(tmp_path))
+    assert result == "src/dispatch/mod.rs"
+
+
+def test_get_registry_key_without_project_root_falls_back():
+    """Without project_root, falls back to stripping .spec.md."""
+    result = get_registry_key_for_spec("src/dispatch/dispatch.spec.md")
+    assert result == "src/dispatch/dispatch"
+
+
 def test_get_registry_key_plain_string():
     """Non-spec path is returned unchanged."""
     assert get_registry_key_for_spec("handler.py") == "handler.py"

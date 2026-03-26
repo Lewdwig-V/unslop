@@ -41,6 +41,14 @@ def _build_unified_dag(
         impl_meta[rel] = meta
         src = meta.get("source_spec")
         if src:
+            # Normalize source_spec to root-relative path
+            # Impls may use paths relative to their own directory
+            resolved = (impl_path.parent / src).resolve()
+            if resolved.exists():
+                src = str(resolved.relative_to(root.resolve()))
+            elif (root / src).resolve().exists():
+                src = str((root / src).resolve().relative_to(root.resolve()))
+            # else: leave as-is, will be caught as missing spec later
             impl_to_spec[rel] = src
 
     # Collect all specs
