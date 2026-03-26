@@ -92,17 +92,35 @@ def parse_unit_spec_files(content: str) -> list[str]:
     return result
 
 
-def get_registry_key_for_spec(source_spec: str) -> str:
+def get_registry_key_for_spec(source_spec: str, project_root: str | None = None) -> str:
     """Map an impl.md's source-spec to the managed-file registry key.
 
     Unit specs (*.unit.spec.md) use the parent directory as the registry key,
-    matching how check_freshness() registers them.  Per-file specs strip
+    matching how check_freshness() registers them.  Per-file specs check for
+    a managed-file frontmatter field first, then fall back to stripping
     .spec.md to get the managed filename.
+
+    If project_root is provided, reads the spec file to check for managed-file.
     """
     if source_spec.endswith(".unit.spec.md"):
         parent = str(Path(source_spec).parent)
         # Top-level unit spec: parent is ".", registry key is "."
         return parent
+
+    # Check managed-file frontmatter if we can read the spec
+    if project_root is not None:
+        from .frontmatter import parse_managed_file
+
+        spec_path = Path(project_root) / source_spec
+        if spec_path.exists():
+            try:
+                content = spec_path.read_text(encoding="utf-8")
+                managed_file = parse_managed_file(content)
+                if managed_file:
+                    return managed_file
+            except (OSError, UnicodeDecodeError):
+                pass  # fall through to heuristic
+
     return re.sub(r"\.spec\.md$", "", source_spec)
 
 

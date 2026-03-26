@@ -624,7 +624,7 @@ def check_freshness(directory: str, exclude_dirs: list[str] | None = None) -> di
         else:
             source_spec = meta.get("source_spec", "")
             if source_spec:
-                target_paths_for_hash = [get_registry_key_for_spec(source_spec)]
+                target_paths_for_hash = [get_registry_key_for_spec(source_spec, project_root=str(root))]
 
         # Compare against stored manifest or hash in managed file headers
         if not stale_reasons:
@@ -699,7 +699,7 @@ def check_freshness(directory: str, exclude_dirs: list[str] | None = None) -> di
                 # Single-target: derive from source-spec
                 source_spec = meta.get("source_spec", "")
                 if source_spec:
-                    target_paths = [get_registry_key_for_spec(source_spec)]
+                    target_paths = [get_registry_key_for_spec(source_spec, project_root=str(root))]
 
             for managed_rel in target_paths:
                 for f in files:
@@ -741,7 +741,7 @@ def check_freshness(directory: str, exclude_dirs: list[str] | None = None) -> di
         else:
             source_spec = meta.get("source_spec", "")
             if source_spec:
-                target_paths = [get_registry_key_for_spec(source_spec)]
+                target_paths = [get_registry_key_for_spec(source_spec, project_root=str(root))]
 
         constraints = [
             {
