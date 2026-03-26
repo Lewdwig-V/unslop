@@ -8,7 +8,7 @@ import sys
 from collections import Counter
 from pathlib import Path
 
-from ..core.frontmatter import parse_concrete_frontmatter
+from ..core.frontmatter import parse_concrete_frontmatter, parse_managed_file
 from ..core.hashing import compute_hash, get_body_below_header, parse_header
 from ..core.spec_discovery import get_registry_key_for_spec, parse_unit_spec_files
 from ..dependencies.concrete_graph import (
@@ -446,8 +446,18 @@ def check_freshness(directory: str, exclude_dirs: list[str] | None = None) -> di
         if rel_spec in _target_owned_specs:
             continue  # target-driven pass owns this spec's mappings
 
-        managed_name = re.sub(r"\.spec\.md$", "", spec_path.name)
-        managed_path = spec_path.parent / managed_name
+        # Check for managed-file frontmatter override (directory modules)
+        try:
+            spec_content = spec_path.read_text(encoding="utf-8")
+        except (OSError, UnicodeDecodeError) as e:
+            print(json.dumps({"warning": f"Cannot read spec for managed-file check: {rel_spec} ({e})"}), file=sys.stderr)
+            spec_content = ""
+        managed_file_override = parse_managed_file(spec_content)
+        if managed_file_override:
+            managed_path = root / managed_file_override
+        else:
+            managed_name = re.sub(r"\.spec\.md$", "", spec_path.name)
+            managed_path = spec_path.parent / managed_name
         if not managed_path.exists():
             files.append({"managed": str(managed_path.relative_to(root)), "spec": rel_spec, "state": "stale"})
             continue

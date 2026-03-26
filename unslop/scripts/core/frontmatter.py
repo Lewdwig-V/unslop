@@ -52,6 +52,27 @@ def parse_frontmatter(content: str) -> list[str]:
     return deps
 
 
+def parse_managed_file(content: str) -> str | None:
+    """Extract managed-file field from abstract spec frontmatter.
+
+    Returns the managed-file path if present, or None.
+    Used to override the default filename-stripping heuristic for
+    directory modules (e.g., dispatch.spec.md -> dispatch/mod.rs).
+    """
+    lines = content.split("\n")
+    if not lines or lines[0].strip() != "---":
+        return None
+
+    for i in range(1, len(lines)):
+        stripped = lines[i].strip()
+        if stripped == "---":
+            break
+        if stripped.startswith("managed-file:"):
+            return stripped.split(":", 1)[1].strip()
+
+    return None
+
+
 def parse_concrete_frontmatter(content: str) -> dict:
     """Parse frontmatter from a concrete spec (.impl.md) file.
 
