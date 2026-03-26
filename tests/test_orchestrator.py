@@ -5692,6 +5692,41 @@ intent-hash: a1b2c3d4e5f6
     assert result["intent"] == "Pure state machine core for dispatching user actions."
 
 
+def test_parse_intent_folded_with_chomping():
+    """YAML >- and >+ indicators should be treated as multi-line."""
+    content = """---
+intent: >-
+  First paragraph of intent.
+  Second line of first paragraph.
+intent-approved: 2026-03-26T14:32:00Z
+intent-hash: a1b2c3d4e5f6
+---
+"""
+    result = parse_intent(content)
+    assert result is not None
+    assert "First paragraph" in result["intent"]
+    assert "Second line" in result["intent"]
+    # Should NOT contain the indicator itself
+    assert result["intent"] != ">-"
+
+
+def test_parse_intent_multi_paragraph():
+    """Blank lines in folded scalars should not truncate the intent."""
+    content = """---
+intent: >
+  First paragraph about the module.
+
+  Second paragraph with more detail.
+intent-approved: 2026-03-26T14:32:00Z
+intent-hash: a1b2c3d4e5f6
+---
+"""
+    result = parse_intent(content)
+    assert result is not None
+    assert "First paragraph" in result["intent"]
+    assert "Second paragraph" in result["intent"]
+
+
 def test_compute_intent_hash():
     intent_text = "Pure state machine core."
     h = compute_intent_hash(intent_text)

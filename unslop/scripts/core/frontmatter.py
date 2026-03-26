@@ -103,18 +103,22 @@ def parse_intent(content: str) -> dict | None:
         stripped = line.strip()
 
         if in_intent:
-            # Multi-line intent: continuation lines are indented
+            # Multi-line intent: continuation lines are indented, blank lines are valid
+            if stripped == "":
+                # Blank line in folded/literal scalar -- preserve as paragraph break
+                intent_lines.append("")
+                continue
             if line.startswith("  ") and not stripped.startswith(("intent-approved:", "intent-hash:")):
                 intent_lines.append(stripped)
                 continue
             else:
                 in_intent = False
-                intent = " ".join(intent_lines)
+                intent = " ".join(part for part in intent_lines if part)
 
         if stripped.startswith("intent:"):
             val = stripped.split(":", 1)[1].strip()
-            if val == ">" or val == "|":
-                # YAML folded/literal scalar -- collect continuation lines
+            if val.startswith(">") or val.startswith("|"):
+                # YAML folded/literal scalar (>, >-, >+, |, |-, |+) -- collect continuation lines
                 in_intent = True
                 intent_lines = []
             elif val:
@@ -126,7 +130,7 @@ def parse_intent(content: str) -> dict | None:
 
     # Flush multi-line intent if still collecting at end of frontmatter
     if in_intent and intent_lines:
-        intent = " ".join(intent_lines)
+        intent = " ".join(part for part in intent_lines if part)
 
     if intent is None:
         return None
