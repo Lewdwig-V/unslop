@@ -59,7 +59,7 @@ The Archaeologist must NOT write tests. It only writes declarative behaviour spe
 
 ### Phase 2: Mason (Spec-Blind Test Construction)
 
-**Dispatch model:** `config.models.mason` (default: haiku)
+**Dispatch model:** `config.models.mason` (default: sonnet)
 
 The Mason receives ONLY the behaviour YAML. It is **denied access to source code**.
 This is the critical information asymmetry — the "firewall" — that forces black-box
