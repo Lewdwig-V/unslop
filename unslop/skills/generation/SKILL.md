@@ -36,21 +36,23 @@ The Architect processes change intent and updates the spec. It runs in the user'
 
 **Exception:** During `/unslop:takeover`, the Architect reads existing source code and tests -- the point of takeover is extracting intent FROM code. Stage B still runs in a clean worktree.
 
-### Stage A.2: Implementation Strategist (Current Session)
+### Stage A.2: Implementation Strategist (Subagent)
 
-After the Architect finalizes the Abstract Spec (Stage A.1) and before dispatching the Builder, an implementation strategy step drafts a Concrete Spec — the "Middle-End IR" that bridges intent and code.
+After the Architect finalizes the Abstract Spec (Stage A.1) and before dispatching the Builder, the Strategist drafts a Concrete Spec -- the "Middle-End IR" that bridges intent and code.
+
+**The Strategist runs as a subagent** for context hygiene. The Architect dispatches it with `model` from config (`strategist` key, default `sonnet`). The Strategist's algorithmic analysis stays in its own context, keeping the Architect clean for orchestration.
 
 **Persona:** Senior Implementation Engineer. Thinks in algorithms and patterns, not business requirements or syntax.
 
-**Inputs:**
+**Inputs (provided by the Architect):**
 - Approved Abstract Spec (`*.spec.md`)
 - `.unslop/principles.md`
 - Existing Concrete Spec (`*.impl.md`) if one exists and is permanent
 - File tree (names only)
 - Domain skills (loaded in Phase 0d)
 
-**Output:**
-- A Concrete Spec (`*.impl.md`) written to the worktree or working directory
+**Output (returned to the Architect):**
+- A Concrete Spec (`*.impl.md`) content -- either written as a file or returned for prompt-embedding
 
 **When Stage A.2 runs:**
 - **Always** for new files and takeover (full pipeline)
@@ -63,9 +65,9 @@ After the Architect finalizes the Abstract Spec (Stage A.1) and before dispatchi
 - Promoted to **permanent** via `/unslop:promote <spec-path>`, or automatically if the project or spec is marked `complexity: high` in `.unslop/config.json` or spec frontmatter
 - When permanent: lives alongside the Abstract Spec as `<file>.impl.md`, version-controlled, code-reviewed
 
-**Ephemeral delivery:** The Architect produces the ephemeral concrete spec content during Stage A.2. Two delivery methods:
-- **File-based (preferred for permanent specs):** Write the `.impl.md` file to disk. The Builder reads it from the path listed in the prompt template.
-- **Prompt-embedded (acceptable for ephemeral specs):** Embed the concrete spec content directly in the Builder's dispatch prompt under the `## Ephemeral Concrete Spec` section. This avoids creating a file that will be immediately discarded. Either method is valid -- the Builder receives the same strategic guidance.
+**Ephemeral delivery:** The Strategist subagent returns the concrete spec content to the Architect. Two delivery methods to the Builder:
+- **File-based (preferred for permanent specs):** The Architect writes the `.impl.md` file to disk. The Builder reads it from the path listed in the prompt template.
+- **Prompt-embedded (acceptable for ephemeral specs):** The Architect embeds the Strategist's output directly in the Builder's dispatch prompt under the `## Ephemeral Concrete Spec` section. This avoids creating a file that will be immediately discarded. Either method is valid -- the Builder receives the same strategic guidance.
 
 **Concrete Spec format:** See the `unslop/concrete-spec` skill for the full format specification. The key sections are:
 - `## Strategy` — pseudocode for the core algorithm
@@ -93,13 +95,37 @@ Only block on user rejection.
 
 ### Model Selection
 
-Before dispatching the Builder subagent, read `.unslop/config.json`. If a `models` block exists and contains a `builder` key, pass that value as the `model` parameter to `Agent()`. If the `models` block is missing or the key is absent, use the hardcoded default:
+Before dispatching subagents, read `.unslop/config.json`. If a `models` block exists, use the role-specific key as the `model` parameter to `Agent()`. If the key is absent, use the default:
 
-| Role | Default |
-|---|---|
-| builder | sonnet |
+| Role | Config key | Default |
+|---|---|---|
+| Strategist | `strategist` | sonnet |
+| Builder | `builder` | sonnet |
+| Saboteur | `saboteur` | sonnet |
+| Archaeologist | `archaeologist` | sonnet |
+| Mason | `mason` | sonnet |
 
 The `model` parameter controls which Claude model runs the subagent. Valid values: `sonnet`, `opus`, `haiku`, or a full model ID (e.g., `claude-sonnet-4-6`).
+
+### Subagent Dependency Chain
+
+The generation pipeline has a strict dependency order:
+
+```
+Strategist -> Builder -> Validator
+```
+
+The Architect dispatches Strategist, receives the concrete spec, then dispatches Builder with it. No parallelism within a single file's pipeline.
+
+**Multi-file parallelism:** When processing multiple files (e.g., `/unslop:generate` with several stale specs), independent files MAY have their Strategist and Builder subagents dispatched in parallel. Two files are independent if neither appears in the other's `depends-on` chain. Files in the same dependency chain MUST be processed sequentially in build order (leaves first).
+
+The Architect SHOULD maximize parallelism across independent files. For example, with 4 stale files where A depends on B but C and D are independent:
+
+```
+B.Strategist -> B.Builder -> A.Strategist -> A.Builder  (sequential: A depends on B)
+C.Strategist -> C.Builder                               (parallel with B/A chain)
+D.Strategist -> D.Builder                               (parallel with B/A chain and C)
+```
 
 ### Stage B: Builder (Fresh Agent, Worktree Isolation)
 

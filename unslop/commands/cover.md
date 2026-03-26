@@ -22,6 +22,16 @@ Every persona runs as a subagent for two reasons:
 
 If you find yourself writing mutations, analysing constraint gaps, or writing test code directly -- STOP. Dispatch the appropriate subagent.
 
+**Subagent dependency chain (per file):**
+
+```
+Saboteur -> Prosecutor (script) -> Archaeologist -> Mason -> Validator (Architect)
+```
+
+Each step's output is the next step's input. No parallelism within a single file's cover run.
+
+**Multi-file parallelism:** When running `/unslop:cover` on multiple files sequentially, each file's pipeline is independent. The Architect MAY dispatch the next file's Saboteur while the current file's Mason is running, as long as it can track both pipelines. The Architect SHOULD maximize parallelism across independent files to reduce wall-clock time.
+
 **Pipeline roles:**
 
 ```
@@ -155,7 +165,7 @@ Dispatch an Archaeologist subagent with `model` from config (`archaeologist` key
 
 The Archaeologist returns new behaviour.yaml constraints (given/when/then entries) -- not test code. Its output feeds into the Mason.
 
-Although the Archaeologist could run inline (it produces constraints, not code), subagent dispatch keeps the Architect's context clean. The per-mutant analysis stays in the Archaeologist's context.
+The Archaeologist runs as a subagent even though it produces constraints, not code. This is for context hygiene: the per-mutant semantic analysis is verbose and would bloat the Architect's context, making multi-file cover runs impossible.
 
 For each `spec_gap` survivor, the Archaeologist answers: "What constraint, if it existed in the behaviour.yaml, would have forced the Mason to write a test that kills this mutant?"
 
