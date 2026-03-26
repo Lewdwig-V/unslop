@@ -131,12 +131,34 @@ Specs are named `<file>.spec.md` and placed alongside the managed file:
 managed-file: src/dispatch/mod.rs
 depends-on:
   - src/dispatch/omnibar.spec.md
+intent: >
+  Pure state machine core. dispatch(&mut AppState, Action) -> Vec<Effect>
+  processes every user action and returns effects for I/O.
+intent-approved: 2026-03-26T14:32:00Z
+intent-hash: a1b2c3d4e5f6
 ---
 
 # dispatch spec
 ```
 
 The `managed-file` field overrides the default filename-stripping heuristic. When absent, the resolver falls back to stripping `.spec.md` from the spec filename (the legacy behavior). The same convention applies to concrete specs.
+
+## Intent
+
+The `intent` field records the human-approved summary of what the spec governs -- the compressed, reviewable statement of purpose that the user confirmed during the intent lock.
+
+| Field | Description |
+|---|---|
+| `intent` | The approved intent statement. Single-line or YAML folded scalar (`>`). This is the reviewable surface -- "what's this module for?" in 2-3 sentences. |
+| `intent-approved` | ISO 8601 timestamp of when the user approved the intent. |
+| `intent-hash` | 12-char hex hash of the intent text. Computed by the tooling. If someone edits the intent without re-approving, the hash mismatch is a hard error. |
+
+**Lifecycle:**
+- Written during `/unslop:takeover` Step 1b (Intent Lock) after user approval
+- Checked during `/unslop:sync` and `/unslop:generate` -- if the spec change alters the module's stated intent, the Architect flags it for re-lock
+- The intent is metadata about the spec, not part of the spec body. The Architect/Builder/Strategist never touches anything between the `---` fences during regeneration. Frontmatter is a protected region.
+
+**Tamper detection:** The tooling computes `intent-hash` from the `intent` text. If the hash doesn't match (someone edited the intent without re-running the intent lock), the pipeline stops with a hard error before any semantic analysis runs.
 
 ## Dependencies Between Specs
 

@@ -31,7 +31,14 @@ from pathlib import Path
 # Tests and vendored CI scripts import directly from this module.
 
 # core
-from .core.frontmatter import parse_concrete_frontmatter, parse_frontmatter, parse_managed_file
+from .core.frontmatter import (
+    compute_intent_hash,
+    parse_concrete_frontmatter,
+    parse_frontmatter,
+    parse_intent,
+    parse_managed_file,
+    validate_intent_hash,
+)
 from .core.hashing import (
     MISSING_SENTINEL,
     UNREADABLE_SENTINEL,
@@ -110,6 +117,9 @@ __all__ = [
     "parse_concrete_frontmatter",
     "parse_frontmatter",
     "parse_managed_file",
+    "parse_intent",
+    "compute_intent_hash",
+    "validate_intent_hash",
     "parse_header",
     "parse_unit_spec_files",
     # dependencies

@@ -172,7 +172,18 @@ Present the takeover Intent Statement:
 
 **Language constraint:** The intent must be expressed in user/product language, not implementation language. "Ensure failed HTTP requests are retried with backoff" passes. "Implement exponential retry with jitter in the request handler" fails -- that is the Concrete Spec's job, not the Intent Lock's.
 
-**If approved:** Proceed to Step 2 (Raise to Concrete Spec).
+**If approved:** Record the intent in the spec's frontmatter before proceeding:
+
+```yaml
+intent: >
+  <the approved intent statement>
+intent-approved: <current UTC timestamp>
+intent-hash: <computed from intent text>
+```
+
+The Architect computes `intent-hash` using the same SHA-256 truncation as other hashes. This creates a tamper-detectable audit trail -- git blame shows who approved the intent and when. Future spec changes that drift beyond the recorded intent trigger a re-lock.
+
+Proceed to Step 2 (Raise to Concrete Spec).
 
 **If rejected:** The Architect asks "Could you clarify the requirement? I understood this module's purpose as [X], but that doesn't match your intent." and reformulates. No limit on reformulation attempts. If the user abandons (exits the session), no artifacts are left behind.
 
