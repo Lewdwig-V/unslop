@@ -12,9 +12,9 @@ Strip flags before using the path in subsequent steps.
 
 If the target path ends in `.spec.md`, derive the managed file path by stripping `.spec.md`. Otherwise, treat the target as the managed file and derive the spec path by appending `.spec.md`.
 
-**Load and follow** the **unslop/adversarial** skill step-by-step for Steps 2-5. Do not summarize or abbreviate the pipeline. Each step must execute via subagent dispatch with the prescribed inputs.
+**Load and follow** the **unslop/adversarial** skill step-by-step for Steps 2-4. Do not summarize or abbreviate the pipeline. Each step must execute via subagent dispatch with the prescribed inputs.
 
-**HARD RULE: The Architect is the orchestrator. It dispatches subagents, invokes the Prosecutor script, runs mechanical validation, and presents triage. It does NOT generate mutations, analyze constraints, or write tests.**
+**HARD RULE: The Architect is the orchestrator. It dispatches subagents, runs mechanical validation, and presents triage. It does NOT generate mutations, analyze constraints, or write tests.**
 
 Every persona runs as a subagent for two reasons:
 1. **Context hygiene** -- the Architect's context stays clean for multi-file runs. Mutation details, constraint analysis, and test code live in subagent contexts and are returned as summaries.
@@ -25,15 +25,10 @@ If you find yourself writing mutations, analysing constraint gaps, or writing te
 **Subagent dependency chain (per file):**
 
 ```
-Saboteur -> Prosecutor (script) -> Archaeologist -> Mason -> Validator (Architect)
-                                   ^                  ^
-                                   |                  |
-                              spec_gap only      all survivors
-                              weak_test skips ---/
-                              directly to Mason
+Saboteur -> Archaeologist -> Mason -> Validator (Architect)
 ```
 
-Each step's output is the next step's input. `weak_test` mutants bypass the Archaeologist (the constraint already exists, the test just needs strengthening) and go directly from Prosecutor to Mason. No parallelism within a single file's cover run.
+Each step's output is the next step's input. The Archaeologist classifies each surviving mutant (equivalent/weak_test/spec_gap) and produces new behaviour.yaml constraints for spec_gap mutants. The Mason receives the Archaeologist's classifications and constraints. No parallelism within a single file's cover run.
 
 **Multi-file parallelism:** When running `/unslop:cover` on multiple files sequentially, each file's pipeline is independent. The Architect MAY dispatch the next file's Saboteur while the current file's Mason is running, as long as it can track both pipelines. The Architect SHOULD maximize parallelism across independent files to reduce wall-clock time.
 
@@ -41,8 +36,8 @@ Each step's output is the next step's input. `weak_test` mutants bypass the Arch
 
 ```
 Architect (this session):
-  Orchestrator -- dispatches subagents, invokes Prosecutor script,
-  runs mechanical validation (Phase A/B), presents triage.
+  Orchestrator -- dispatches subagents, runs mechanical validation
+  (Phase A/B), presents triage.
   Writes no mutations, no constraints, no tests.
   Context stays clean for multi-file cover runs.
 
@@ -51,14 +46,10 @@ Saboteur (subagent):
   Produces: mutations JSON + kill/survive results
   Rationale: context hygiene + unbiased mutation selection
 
-Prosecutor (script -- deterministic):
-  Receives: source file, surviving mutants JSON
-  Produces: classified mutants JSON (equivalent/weak_test/spec_gap)
-
 Archaeologist (subagent):
-  Receives: source, spec, behaviour.yaml, classified spec_gap mutants
-  Produces: new behaviour.yaml constraints
-  Rationale: context hygiene (per-mutant analysis stays in subagent)
+  Receives: source, spec, behaviour.yaml, ALL surviving mutants
+  Produces: classification (equivalent/weak_test/spec_gap) + new constraints
+  Rationale: context hygiene + has full context for accurate classification
 
 Mason (subagent, Chinese Wall):
   Receives: behaviour.yaml + mutant descriptions ONLY
@@ -73,9 +64,8 @@ Mason (subagent, Chinese Wall):
 > 2. **Inline constraint analysis** -- The Architect analyzes spec gaps instead of dispatching an Archaeologist. Bloats context with per-mutant reasoning that the Architect doesn't need.
 > 3. **Inline test writing** -- The Architect writes test code directly instead of dispatching a Mason. Violates the Chinese Wall.
 > 4. **Mason sees source** -- Passing the managed file or spec to the Mason. The Mason works from behaviour.yaml only.
-> 5. **Skipping the Prosecutor** -- Manually classifying survivors instead of invoking `prosecutor.py`. The Prosecutor's classification is deterministic and auditable; inline classification is ad-hoc.
-> 6. **Skipping behaviour.yaml** -- Writing tests without extracting or updating the behaviour.yaml first. The behaviour.yaml is the Mason's sole input.
-> 7. **Architect editing Mason's tests** -- If a test is wrong, the constraint is wrong. Route back to the Archaeologist or Mason, don't fix inline.
+> 5. **Skipping behaviour.yaml** -- Writing tests without extracting or updating the behaviour.yaml first. The behaviour.yaml is the Mason's sole input.
+> 6. **Architect editing Mason's tests** -- If a test is wrong, the constraint is wrong. Route back to the Archaeologist or Mason, don't fix inline.
 
 ---
 
@@ -138,55 +128,39 @@ The Saboteur runs the existing test suite against each mutation and returns a JS
 
 If all mutants are killed: report "All mutants killed. Existing test suite covers the mutation budget for this file." and exit.
 
-**3. Prosecutor: MANDATORY script invocation**
-
-Do NOT classify survivors manually. Invoke the Prosecutor script:
-
-```
-python ${CLAUDE_PLUGIN_ROOT}/scripts/prosecutor.py <managed-source-file> <mutants.json>
-```
-
-Write the surviving mutants to a temporary JSON file first. Each mutant is an object with keys `original` (the original line), `mutated` (the mutated line), and `line` (the line number).
-
-The Prosecutor returns a JSON summary with mutants grouped by verdict (`equivalent`, `weak_test`, `spec_gap`, `inconclusive`).
-
-The Prosecutor's classification is deterministic and auditable. Inline classification is ad-hoc and influenced by the Architect's source knowledge. If the script is unavailable or errors, report the error and stop -- do not fall back to manual classification.
-
-Route by verdict:
-
-- **equivalent**: discard. Does not consume the mutation budget.
-- **weak_test**: queue for Mason (Step 5) with the existing behaviour.yaml constraint and the surviving mutant as guidance.
-- **spec_gap**: queue for Archaeologist analysis (Step 4). A genuinely missing constraint needs to be identified before the Mason can write a test.
-- **inconclusive**: queue for Archaeologist analysis (Step 4), same as spec_gap. The Archaeologist has source context to resolve ambiguity that the deterministic Prosecutor could not.
-
-If no non-equivalent survivors remain: report "All surviving mutants are equivalent. Test suite is strong for this file." and exit.
-
-**4. Archaeologist (subagent)**
+**3. Archaeologist (subagent) -- classification + constraint discovery**
 
 Dispatch an Archaeologist subagent with `model` from config (`archaeologist` key). The Archaeologist receives:
-- The classified `spec_gap` mutants from the Prosecutor
+- ALL surviving mutants from the Saboteur (not pre-classified -- the Archaeologist does classification)
 - The managed source file (needs source context to identify semantic gaps)
 - The existing behaviour.yaml
 - The existing tests
 - The abstract spec
 
-The Archaeologist returns new behaviour.yaml constraints (given/when/then entries) -- not test code. Its output feeds into the Mason.
+The Archaeologist performs two tasks in one pass:
 
-The Archaeologist runs as a subagent even though it produces constraints, not code. This is for context hygiene: the per-mutant semantic analysis is verbose and would bloat the Architect's context, making multi-file cover runs impossible.
+**Task 1: Classify each surviving mutant.**
+- **equivalent** -- mutation changes code but not behaviour (e.g., `i < 10` -> `i <= 9`, test fixture data changes). Discard.
+- **weak_test** -- behaviour.yaml already has a constraint covering this mutant, but no test exercises it. Queue for Mason with the existing constraint ID.
+- **spec_gap** -- genuinely missing constraint. The Archaeologist writes a new behaviour.yaml entry (given/when/then, error, invariant, or property).
 
-For each `spec_gap` survivor, the Archaeologist answers: "What constraint, if it existed in the behaviour.yaml, would have forced the Mason to write a test that kills this mutant?"
+**Task 2: Produce new constraints for spec_gap mutants.**
+For each spec_gap, the Archaeologist answers: "What constraint, if it existed in the behaviour.yaml, would have forced the Mason to write a test that kills this mutant?"
 
-Output per mutant:
-- A new `given`/`when`/`then`, `error`, `invariant`, or `property` entry for the behaviour.yaml
-- A one-line semantic summary (for the triage report)
+The Archaeologist returns:
+- Classification of each mutant (equivalent/weak_test/spec_gap)
+- New behaviour.yaml constraints for spec_gap mutants
+- One-line semantic summary per mutant (for the triage report)
 
-Append each new constraint to the `*.behaviour.yaml`.
+If all survivors are equivalent: report "All surviving mutants are equivalent. Test suite is strong for this file." and exit.
 
-**5. Mason (subagent, Chinese Wall)**
+Append new constraints to the `*.behaviour.yaml`.
+
+**4. Mason (subagent, Chinese Wall)**
 
 **HARD RULE:** The Mason MUST run as a subagent dispatched with `isolation="worktree"` and `model` from config (`mason` key). The Mason receives ONLY:
-- The `*.behaviour.yaml` (with any new constraints from Step 4)
-- The surviving mutant descriptions (original line, mutated line, line number)
+- The `*.behaviour.yaml` (with any new constraints from Step 3)
+- The surviving mutant descriptions (original line, mutated line, line number) and their classifications (weak_test or spec_gap)
 - The test file path to write to
 - `.unslop/config.json` for the test command
 
@@ -194,7 +168,7 @@ The Mason MUST NOT receive:
 - The managed source file
 - The abstract spec
 - The Architect's conversation context
-- Any code the Architect read during Steps 1-4
+- Any code the Architect read during Steps 1-3
 
 This is the Chinese Wall. The Mason writes tests from behavioural constraints, not from source code knowledge. If the Mason could see the source, it would write tests that mirror the implementation rather than tests that encode the specification -- defeating the purpose of mutation-driven coverage growth.
 
@@ -222,7 +196,7 @@ python ${CLAUDE_PLUGIN_ROOT}/scripts/validate_mocks.py <test-file> --project-roo
 
 If mock budget violations are detected: Mason retries without the offending mock (max 2 rewrite attempts). If still violating after retries, discard the test and log the failure.
 
-**6. Validator -- runs in the Architect session**
+**5. Validator -- runs in the Architect session**
 
 This is the one step the Architect runs directly, because it's mechanical test execution (no reasoning, no code generation).
 
@@ -243,7 +217,7 @@ Apply the specific mutation to the managed file and run the new test.
 
 Restore the original source file after each Phase B check.
 
-**7. Triage Summary**
+**6. Triage Summary**
 
 Present all successfully validated constraints to the user:
 
@@ -269,7 +243,7 @@ Wait for user choices on each constraint.
 - **Approve as Requirement**: add the constraint to `*.spec.md` under an appropriate section, remove the `# @unslop-incidental` marker from the corresponding test function -- the test becomes spec-backed.
 - **Keep as Incidental**: retain the `# @unslop-incidental` marker. Do NOT update `*.spec.md`.
 
-**8. Atomic Commit**
+**7. Atomic Commit**
 
 Stage and commit together:
 - Updated `*.behaviour.yaml` (all new constraints, regardless of approval choice)
