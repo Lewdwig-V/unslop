@@ -420,7 +420,7 @@ e. **Re-validate** -- Re-run adversarial validation (Step 5).
 
 f. **Measure entropy** -- Track kill rate delta between iterations.
 
-**Entropy Threshold:** If delta < `entropy_threshold` (kill rate improvement is stalling) and kill rate < 100%, trigger **Radical Spec Hardening**: a one-shot rewrite of behaviour.yaml using the Prosecutor's summary from the Saboteur's mutation report. This consumes the radical iteration slot.
+**Entropy Threshold:** If delta < `entropy_threshold` (kill rate improvement is stalling) and kill rate < 100%, trigger **Radical Spec Hardening**: a one-shot rewrite of behaviour.yaml using the Archaeologist's surviving mutant summary. This consumes the radical iteration slot.
 
 If Radical Spec Hardening also stalls: **DONE_WITH_CONCERNS**. Commit what exists with a warning annotation in the spec noting the unresolved kill rate gap.
 

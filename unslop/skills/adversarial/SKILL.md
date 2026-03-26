@@ -26,12 +26,9 @@ The pipeline has three independent agents with a **Chinese Wall** between them:
 └──────────────┘                        └──────────┘                  └────────────┘
                                                                            │
                                                                     ┌──────┴──────┐
-                                                                    │ Prosecutor  │
-                                                                    │ (Phase 3b)  │
-                                                                    │             │
-                                                                    │ Classifies  │
-                                                                    │ surviving   │
-                                                                    │ mutants     │
+                                                                    │ Archaeologist│
+                                                                    │ (classify + │
+                                                                    │  constrain) │
                                                                     └─────────────┘
 ```
 
@@ -42,9 +39,8 @@ Before dispatching any adversarial agent, read `.unslop/config.json`. If a `mode
 | Role | Default |
 |---|---|
 | archaeologist | sonnet |
-| mason | haiku |
+| mason | sonnet |
 | saboteur | haiku |
-| prosecutor | sonnet |
 
 The `model` parameter controls which Claude model runs the subagent. Valid values: `sonnet`, `opus`, `haiku`, or a full model ID (e.g., `claude-sonnet-4-6`). In the dispatch annotations below, `config.models.<role>` refers to the value at `.unslop/config.json` -> `models` -> `<role>`.
 
@@ -89,18 +85,15 @@ If a mutant survives (tests still pass despite a code change), it indicates eith
 
 The Saboteur classifies each surviving mutant and routes feedback to the correct phase.
 
-### Phase 3b: Prosecutor (Equivalent Mutant Classification)
+### Mutant Classification (Archaeologist)
 
-**Dispatch model:** `config.models.prosecutor` (default: sonnet)
+After the Saboteur produces surviving mutants, the Archaeologist classifies each one as part of its analysis:
 
-Not all surviving mutants are test failures. Some are **equivalent mutants** —
-mutations that change code but not behaviour (e.g., `i < 10` → `i <= 9`).
+- **equivalent** -- mutation changes code but not behaviour. Discard.
+- **weak_test** -- behaviour.yaml already has a constraint, but no test exercises it. Queue for Mason with the existing constraint.
+- **spec_gap** -- genuinely missing constraint. The Archaeologist writes a new behaviour.yaml entry.
 
-The Prosecutor uses heuristic-first classification:
-
-1. **Heuristic filter:** Common patterns (off-by-one equivalences, dead code, redundant conditions)
-2. **Semantic check:** If heuristics are inconclusive, an LLM call classifies the mutant
-3. **Verdicts:** `equivalent` (ignore), `weak_test` (Mason retries), `spec_gap` (Archaeologist retries)
+This classification was previously a separate Prosecutor step (heuristic script). Field testing showed the heuristics classified everything as `inconclusive`, making the Archaeologist do the real work anyway. The Archaeologist has full context (source + spec + behaviour.yaml) and produces accurate classifications in a single pass.
 
 ## Mock Budget Enforcement
 
@@ -168,35 +161,25 @@ The adversarial pipeline is iterative. A single pass is:
 Archaeologist → Mason → Saboteur → [pass/fail]
 ```
 
-On failure, the Saboteur feedback routes to:
-- **Weak test** → Mason retries with surviving mutant as guidance
-- **Spec gap** → Archaeologist retries, adding the missing constraint
-- **Equivalent mutant** → Prosecutor filters, no retry needed
+On failure, the Archaeologist classifies survivors and routes to:
+- **Weak test** -> Mason retries with surviving mutant as guidance
+- **Spec gap** -> Archaeologist adds the missing constraint, Mason writes a test
+- **Equivalent mutant** -> discarded, no retry needed
 
 Maximum iterations: 3 (configurable in `.unslop/config.json` as `adversarial_max_iterations`).
 
-## Prosecutor Routing (Cover Mode)
-
-In `/unslop:cover`, the Prosecutor's verdict determines routing:
-
-- **equivalent**: Discarded. Does not consume the mutation budget.
-- **weak_test**: Routes directly to the Mason with the existing behaviour.yaml constraint and the surviving mutant as guidance. The Archaeologist is skipped -- the constraint already exists, the test just needs strengthening.
-- **spec_gap**: Routes to the Archaeologist for diff-mode discovery. A genuinely missing constraint needs to be identified and added to the behaviour.yaml before the Mason can write a test.
-
-This routing split prevents the Archaeologist from hallucinating duplicate constraints for mutants that are already covered by existing behaviour.yaml entries but weakly tested.
-
-## Archaeologist Diff-Mode (Cover Mode)
+## Archaeologist Classification + Diff-Mode (Cover Mode)
 
 When invoked from `/unslop:cover`, the Archaeologist operates differently from takeover mode:
 
 | Aspect | Takeover (N) | Cover (O) |
 |---|---|---|
 | **Who invokes** | The Architect (during Double-Lift) | The cover pipeline (after Saboteur) |
-| **Input** | Source code + spec (extraction from scratch) | spec_gap mutants + existing behaviour.yaml + spec + source + existing tests |
-| **Goal** | Extract ALL behavioural intent | Find ONLY the uncovered constraints |
-| **Output** | Complete behaviour.yaml | Delta: new constraints appended to existing behaviour.yaml |
+| **Input** | Source code + spec (extraction from scratch) | ALL surviving mutants + existing behaviour.yaml + spec + source + existing tests |
+| **Goal** | Extract ALL behavioural intent | Classify survivors + find uncovered constraints |
+| **Output** | Complete behaviour.yaml | Classification (equivalent/weak_test/spec_gap) + delta constraints |
 
-For each `spec_gap` surviving mutant, the Archaeologist answers one question:
+The Archaeologist first classifies each surviving mutant, then for each `spec_gap` answers one question:
 
 > "What constraint, if it existed in the behaviour.yaml, would have forced the Mason to write a test that kills this mutant?"
 
@@ -213,7 +196,7 @@ For each `spec_gap` surviving mutant, the Archaeologist answers one question:
 
 ## Strategic Mutation Selection (Cover Mode)
 
-The Saboteur uses a mutation budget (default 20, configurable as `mutation_budget` in config.json). Equivalent mutants classified by the Prosecutor do not count against the budget.
+The Saboteur uses a mutation budget (default 20, configurable as `mutation_budget` in config.json). Equivalent mutants classified by the Archaeologist do not count against the budget.
 
 **Prioritisation (high-entropy areas):**
 1. **Boundary conditions** (`<` vs `<=`, `>` vs `>=`, `==` vs `!=`)
@@ -270,10 +253,10 @@ Each Saboteur iteration tracks the mutation kill rate. If the improvement betwee
 
 **Success exemption:** If kill rate is already 100%, skip the entropy check -- there's nothing left to improve.
 
-**On stall:** The takeover skill triggers **Radical Spec Hardening** -- a one-shot rewrite of the behaviour.yaml using the Prosecutor's surviving mutant summary as guidance:
+**On stall:** The takeover skill triggers **Radical Spec Hardening** -- a one-shot rewrite of the behaviour.yaml using the Archaeologist's surviving mutant summary as guidance:
 
-1. Prosecutor summarizes ALL surviving mutants as a batch
-2. Architect rewrites behaviour.yaml from scratch using: original abstract spec + Prosecutor's summary + previous behaviour.yaml as reference (not template)
+1. Archaeologist summarizes ALL surviving mutants as a batch with classifications
+2. Architect rewrites behaviour.yaml from scratch using: original abstract spec + Archaeologist's summary + previous behaviour.yaml as reference (not template)
 3. Mason generates tests from the rewritten behaviour.yaml
 4. If this also stalls: DONE_WITH_CONCERNS -- report surviving mutants, commit with partial coverage
 

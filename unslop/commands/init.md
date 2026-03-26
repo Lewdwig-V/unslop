@@ -43,9 +43,8 @@ If multiple indicators are found, or none are found, ask the user which test com
     "architect": "opus",
     "builder": "sonnet",
     "archaeologist": "sonnet",
-    "mason": "haiku",
-    "saboteur": "haiku",
-    "prosecutor": "sonnet"
+    "mason": "sonnet",
+    "saboteur": "haiku"
   },
   "models_note": "Model selection per agent role. architect is not dispatched as a subagent -- it runs inline in the controlling session. This entry documents the intended model tier, not a dispatch parameter. Valid values: opus, sonnet, haiku, or a full model ID.",
   "exclude_patterns": [],
@@ -148,7 +147,7 @@ jobs:
      - `freshness/` directory (checker, manifest)
      - `planning/` directory (ripple, deep_sync, bulk_sync, resume, graph_renderer)
      - `validation/` directory (placeholder for future symbol_audit)
-   - Do NOT copy `validate_spec.py`, `validate_behaviour.py`, `validate_mocks.py`, `prosecutor.py`, or `pseudocode_linter.py` -- these are used by the generation skill during interactive sessions, not by CI.
+   - Do NOT copy `validate_spec.py`, `validate_behaviour.py`, `validate_mocks.py`, or `pseudocode_linter.py` -- these are used by the generation skill during interactive sessions, not by CI.
    - Write a `version.txt` file at `.unslop/scripts/version.txt` containing the current plugin version (e.g. `0.13.0`). This allows the orchestrator to warn the user if their vendored CI logic is out of sync with their installed unslop plugin.
 
    If `.unslop/scripts/version.txt` already exists (from a previous init), read it and compare against the current plugin version. If the vendored version is older, offer to update. If the user agrees, overwrite the entire `.unslop/scripts/` directory with the current version. If the user declines, leave it unchanged.
