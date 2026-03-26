@@ -217,6 +217,24 @@ Apply the specific mutation to the managed file and run the new test.
 
 Restore the original source file after each Phase B check.
 
+**Phase C -- coverage audit (untargeted constraints):**
+
+The mutation budget is a sampling mechanism -- some behaviour.yaml constraints may never get a mutant aimed at them. After Phase A/B validation of mutant-driven tests, cross-reference ALL behaviour.yaml constraints against the test file (both pre-existing and newly written tests).
+
+For each constraint with zero test coverage:
+1. Log it: `"Constraint <id> has no test coverage (no mutation targeted it)"`
+2. Queue it for a second Mason pass -- dispatch the Mason with just the constraint description (no mutant guidance). The Mason writes a general behavioural test from the constraint alone.
+3. Run Phase A on the Mason's output (test against original code). If it passes, keep the test. If it fails, discard (the constraint may be aspirational or the Mason couldn't infer the right construction).
+
+Phase C tests do NOT go through Phase B (there is no mutant to test against). They are coverage-gap fills, not mutation kills. They carry the `@unslop-incidental` marker.
+
+Report untargeted constraints in the triage summary:
+
+```
+Untargeted constraints (not reached by mutation budget): U
+  - <constraint-id>: <description> [test written / test failed / no test]
+```
+
 **6. Triage Summary**
 
 Present all successfully validated constraints to the user:
