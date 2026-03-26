@@ -284,7 +284,7 @@ All tools return JSON strings. Key output structures:
 
 **`unslop_symbol_audit`:** `{ "status": "match"|"mismatch", "added": [str], "removed": [str], "matched": [str] }`
 
-**`unslop_discover`:** `{ "source_files": [str], "test_files": [str], "file_tree": str }`
+**`unslop_discover`:** `[str]` -- sorted list of file paths relative to the scanned directory (tests and build artifacts excluded)
 
 All error responses: `{ "error": str }`
 
