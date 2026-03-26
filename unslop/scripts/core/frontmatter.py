@@ -73,6 +73,95 @@ def parse_managed_file(content: str) -> str | None:
     return None
 
 
+def parse_intent(content: str) -> dict | None:
+    """Extract intent fields from abstract spec frontmatter.
+
+    Returns dict with intent, intent_approved, intent_hash if intent is present.
+    Returns None if no intent field found.
+
+    Handles both single-line and multi-line (YAML folded scalar >) intent values.
+    """
+    lines = content.split("\n")
+    if not lines or lines[0].strip() != "---":
+        return None
+
+    end = -1
+    for i in range(1, len(lines)):
+        if lines[i].strip() == "---":
+            end = i
+            break
+    if end == -1:
+        return None
+
+    intent = None
+    intent_approved = None
+    intent_hash = None
+    in_intent = False
+    intent_lines = []
+
+    for line in lines[1:end]:
+        stripped = line.strip()
+
+        if in_intent:
+            # Multi-line intent: continuation lines are indented, blank lines are valid
+            if stripped == "":
+                # Blank line in folded/literal scalar -- preserve as paragraph break
+                intent_lines.append("")
+                continue
+            if line.startswith("  ") and not stripped.startswith(("intent-approved:", "intent-hash:")):
+                intent_lines.append(stripped)
+                continue
+            else:
+                in_intent = False
+                intent = " ".join(part for part in intent_lines if part)
+
+        if stripped.startswith("intent:"):
+            val = stripped.split(":", 1)[1].strip()
+            if val.startswith(">") or val.startswith("|"):
+                # YAML folded/literal scalar (>, >-, >+, |, |-, |+) -- collect continuation lines
+                in_intent = True
+                intent_lines = []
+            elif val:
+                intent = val
+        elif stripped.startswith("intent-approved:"):
+            intent_approved = stripped.split(":", 1)[1].strip()
+        elif stripped.startswith("intent-hash:"):
+            intent_hash = stripped.split(":", 1)[1].strip()
+
+    # Flush multi-line intent if still collecting at end of frontmatter
+    if in_intent and intent_lines:
+        intent = " ".join(part for part in intent_lines if part)
+
+    if intent is None:
+        return None
+
+    return {
+        "intent": intent,
+        "intent_approved": intent_approved,
+        "intent_hash": intent_hash,
+    }
+
+
+def compute_intent_hash(intent_text: str) -> str:
+    """Compute a 12-char hex hash of the intent text.
+
+    Uses the same algorithm as compute_hash (SHA-256, truncated).
+    Normalizes whitespace before hashing for resilience against reformatting.
+    """
+    import hashlib
+
+    normalized = " ".join(intent_text.split())
+    return hashlib.sha256(normalized.encode("utf-8")).hexdigest()[:12]
+
+
+def validate_intent_hash(intent_text: str, stored_hash: str) -> bool:
+    """Validate that the intent text matches its stored hash.
+
+    Returns True if the hash matches, False if tampered or edited.
+    """
+    return compute_intent_hash(intent_text) == stored_hash
+
+
 def parse_concrete_frontmatter(content: str) -> dict:
     """Parse frontmatter from a concrete spec (.impl.md) file.
 

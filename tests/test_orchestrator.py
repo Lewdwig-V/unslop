@@ -28,6 +28,9 @@ from unslop.scripts.orchestrator import (
     get_all_strategy_providers,
     get_registry_key_for_spec,
     parse_managed_file,
+    parse_intent,
+    compute_intent_hash,
+    validate_intent_hash,
     parse_unit_spec_files,
     flatten_inheritance_chain,
     ripple_check,
@@ -5633,3 +5636,120 @@ def test_check_freshness_managed_file_override(tmp_path):
     )
     assert dispatch_entry is not None, f"Expected mod.rs entry, got: {[f['managed'] for f in result['files']]}"
     assert dispatch_entry["state"] == "fresh"
+
+
+# --- intent frontmatter tests ---
+
+
+def test_parse_intent_present():
+    content = """---
+depends-on:
+  - src/utils.spec.md
+intent: >
+  Pure state machine core. dispatch(&mut AppState, Action) -> Vec<Effect>
+  processes every user action and returns effects for I/O.
+intent-approved: 2026-03-26T14:32:00Z
+intent-hash: a1b2c3d4e5f6
+---
+
+# dispatch spec
+"""
+    result = parse_intent(content)
+    assert result is not None
+    assert "Pure state machine core" in result["intent"]
+    assert "Vec<Effect>" in result["intent"]
+    assert result["intent_approved"] == "2026-03-26T14:32:00Z"
+    assert result["intent_hash"] == "a1b2c3d4e5f6"
+
+
+def test_parse_intent_absent():
+    content = """---
+depends-on:
+  - src/utils.spec.md
+---
+
+# dispatch spec
+"""
+    result = parse_intent(content)
+    assert result is None
+
+
+def test_parse_intent_no_frontmatter():
+    content = "# just a markdown file\n"
+    result = parse_intent(content)
+    assert result is None
+
+
+def test_parse_intent_single_line():
+    content = """---
+intent: Pure state machine core for dispatching user actions.
+intent-approved: 2026-03-26T14:32:00Z
+intent-hash: a1b2c3d4e5f6
+---
+"""
+    result = parse_intent(content)
+    assert result is not None
+    assert result["intent"] == "Pure state machine core for dispatching user actions."
+
+
+def test_parse_intent_folded_with_chomping():
+    """YAML >- and >+ indicators should be treated as multi-line."""
+    content = """---
+intent: >-
+  First paragraph of intent.
+  Second line of first paragraph.
+intent-approved: 2026-03-26T14:32:00Z
+intent-hash: a1b2c3d4e5f6
+---
+"""
+    result = parse_intent(content)
+    assert result is not None
+    assert "First paragraph" in result["intent"]
+    assert "Second line" in result["intent"]
+    # Should NOT contain the indicator itself
+    assert result["intent"] != ">-"
+
+
+def test_parse_intent_multi_paragraph():
+    """Blank lines in folded scalars should not truncate the intent."""
+    content = """---
+intent: >
+  First paragraph about the module.
+
+  Second paragraph with more detail.
+intent-approved: 2026-03-26T14:32:00Z
+intent-hash: a1b2c3d4e5f6
+---
+"""
+    result = parse_intent(content)
+    assert result is not None
+    assert "First paragraph" in result["intent"]
+    assert "Second paragraph" in result["intent"]
+
+
+def test_compute_intent_hash():
+    intent_text = "Pure state machine core."
+    h = compute_intent_hash(intent_text)
+    assert len(h) == 12
+    # Deterministic
+    assert h == compute_intent_hash(intent_text)
+    # Different text -> different hash
+    assert h != compute_intent_hash("Something else.")
+
+
+def test_validate_intent_hash_valid():
+    intent_text = "Pure state machine core."
+    h = compute_intent_hash(intent_text)
+    assert validate_intent_hash(intent_text, h) is True
+
+
+def test_validate_intent_hash_tampered():
+    intent_text = "Pure state machine core."
+    assert validate_intent_hash(intent_text, "000000000000") is False
+
+
+def test_validate_intent_hash_edited_intent():
+    original = "Pure state machine core."
+    h = compute_intent_hash(original)
+    edited = "Pure state machine core with extra stuff."
+    assert validate_intent_hash(edited, h) is False
