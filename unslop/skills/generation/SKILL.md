@@ -142,7 +142,9 @@ Mode: <Mode A (full regeneration) | Surgical>
 - Generate a COMPLETE file, not a diff
 - Write the @unslop-managed header with spec-hash, output-hash, generated timestamp
 - If protected regions exist, write managed-end-line in the header
-- Do NOT read archived originals or any file not listed above
+- Do NOT read archived originals
+- In Mode A (takeover/full regeneration): do NOT read any file not listed above
+- In Surgical mode: the Builder MAY also read the existing managed file and files referenced in the Surgical Context blocks
 - Report DONE, DONE_WITH_CONCERNS, or BLOCKED per the hold-and-wait protocol
 ```
 
@@ -333,7 +335,7 @@ After the Builder reports its status:
    - **Worktree-live:** Inspect the Builder's output (worktree is still live). When satisfied, send via `SendMessage` to the Builder: `"Validation passed. You are authorized to exit."` The Builder then exits, triggering the worktree merge. Continue to step 3.
    - **Auto-merged:** Run `git diff HEAD --name-only` to see all changes (ground truth, not Builder's report). Inspect the diff. If valid: continue to step 3. If invalid: revert (see Revert Protocol below) and dispatch a new Builder. Do NOT continue to steps 3-6 in the revert case.
 
-**Merge decision:** Always merge the Builder's output. For takeover, the Builder's output is the new managed file (with `@unslop-managed` header) -- discarding it would lose the header and the spec-completeness proof. For sync/generate, the Builder's output reflects spec changes. The worktree merge is always the right action when the Builder reports DONE with green tests.
+**Merge decision:** When the Builder reports DONE with green tests AND the Architect's inspection confirms the output is valid, merge the Builder's output. For takeover, the Builder's output is the new managed file (with `@unslop-managed` header) -- discarding it would lose the header and the spec-completeness proof. For sync/generate, the Builder's output reflects spec changes. If inspection reveals invalid changes despite green tests (e.g., wrong file modified, spec misinterpreted), follow the Revert Protocol above -- do NOT merge.
 
 3. Compute `output-hash` on merged code, update `@unslop-managed` header. If the Builder's `generated:` timestamp is missing, `T00:00:00Z`, or older than the session start time, replace it with the current UTC time via `date -u +%Y-%m-%dT%H:%M:%SZ`.
 

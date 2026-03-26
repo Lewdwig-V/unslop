@@ -121,12 +121,12 @@ Specs are named `<file>.spec.md` and placed alongside the managed file:
 - `src/retry.py` -> `src/retry.py.spec.md`
 - `src/api/handler.ts` -> `src/api/handler.ts.spec.md`
 
-**Directory modules (e.g., Rust `mod.rs`, Python `__init__.py`):** Use the directory name, not the file name. This avoids ambiguous `mod.spec.md` or `__init__.spec.md` names that don't identify the module:
+**Directory modules (e.g., Rust `mod.rs`, Python `__init__.py`):** The human-readable convention is to use the directory name (`dispatch.spec.md` not `mod.spec.md`). However, the current path resolver derives managed files by stripping `.spec.md`, so `dispatch.spec.md` would resolve to `dispatch` not `dispatch/mod.rs`. Until resolver support lands, use the file name for tooling compatibility:
 
-- `src/dispatch/mod.rs` -> `src/dispatch/dispatch.spec.md` (not `mod.spec.md`)
-- `src/auth/__init__.py` -> `src/auth/auth.spec.md` (not `__init__.spec.md`)
+- `src/dispatch/mod.rs` -> `src/dispatch/mod.rs.spec.md`
+- `src/auth/__init__.py` -> `src/auth/__init__.py.spec.md`
 
-The same rule applies to concrete specs: `src/dispatch/dispatch.impl.md` not `src/dispatch/mod.impl.md`.
+When the resolver is updated to handle directory-module mapping, the preferred convention will be `dispatch.spec.md`.
 
 ## Dependencies Between Specs
 
