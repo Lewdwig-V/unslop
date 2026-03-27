@@ -361,6 +361,52 @@ Each entry has two required fields: `title` and `rationale`.
 
 **Distinction from `non_goals:`:** Non-goals are intent assertions ("we are not doing X"). Rejected alternatives are reasoning records ("we considered X and decided against it because Y"). The model needs both -- non-goals to know what's out of scope, rejected alternatives to know *why* so it doesn't argue back.
 
+## Spec Changelog
+
+The spec changelog records intent mutations in two linked layers: a structured frontmatter envelope and a narrative body section.
+
+### Structured Layer: `spec-changelog:` Frontmatter
+
+```yaml
+---
+spec-changelog:
+  - hash: abc123def456
+    timestamp: 2026-03-27T14:30:00Z
+    operation: elicit-amend
+    prior-hash: 9f8e7d6c5b4a
+  - hash: 7a8b9c0d1e2f
+    timestamp: 2026-03-27T10:15:00Z
+    operation: absorb
+    prior-hash: null
+---
+```
+
+Each entry has four required fields: `hash` (intent-hash after change), `timestamp` (ISO 8601), `operation` (what produced the delta), `prior-hash` (intent-hash before change, null for first entry).
+
+**Operation vocabulary:** `elicit-create`, `elicit-amend`, `elicit-distill-review`, `distill`, `absorb`, `exude`, `change-tactical`, `change-pending`.
+
+- **Append-only.** Entries are never modified or removed.
+- **Not an analysis signal.** The freshness checker, weed, generate, and all analysis layers MUST filter out `spec-changelog:` before analysis. Consumed only by display (status) and audit tooling.
+- **Written by:** Any operation that mutates the spec body.
+
+### Narrative Layer: `## Changelog` Section
+
+Always the **last section** in the spec body. Reverse chronological (most recent first). Each entry keyed by first 6 characters of intent-hash:
+
+```markdown
+## Changelog
+
+### abc123 -- 2026-03-27
+Narrowed retry scope after discovering the connection pool handles its own
+backoff. Considered making retry configurable per-caller but rejected it --
+YAGNI.
+
+### 7a8b9c -- 2026-03-27
+Initial spec created via absorb from retry.py.spec.md and backoff.py.spec.md.
+```
+
+Written by the agent that produced the change, at the moment of mutation while reasoning is still in context.
+
 ## Dependencies Between Specs
 
 When a managed file imports from or relies on another managed file, declare the dependency in YAML frontmatter:
