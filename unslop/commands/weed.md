@@ -53,6 +53,20 @@ Stop here. Do not proceed to Step 2.
 
 6. If `--all` was passed or explicit file targets were given: proceed to Step 2 for all targets regardless of static results. The static pre-pass still runs and reports its findings first, but does not filter the target set.
 
+7. **Structural mismatch check:** For each spec in the target set, check if the managed file exists. If the managed file does not exist and the spec has active provenance (`distilled-from:`, `absorbed-from:`, or `exuded-from:` -- NOT `provenance-history:`), report as a structural mismatch:
+
+```
+Structural mismatch detected:
+  src/retry.py.spec.md -> src/retry.py (file missing, has distilled-from provenance)
+  src/backoff.py.spec.md -> src/backoff.py (file missing, has absorbed-from provenance)
+
+Manual resolution required. See /unslop:absorb and /unslop:exude.
+```
+
+Structural mismatches are reported alongside static drift candidates but are NOT passed to the Tier 2 LLM analysis (there is no code to compare against). They are diagnostic only -- weed cannot determine whether the correct action is absorb, exude, or spec removal.
+
+Specs in `pending` state (no managed file, no provenance) are NOT structural mismatches. They are planned specs awaiting generation. Weed skips them entirely -- there is nothing to compare the spec against.
+
 **Why Tier 1 first:** The static pass is cheap (hash comparison, no LLM) and catches the most common drift case (spec changed, code/tests not regenerated). This makes weed viable in CI where LLM calls are expensive or unavailable.
 
 **2. Analysis**

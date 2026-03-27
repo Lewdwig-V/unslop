@@ -73,6 +73,14 @@ Note: `/unslop:change` requires a managed file with an existing spec (Step 1 pre
 2. No downstream dependents have locked intent.
 3. The user passed `--tactical` (explicit fast-path).
 
+**1d. Granularity change suggestion (heuristic)**
+
+If the change description mentions restructuring keywords ("merge," "combine," "split," "extract," "reorganize," "consolidate," "partition"), suggest spec-layer operations:
+
+> "This sounds like it might involve restructuring the spec layer. Did you mean to merge specs (`/unslop:absorb`) or split a spec (`/unslop:exude`) before making this change?"
+
+This is always a suggestion, never an automatic redirect. The user can dismiss and proceed with the normal change flow. The heuristic has high false-positive rates for common words -- change never routes to absorb/exude automatically.
+
 When elicitation is triggered, run `/unslop:elicit <target-path>` (which handles the Socratic dialogue, candidate output, approval, and downstream flagging) and then return. The change entry in `*.change.md` is NOT written -- the elicit flow writes the spec directly.
 
 When elicitation is skipped, continue to Step 2 (the existing change flow).
