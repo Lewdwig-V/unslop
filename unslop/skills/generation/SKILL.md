@@ -36,11 +36,11 @@ The Architect processes change intent and updates the spec. It runs in the user'
 
 **Exception:** During `/unslop:takeover`, the Architect reads existing source code and tests -- the point of takeover is extracting intent FROM code. Stage B still runs in a clean worktree.
 
-### Stage A.2: Implementation Strategist (Subagent)
+### Stage A.2: Archaeologist (Subagent)
 
-After the Architect finalizes the Abstract Spec (Stage A.1) and before dispatching the Builder, the Strategist drafts a Concrete Spec -- the "Middle-End IR" that bridges intent and code.
+After the Architect finalizes the Abstract Spec (Stage A.1) and before dispatching the Builder, the Archaeologist drafts a Concrete Spec -- the "Middle-End IR" that bridges intent and code.
 
-**The Strategist runs as a subagent** for context hygiene. The Architect dispatches it with `model` from config (`strategist` key, default `sonnet`). The Strategist's algorithmic analysis stays in its own context, keeping the Architect clean for orchestration.
+**The Archaeologist runs as a subagent** for context hygiene. The Architect dispatches it with `model` from config (`archaeologist` key, default `sonnet`). The Archaeologist's algorithmic analysis stays in its own context, keeping the Architect clean for orchestration.
 
 **Persona:** Senior Implementation Engineer. Thinks in algorithms and patterns, not business requirements or syntax.
 
@@ -53,6 +53,9 @@ After the Architect finalizes the Abstract Spec (Stage A.1) and before dispatchi
 
 **Output (returned to the Architect):**
 - A Concrete Spec (`*.impl.md`) content -- either written as a file or returned for prompt-embedding
+- A `behaviour.yaml` fragment -- behavioural DSL entries derived from the Abstract Spec's constraints, for Mason's exclusive use
+
+**Dual projection:** The Archaeologist produces both artefacts in a single pass. The Concrete Spec is the implementation strategy for the Builder (algorithmic "how"). The `behaviour.yaml` fragment is the testable constraint set for Mason (behavioural "what"). `non_goals:` from the Abstract Spec are projected into `behaviour.yaml` as negative constraints (invariants asserting behaviour is NOT present) and into the Concrete Spec as explicit exclusions. The two projections are derived from the same spec read but delivered to different consumers -- the Builder never reads `behaviour.yaml` and Mason never reads the Concrete Spec (Chinese Wall).
 
 **When Stage A.2 runs:**
 - **Always** for new files and takeover (full pipeline)
@@ -65,9 +68,9 @@ After the Architect finalizes the Abstract Spec (Stage A.1) and before dispatchi
 - Promoted to **permanent** via `/unslop:promote <spec-path>`, or automatically if the project or spec is marked `complexity: high` in `.unslop/config.json` or spec frontmatter
 - When permanent: lives alongside the Abstract Spec as `<file>.impl.md`, version-controlled, code-reviewed
 
-**Ephemeral delivery:** The Strategist subagent returns the concrete spec content to the Architect. Two delivery methods to the Builder:
+**Ephemeral delivery:** The Archaeologist subagent returns the concrete spec content to the Architect. Two delivery methods to the Builder:
 - **File-based (preferred for permanent specs):** The Architect writes the `.impl.md` file to disk. The Builder reads it from the path listed in the prompt template.
-- **Prompt-embedded (acceptable for ephemeral specs):** The Architect embeds the Strategist's output directly in the Builder's dispatch prompt under the `## Ephemeral Concrete Spec` section. This avoids creating a file that will be immediately discarded. Either method is valid -- the Builder receives the same strategic guidance.
+- **Prompt-embedded (acceptable for ephemeral specs):** The Architect embeds the Archaeologist's output directly in the Builder's dispatch prompt under the `## Ephemeral Concrete Spec` section. This avoids creating a file that will be immediately discarded. Either method is valid -- the Builder receives the same strategic guidance.
 
 **Concrete Spec format:** See the `unslop/concrete-spec` skill for the full format specification. The key sections are:
 - `## Strategy` — pseudocode for the core algorithm
@@ -81,9 +84,9 @@ After the Architect finalizes the Abstract Spec (Stage A.1) and before dispatchi
 
 **Protected Region Hash Verification (Controlling Session):** After the Builder completes, the Architect MUST verify the protected region was preserved exactly. Hash the protected region content before the Builder runs and after. If the hashes differ, the Builder corrupted the region -- discard the worktree and re-dispatch. Do not rely on visual inspection for large protected regions (e.g., 3900-line test blocks).
 
-**Strategy Inheritance:** If the concrete spec has `extends: <base.impl.md>` in its frontmatter, the Strategist resolves the inheritance chain via `resolve_inherited_sections()` before presenting the concrete spec to the Builder. The Builder receives the **resolved** concrete spec — it never sees the raw `extends` directive. Resolution uses three section-specific policies: `## Strategy` and `## Type Sketch` are **strict child-only** (parent is purged — a child that omits these fails Phase 0a.1 validation); `## Pattern` is **overridable** (child replaces parent by key, parent persists if child omits); `## Lowering Notes` is **additive** (parent + child merged by language heading). See the `unslop/concrete-spec` skill for full resolution semantics.
+**Strategy Inheritance:** If the concrete spec has `extends: <base.impl.md>` in its frontmatter, the Archaeologist resolves the inheritance chain via `resolve_inherited_sections()` before presenting the concrete spec to the Builder. The Builder receives the **resolved** concrete spec — it never sees the raw `extends` directive. Resolution uses three section-specific policies: `## Strategy` and `## Type Sketch` are **strict child-only** (parent is purged — a child that omits these fails Phase 0a.1 validation); `## Pattern` is **overridable** (child replaces parent by key, parent persists if child omits); `## Lowering Notes` is **additive** (parent + child merged by language heading). See the `unslop/concrete-spec` skill for full resolution semantics.
 
-The Strategist should use `extends` when generating concrete specs for modules that share architectural patterns (e.g., multiple FastAPI endpoints inheriting from `shared/fastapi-async.impl.md`). This reduces token cost and ensures consistency across related modules.
+The Archaeologist should use `extends` when generating concrete specs for modules that share architectural patterns (e.g., multiple FastAPI endpoints inheriting from `shared/fastapi-async.impl.md`). This reduces token cost and ensures consistency across related modules.
 
 **User approval:** Stage A.2 does NOT require user approval for ephemeral concrete specs. The user approved the Abstract Spec in Stage A.1 — the Concrete Spec is a derivation, not a new requirement. For permanent concrete specs, present a summary:
 
@@ -93,17 +96,39 @@ Only block on user rejection.
 
 ---
 
+### Stage A.3: Mason (Subagent) -- Test Generation
+
+After the Archaeologist delivers its dual output, the Architect dispatches the Mason to generate a test file from the `behaviour.yaml` fragment. The Mason runs before the Builder so that tests exist before code is generated.
+
+**Chinese Wall:** The Mason receives ONLY the `behaviour.yaml` fragment as input. It does NOT read the Concrete Spec, the Abstract Spec, or any existing source code. This isolation ensures tests are derived purely from specified behaviour, not from implementation details.
+
+**Inputs (provided by the Architect):**
+- `behaviour.yaml` fragment from Stage A.2 (Archaeologist output)
+- Model: `config.models.mason` (default: `sonnet`)
+
+**Output:**
+- A test file with an `@unslop-managed` header and a `## behaviour-source: behaviour.yaml` annotation
+- The test file is written to the project's standard test location, derived from the managed file's path
+
+**Conditional execution:**
+- **Skipped** if existing tests are present for the managed file (test file already exists and is not `@unslop-managed`)
+- **Skipped** if `--no-mason` flag is passed
+- **Runs with `--regenerate-tests`** even when existing tests are present (overwrites `@unslop-managed` test files; refuses to overwrite non-managed test files)
+
+**Failure handling:** If Mason reports BLOCKED, the Architect does NOT proceed to Builder dispatch. Surface the failure to the user and halt the pipeline. The `behaviour.yaml` fragment and Concrete Spec are retained in the worktree for inspection.
+
+---
+
 ### Model Selection
 
 Before dispatching subagents, read `.unslop/config.json`. If a `models` block exists, use the role-specific key as the `model` parameter to `Agent()`. If the key is absent, use the default:
 
 | Role | Config key | Default | Rationale |
 |---|---|---|---|
-| Strategist | `strategist` | sonnet | Algorithmic analysis, pattern selection |
+| Archaeologist | `archaeologist` | sonnet | Algorithmic analysis, pattern selection, dual projection (concrete spec + behaviour.yaml) |
+| Mason | `mason` | sonnet | Chinese Wall removes context, model must compensate with stronger reasoning |
 | Builder | `builder` | sonnet | Code generation from detailed specs |
 | Saboteur | `saboteur` | haiku | Mechanical mutation (swap operators, remove calls) |
-| Archaeologist | `archaeologist` | sonnet | Semantic reasoning about code invariants |
-| Mason | `mason` | sonnet | Chinese Wall removes context, model must compensate with stronger reasoning |
 
 The `model` parameter controls which Claude model runs the subagent. Valid values: `sonnet`, `opus`, `haiku`, or a full model ID (e.g., `claude-sonnet-4-6`).
 
@@ -112,19 +137,19 @@ The `model` parameter controls which Claude model runs the subagent. Valid value
 The generation pipeline has a strict dependency order:
 
 ```
-Strategist -> Builder -> Validator
+Archaeologist -> Mason -> Builder -> Validator
 ```
 
-The Architect dispatches Strategist, receives the concrete spec, then dispatches Builder with it. No parallelism within a single file's pipeline.
+The Architect dispatches Archaeologist, receives the concrete spec and behaviour.yaml, dispatches Mason (test generation, if applicable), then dispatches Builder with the concrete spec. No parallelism within a single file's pipeline -- Mason must complete before Builder to ensure tests exist before code is generated.
 
-**Multi-file parallelism:** When processing multiple files (e.g., `/unslop:generate` with several stale specs), independent files MAY have their Strategist and Builder subagents dispatched in parallel. Two files are independent if neither appears in the other's `depends-on` chain. Files in the same dependency chain MUST be processed sequentially in build order (leaves first).
+**Multi-file parallelism:** When processing multiple files (e.g., `/unslop:generate` with several stale specs), independent files MAY have their Archaeologist, Mason, and Builder subagents dispatched in parallel. Two files are independent if neither appears in the other's `depends-on` chain. Files in the same dependency chain MUST be processed sequentially in build order (leaves first).
 
 The Architect SHOULD maximize parallelism across independent files. For example, with 4 stale files where A depends on B but C and D are independent:
 
 ```
-B.Strategist -> B.Builder -> A.Strategist -> A.Builder  (sequential: A depends on B)
-C.Strategist -> C.Builder                               (parallel with B/A chain)
-D.Strategist -> D.Builder                               (parallel with B/A chain and C)
+B.Archaeologist -> B.Mason -> B.Builder -> A.Archaeologist -> A.Mason -> A.Builder  (sequential: A depends on B)
+C.Archaeologist -> C.Mason -> C.Builder                                             (parallel with B/A chain)
+D.Archaeologist -> D.Mason -> D.Builder                                             (parallel with B/A chain and C)
 ```
 
 ### Stage B: Builder (Fresh Agent, Worktree Isolation)
@@ -415,6 +440,31 @@ Files cleaned: <list from git ls-files --others>
 ```
 
 This uses the same cache path and lifecycle as normal Builder failure reports.
+
+### Async Saboteur (Post-Generate, Fire-and-Forget)
+
+After the Builder reports DONE with green tests and the Architect has authorized the merge, the Architect fires the Saboteur as a background verification task. The Saboteur does NOT block the generate pipeline -- the commit and merge happen before the Saboteur starts.
+
+**Trigger:** Fired immediately after the atomic commit (step 5 of Verification), only on Builder DONE (not DONE_WITH_CONCERNS or BLOCKED).
+
+**Fire-and-forget semantics:** The Architect dispatches the Saboteur and does not await its result before responding to the user. The generation command reports completion immediately. The Saboteur runs independently in the background.
+
+**Saboteur inputs:**
+- Path to the newly committed managed file
+- Path to its `*.spec.md`
+- Path to the Mason-generated test file (if present)
+- Model: `config.models.saboteur` (default: `haiku`)
+
+**Saboteur outputs:** Results are written to `.unslop/verification/<spec-path-hash>/saboteur-<timestamp>.md`. These files are excluded from version control (`.unslop/.gitignore`).
+
+**Timeout semantics:** The Saboteur has a default timeout of 120 seconds. If it does not complete within the timeout, the result file is written with `status: timeout` and a partial mutation report. The timeout does not affect the generation output in any way.
+
+**Does not block generate:** A Saboteur failure or timeout never rolls back the commit, reverts the merge, or modifies the managed file. Saboteur results surface through `/unslop:status` and `/unslop:adversarial`. If the Saboteur identifies escaping mutants, the user can trigger a full adversarial run via `/unslop:adversarial` to produce spec-backed tests.
+
+**Skipped when:**
+- `adversarial: "mason-only"` was set during testless takeover
+- `--no-saboteur` flag is passed
+- No test file exists for the managed file after Mason
 
 ### Optional Drift Check (Diagnostic Tool)
 
