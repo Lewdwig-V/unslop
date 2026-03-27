@@ -6470,3 +6470,44 @@ discovered:
     assert len(result) == 0
     captured = capsys.readouterr()
     assert "malformed discovered entry" in captured.err
+
+
+def test_parse_discovered_colons_in_values():
+    """Values containing colons should be preserved (split on first colon only)."""
+    content = """---
+discovered:
+  - title: "Ordering: token before retry"
+    observation: "Retry depends on: token refresh before each attempt."
+    question: "Should the spec require: token refresh ordering?"
+---
+
+# spec
+"""
+    result = parse_discovered(content)
+    assert len(result) == 1
+    assert result[0]["title"] == "Ordering: token before retry"
+    assert "token refresh" in result[0]["observation"]
+    assert "token refresh ordering?" in result[0]["question"]
+
+
+def test_parse_discovered_with_other_fields():
+    """Parser works when discovered: appears between other frontmatter fields."""
+    content = """---
+intent: Handles retry logic
+discovered:
+  - title: "Hidden dep"
+    observation: "Needs connection pool."
+    question: "Add depends-on?"
+non_goals:
+  - Circuit breaker
+uncertain:
+  - title: "Unbounded loop"
+    observation: "No cap."
+    question: "Intentional?"
+---
+
+# spec
+"""
+    result = parse_discovered(content)
+    assert len(result) == 1
+    assert result[0]["title"] == "Hidden dep"
