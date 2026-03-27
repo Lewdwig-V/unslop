@@ -1,132 +1,60 @@
 ---
-description: Run the takeover pipeline on an existing file, directory, or glob
-argument-hint: <file-path|directory|glob> [--force-ambiguous] [--skip-adversarial] [--full-adversarial]
+description: Bring existing code under spec-driven management
+argument-hint: <file-path> [--spec-only]
 ---
 
-**Parse arguments:** `$ARGUMENTS` may contain the target path and optional flags. Extract the target path (the first argument that does not start with `--`) and check for flags:
-
-- `--force-ambiguous` -- allow ambiguous specs (existing)
-- `--skip-adversarial` -- skip the adversarial pipeline even for testless files. The Builder generates with the standard test_policy ("Write or extend tests") instead of the testless path. Use for files where mutation testing is impractical (pure I/O, GUI code).
-- `--full-adversarial` -- force full mutation testing (Mason + Saboteur) regardless of the Architect's intensity assessment.
-
-Strip flags before using the path in subsequent steps.
-
-**Testless detection:** The takeover skill (Step 1) detects test absence automatically and routes to the testless path. No `--no-tests` flag is needed. If `--skip-adversarial` is set, pass it to the skill so it uses the standard Builder-writes-tests path even when no tests exist.
-
-**0. Detect mode**
-
-Determine whether this is a single-file or multi-file takeover:
-
-- If `$ARGUMENTS` is a directory path (test with filesystem check): **multi-file mode**
-- If `$ARGUMENTS` contains glob characters (`*`, `?`): expand the glob to get a file list. If multiple files match, **multi-file mode**. If one file matches, **single-file mode**.
-- Otherwise: **single-file mode** (existing behavior, unchanged)
-
-Multi-file mode requires Python 3.8+. Check that `python3` or `python` is available. If not, stop and tell the user: "Multi-file takeover requires Python 3.8+. Install Python or use single-file takeover on individual files."
+**Parse arguments:** `$ARGUMENTS` contains the file path and an optional `--spec-only` flag. Extract:
+- The file path: first token that does not start with `--`.
+- The `--spec-only` flag, if present (stops after distill + elicit, skips generate).
 
 **1. Verify prerequisites**
 
-Check that `.unslop/` exists in the current working directory. If it does not exist, stop and tell the user:
-
+Check that `.unslop/` exists. If not, stop:
 > "unslop is not initialized. Run `/unslop:init` first."
 
-Check that the file at `$ARGUMENTS` exists. If it does not exist, stop and tell the user:
+Check that the target file exists. If not, stop:
+> "File not found: `<file-path>`."
 
-> "File not found. If you want to create a new managed file from scratch, use `/unslop:spec` instead."
+Check that the target file is NOT already managed (no `@unslop-managed` header in the first 5 lines). If it is:
+> "File is already managed by unslop. Use `/unslop:change` to modify it, or `/unslop:sync` to regenerate."
 
-**Check for `--force-ambiguous` flag:** If `$ARGUMENTS` contains `--force-ambiguous`, note this for the generation skill. When present, ambiguity detection reports warnings instead of blocking.
+**2. Phase 1: Distill**
 
-Check for a `*.change.md` sidecar for the target file (same directory, same base name with `.change.md` extension). If one exists with pending entries, warn: "This file has N pending changes that will be lost during takeover. Process them first with `/unslop:sync` or use `--force` to proceed." Require `--force` to continue.
+Run `/unslop:distill <file-path>`.
 
----
+Distill reads the existing code and produces a candidate spec as `<spec-path>.proposed`. The user reviews and approves the distilled spec. If rejected, stop.
 
-**Single-file mode**
+After approval, the spec exists as `<spec-path>` with `distilled-from:` provenance, `uncertain:` entries, and `intent-approved: false`.
 
-**2. Load context**
+**3. Phase 2: Elicit (distillation review)**
 
-Read `.unslop/config.json` (or `.unslop/config.md` as legacy fallback) to obtain the test command.
+Run `/unslop:elicit <file-path>`.
 
-**3. Run the takeover pipeline**
+Elicit detects `distilled-from:` in the spec frontmatter and enters distillation review mode. The user resolves uncertainties, ratifies non-goals, and validates the intent statement.
 
-**Load and follow** the **unslop/takeover** skill step-by-step. Do not summarize or abbreviate the pipeline. Each step (0 through 8) MUST execute in order.
+After elicit completes:
+- `uncertain:` entries are cleared.
+- `distilled-from:` persists as provenance.
+- Non-goals are ratified (no more "(inferred)" suffixes).
+- The spec is ready for generation.
 
-**No complexity shortcuts.** The full pipeline (Pre-flight -> Raise to Concrete -> Raise to Abstract -> Archive -> Strategist subagent -> Builder subagent) runs for ALL files regardless of perceived complexity. A trait definition with zero implementation logic still goes through the full subagent chain. The pipeline is proving the spec, not the code.
+**4. Phase 3: Generate (unless `--spec-only`)**
 
-**Why subagents, not inline?** Two reasons that compound:
-1. **Context hygiene** -- the Architect's context is a finite resource. Each subagent's detailed work (algorithmic analysis, code generation, test output) stays in the subagent's context and is returned as a summary. This lets the Architect process multiple files sequentially without context exhaustion.
-2. **Correctness** -- the Builder must reproduce code from the spec alone (proving spec sufficiency). Running the Builder inline would let it leverage the Architect's memory of the original source code, defeating the proof.
+If `--spec-only` was passed, stop and report:
+> "Spec written and reviewed: `<spec-path>`. Run `/unslop:generate <file-path>` when ready to generate code."
 
-**Pre-flight split creates multi-file takeover.** If Step 0 splits a file into submodules, the single-file command becomes a multi-file takeover. Queue all resulting submodules for individual takeover, facade last. Each submodule goes through the full pipeline independently (Intent Lock, Raise to Concrete, Raise to Abstract, Archive, Builder). The pre-flight split commit is already done -- do not re-split.
+Otherwise, run `/unslop:generate <file-path>`.
 
-The pipeline operates in two stages:
+Generate runs the unified pipeline: Archaeologist Stage 0 (concrete spec + behaviour.yaml), Mason Stage 1 (test derivation), Builder Stage 2 (implementation in worktree), Saboteur Stage 3 (async verification).
 
-- **Stage A (Architect -- current session):** Step 0 (Pre-flight) analyzes complexity and splits large files. Step 1 (Discover) reads the existing code and tests. Then **Phase 0a.0 (Intent Lock)** fires: the Architect presents "From the existing code, I understand this module's purpose is [intent]. I'll draft a spec that captures [behaviors]. Does this match your understanding?" If rejected, the Architect reformulates; if abandoned, no artifacts are left. After Intent Lock approval, the Architect raises through two levels:
-  - **Step 2 (Raise to Concrete):** Extract the implementation strategy into a Concrete Spec (`*.impl.md`) -- algorithms, patterns, type structure. This is mandatory even for simple files; it provides the Builder's strategic guide. The Concrete Spec raised in Step 2 is ephemeral by default. It is passed to the Builder as strategic guidance but NEVER committed. If a detail in the concrete spec turns out to be load-bearing for correctness, that is a signal the abstract spec has a gap -- enrich the abstract spec, don't persist the concrete spec. Only the Abstract Spec and the generated code are committed together.
-  - **Step 2b (Raise to Abstract):** Extract observable behavior into the Abstract Spec (`*.spec.md`). Present to user for approval.
-  - **Step 3 (Archive):** Archive originals to `.unslop/archive/`.
-
-- **Stage B (Strategist + Builder -- subagents):** Steps 4-6 of the takeover skill (Generate, Validate, Convergence).
-
-  **Subagent dependency chain (per file):**
-  ```
-  Strategist (subagent) -> Builder (subagent, worktree) -> Validator (Architect)
-  ```
-
-  The Architect dispatches the Strategist subagent first (`model` from config, `strategist` key). The Strategist receives the abstract spec and returns a concrete spec. The Architect then dispatches the Builder with the concrete spec. No step can be skipped or run inline.
-
-  **Multi-file parallelism:** After a pre-flight split, the Architect queues multiple files. Independent files (no `depends-on` relationship) MAY have their Strategist and Builder subagents dispatched in parallel. Dependent files MUST be processed sequentially (leaves first, facade last).
-
-  **HARD RULE:** The Builder MUST run as a subagent dispatched with `isolation="worktree"` and `model` from config (`builder` key). The Builder receives ONLY:
-  - The abstract spec (`*.spec.md`)
-  - The concrete spec (`*.impl.md`) from the Strategist
-  - `.unslop/config.json`
-  - `.unslop/principles.md`
-
-  The Builder MUST NOT receive the archived original, the Architect's conversation context, or any code the Architect read during Stage A. This isolation is the integrity guarantee: if the Builder reproduces the code from the spec alone, the spec is proven sufficient. Generating inline (in the Architect session) violates this because the Architect has already seen the original source code.
-
-  If you find yourself using Write/Edit on the managed file directly -- STOP. You are violating worktree isolation.
-
-> **Anti-patterns (these are pipeline violations, not style preferences):**
->
-> 1. **Inline generation** -- The Architect writes code directly using Write/Edit instead of dispatching a Builder subagent. Violates isolation guarantee.
-> 2. **Skipping concrete spec** -- Going from abstract spec directly to code. The Builder generates with no strategic constraints, producing unpredictable output even for "simple" files.
-> 3. **Batch commits without validation** -- Committing specs without running the Builder first. The spec's sufficiency is unproven.
-> 4. **Passing archive to Builder** -- Giving the Builder access to the original code, defeating the spec-completeness proof.
-> 5. **Committing ephemeral concrete specs** -- Concrete specs with `ephemeral: true` are Builder scratch pads, not committed artifacts. If something in the concrete spec matters for correctness, re-raise it into the abstract spec as a high-level constraint.
-
-**Spec hierarchy (strict):**
-- **Abstract spec** = committed source of truth (the "what")
-- **Concrete spec** = ephemeral Builder guidance (the "how"), derived fresh each time
-- If the Builder needs something in the concrete spec to succeed, the abstract spec has a gap -- enrich the abstract spec, never persist the concrete spec as the fix
-- Promoting a concrete spec to permanent (`/unslop:promote <spec-path>`) is the escape hatch for genuinely complex implementation strategies that can't be captured as abstract constraints -- the exception, not the norm
-
-The spec update is staged but not committed until the Builder succeeds. On convergence failure, the staged spec is reverted.
-
-Use the **unslop/spec-language** skill for spec drafting guidance.
-Use the **unslop/generation** skill for the Builder's code generation discipline.
-
-**4. Update the alignment summary**
-
-After a successful takeover (tests green, files committed), add the managed file to `.unslop/alignment-summary.md` under the `## Managed files` section:
+**5. Post-takeover summary**
 
 ```
-- `<managed-file-path>` <- `<spec-file-path>` (fresh, generated <ISO8601 timestamp>)
-  Intent: <one-line summary of what the spec describes>
+Takeover complete:
+  Spec: <spec-path>
+  Tests: <test-path> (generated by Mason)
+  Code: <file-path> (regenerated by Builder)
+  Verification: pending (Saboteur running in background)
+
+The spec is the source of truth. Edit the spec, not the code.
 ```
-
-Read the spec's first sentence or Purpose section to derive the intent summary.
-
-If the takeover ends in the abandonment state (convergence loop exhausted), do not update the alignment summary. The file is not yet under clean spec management.
-
----
-
-**Multi-file mode**
-
-If multi-file mode was detected:
-
-1. Call `python ${CLAUDE_PLUGIN_ROOT}/scripts/orchestrator.py discover <directory> --extensions <detected-extensions>` to find source files. Detect the extensions from the directory contents (e.g., `.py` for Python, `.rs` for Rust, `.ts` for TypeScript).
-2. Present the discovered file list to the user for confirmation. They may add or remove files.
-3. After confirmation, **load and follow** the **unslop/takeover** skill in multi-file mode step-by-step. The Architect raises ALL files to concrete then abstract specs before any Builder is dispatched. Each Builder dispatch runs in an isolated worktree with `model` from config. For per-file mode, dispatch Builders in dependency order (leaves first). For per-unit mode, a single Builder generates all files in one worktree session. The same HARD RULE, anti-patterns, and "no complexity shortcuts" constraints from single-file mode apply to every file in the batch.
-4. Use the **unslop/spec-language** skill for spec drafting guidance.
-5. Use the **unslop/generation** skill for code generation discipline.
-6. Read the test command from `.unslop/config.json` (or `.unslop/config.md` as legacy fallback).
-7. After successful takeover, update `.unslop/alignment-summary.md` with entries for all newly managed files.
