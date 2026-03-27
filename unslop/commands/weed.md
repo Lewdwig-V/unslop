@@ -30,6 +30,31 @@ If no targets found:
 
 > "No files to weed."
 
+**1b. Static drift pre-pass (Tier 1)**
+
+Before running the full LLM analysis, perform a cheap hash-based drift check on each target:
+
+1. For each target file: compare the `spec-hash` in its `@unslop-managed` header against the current spec content hash.
+2. For each target's test file (if it has an `@unslop-managed` header): compare the test's `spec-hash` against the current spec content hash.
+3. Any hash mismatch = drift candidate. Report without LLM analysis:
+
+```
+Static drift detected:
+  src/retry.py -- spec-hash mismatch (code generated from older spec)
+  tests/test_retry.py -- test-drifted (tests generated from older spec)
+```
+
+4. If no static drift candidates AND no explicit file targets AND `--all` was not passed:
+> "No drift detected (static check). Use `--all` to run full LLM analysis regardless."
+
+Stop here. Do not proceed to Step 2.
+
+5. If static drift candidates exist: proceed to Step 2 (dynamic analysis) for those files only. The static pass narrows the set the LLM needs to analyze.
+
+6. If `--all` was passed or explicit file targets were given: proceed to Step 2 for all targets regardless of static results. The static pre-pass still runs and reports its findings first, but does not filter the target set.
+
+**Why Tier 1 first:** The static pass is cheap (hash comparison, no LLM) and catches the most common drift case (spec changed, code/tests not regenerated). This makes weed viable in CI where LLM calls are expensive or unavailable.
+
 **2. Analysis**
 
 For each target file:

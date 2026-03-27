@@ -220,7 +220,7 @@ Each target gets its own Builder in a separate worktree. Git supports concurrent
 ```
 Architect (Stage A)
     ↓
-Strategist (Stage A.2) — single concrete spec
+Archaeologist (Stage A.2) — single concrete spec
     ↓
 ┌─────────────────────────────────────────────────┐
 │  Parallel Builder Dispatch + Status Board       │
@@ -442,7 +442,7 @@ Concrete specs can form multi-level inheritance chains: `child extends parent ex
 
 **Cycle detection:** The `extends` chain is validated by the same cycle detection used for `concrete-dependencies`. A cycle in `extends` (A extends B extends A) raises `CIRCULAR_DEPENDENCY_ERROR` during Phase 0a.1.
 
-**Maximum depth:** 3 levels (grandparent → parent → child). Deeper chains indicate over-abstraction. If the Strategist needs more than 3 levels, it should flatten the hierarchy.
+**Maximum depth:** 3 levels (grandparent → parent → child). Deeper chains indicate over-abstraction. If the Archaeologist needs more than 3 levels, it should flatten the hierarchy.
 
 ### Required Sections
 
@@ -744,7 +744,7 @@ The concrete spec is the Builder's **internal monologue** — it exists to impro
 
 ### Complexity Scoring
 
-The Strategist (Stage A.2) assesses complexity when drafting the Concrete Spec:
+The Archaeologist (Stage A.2) assesses complexity when drafting the Concrete Spec:
 
 | Score | Criteria | Examples |
 |---|---|---|
@@ -752,7 +752,7 @@ The Strategist (Stage A.2) assesses complexity when drafting the Concrete Spec:
 | `medium` | Multiple interacting algorithms, branching control flow, moderate type structure | Pagination with cursor management, rate limiter, connection pool |
 | `high` | Complex state machines, concurrent logic, intricate type hierarchies, non-obvious invariants | Jitter backoff, auth handshake, distributed lock, event sourcing |
 
-**Complexity is assessed, not declared.** The Strategist evaluates the algorithmic complexity of the implementation strategy, not the business importance.
+**Complexity is assessed, not declared.** The Archaeologist evaluates the algorithmic complexity of the implementation strategy, not the business importance.
 
 ### Auto-Promotion Threshold
 
@@ -770,7 +770,7 @@ The project-level threshold in `.unslop/config.json` determines which complexity
 | `"medium"` | ephemeral | **auto-promoted** | **auto-promoted** |
 | `"low"` | **auto-promoted** | **auto-promoted** | **auto-promoted** |
 
-When auto-promoted, the Strategist notifies the user but does not block:
+When auto-promoted, the Archaeologist notifies the user but does not block:
 
 > "Complexity assessed as `high` (meets promote threshold). Concrete spec will be retained as `<impl-path>`."
 
@@ -781,7 +781,7 @@ A concrete spec is promoted from ephemeral to permanent in these cases:
 1. **Manual promotion**: User runs `/unslop:promote <spec-path>` (or `/unslop:harden --promote <spec-path>`) — the current implementation strategy is saved alongside the abstract spec
 2. **Auto-promotion**: Assessed complexity meets or exceeds the project's `promote-threshold`
 3. **Cross-language projects**: When `target-language` differs across generations of the same abstract spec, concrete specs are retained to preserve the language-specific lowering notes
-4. **Builder-proposed upgrade**: If the Builder discovers during Stage B that the implementation is harder than the Strategist assessed (e.g., unexpected edge cases, concurrency concerns), it may propose a complexity upgrade in its DONE_WITH_CONCERNS report. The controlling session re-evaluates and promotes if the new score meets the threshold
+4. **Builder-proposed upgrade**: If the Builder discovers during Stage B that the implementation is harder than the Archaeologist assessed (e.g., unexpected edge cases, concurrency concerns), it may propose a complexity upgrade in its DONE_WITH_CONCERNS report. The controlling session re-evaluates and promotes if the new score meets the threshold
 
 ### Permanent Concrete Spec Rules
 

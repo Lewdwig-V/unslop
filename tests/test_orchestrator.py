@@ -31,6 +31,8 @@ from unslop.scripts.orchestrator import (
     parse_needs_review,
     parse_non_goals,
     parse_review_acknowledged,
+    parse_uncertain,
+    parse_distilled_from,
     parse_intent,
     compute_intent_hash,
     validate_intent_hash,
@@ -6098,3 +6100,293 @@ def test_check_freshness_needs_review_on_missing_managed_file(tmp_path):
     assert len(result["files"]) == 1
     assert result["files"][0]["state"] == "stale"
     assert result["files"][0].get("needs_review") == "d4e5f6a1b2c3"
+
+
+def test_parse_uncertain_basic():
+    content = """---
+uncertain:
+  - title: "Unbounded retry loop"
+    observation: "Code retries indefinitely with no cap."
+    question: "Is the missing cap intentional?"
+  - title: "Silent exception swallowing"
+    observation: "ConnectionError caught and returns None."
+    question: "Should errors propagate?"
+---
+
+# spec
+"""
+    result = parse_uncertain(content)
+    assert len(result) == 2
+    assert result[0]["title"] == "Unbounded retry loop"
+    assert result[0]["observation"] == "Code retries indefinitely with no cap."
+    assert result[0]["question"] == "Is the missing cap intentional?"
+    assert result[1]["title"] == "Silent exception swallowing"
+
+
+def test_parse_uncertain_empty():
+    content = """---
+uncertain:
+---
+
+# spec
+"""
+    result = parse_uncertain(content)
+    assert result == []
+
+
+def test_parse_uncertain_missing():
+    content = """---
+depends-on:
+  - foo.spec.md
+---
+
+# spec
+"""
+    result = parse_uncertain(content)
+    assert result == []
+
+
+def test_parse_uncertain_no_frontmatter():
+    content = "# Just a spec"
+    result = parse_uncertain(content)
+    assert result == []
+
+
+def test_parse_uncertain_missing_required_field(capsys):
+    content = """---
+uncertain:
+  - title: "Missing question"
+    observation: "Something observed."
+---
+
+# spec
+"""
+    result = parse_uncertain(content)
+    assert result == []
+    captured = capsys.readouterr()
+    assert "missing required field" in captured.err
+
+
+def test_parse_uncertain_with_other_fields():
+    content = """---
+intent: Handles retry logic
+uncertain:
+  - title: "No cap"
+    observation: "Retries forever."
+    question: "Intentional?"
+non_goals:
+  - Circuit breaker
+---
+
+# spec
+"""
+    result = parse_uncertain(content)
+    assert len(result) == 1
+    assert result[0]["title"] == "No cap"
+
+
+def test_parse_distilled_from_basic():
+    content = """---
+distilled-from:
+  - path: src/retry.py
+    hash: a3f8c2e9b7d1
+---
+
+# spec
+"""
+    result = parse_distilled_from(content)
+    assert len(result) == 1
+    assert result[0]["path"] == "src/retry.py"
+    assert result[0]["hash"] == "a3f8c2e9b7d1"
+
+
+def test_parse_distilled_from_multiple():
+    content = """---
+distilled-from:
+  - path: src/retry.py
+    hash: a3f8c2e9b7d1
+  - path: src/backoff.py
+    hash: b4c5d6e7f8a9
+---
+
+# spec
+"""
+    result = parse_distilled_from(content)
+    assert len(result) == 2
+    assert result[1]["path"] == "src/backoff.py"
+
+
+def test_parse_distilled_from_missing():
+    content = """---
+depends-on:
+  - foo.spec.md
+---
+
+# spec
+"""
+    result = parse_distilled_from(content)
+    assert result == []
+
+
+def test_parse_distilled_from_no_frontmatter():
+    content = "# Just a spec"
+    result = parse_distilled_from(content)
+    assert result == []
+
+
+def test_parse_distilled_from_missing_required_field(capsys):
+    content = """---
+distilled-from:
+  - path: src/retry.py
+---
+
+# spec
+"""
+    result = parse_distilled_from(content)
+    assert result == []
+    captured = capsys.readouterr()
+    assert "missing required field" in captured.err
+
+
+def test_parse_distilled_from_with_other_fields():
+    content = """---
+intent: Handles retry logic
+distilled-from:
+  - path: src/retry.py
+    hash: a3f8c2e9b7d1
+intent-approved: false
+---
+
+# spec
+"""
+    result = parse_distilled_from(content)
+    assert len(result) == 1
+    assert result[0]["path"] == "src/retry.py"
+
+
+def test_distill_roundtrip_frontmatter():
+    """Verify the full distill frontmatter lifecycle: uncertain + distilled-from + non_goals."""
+    spec_content = """---
+intent: >
+  Handles HTTP retry logic with backoff and jitter.
+intent-approved: false
+intent-hash: eaf392b58b29
+distilled-from:
+  - path: src/retry.py
+    hash: a3f8c2e9b7d1
+non_goals:
+  - Circuit breaker or load shedding (inferred)
+  - Request deduplication (inferred)
+uncertain:
+  - title: "Unbounded retry loop"
+    observation: "Code retries indefinitely with no cap."
+    question: "Is the missing cap intentional?"
+  - title: "Silent exception swallowing"
+    observation: "ConnectionError caught and returns None."
+    question: "Should errors propagate?"
+---
+
+# retry spec
+"""
+    # Parse all fields
+    intent = parse_intent(spec_content)
+    assert intent["intent"] == "Handles HTTP retry logic with backoff and jitter."
+
+    distilled = parse_distilled_from(spec_content)
+    assert len(distilled) == 1
+    assert distilled[0]["path"] == "src/retry.py"
+    assert distilled[0]["hash"] == "a3f8c2e9b7d1"
+
+    goals = parse_non_goals(spec_content)
+    assert len(goals) == 2
+    assert "(inferred)" in goals[0]
+
+    uncertain = parse_uncertain(spec_content)
+    assert len(uncertain) == 2
+    assert uncertain[0]["title"] == "Unbounded retry loop"
+    assert uncertain[1]["question"] == "Should errors propagate?"
+
+    # After ratification: uncertain clears, distilled-from persists
+    ratified_content = """---
+intent: >
+  Handles HTTP retry logic with backoff, jitter, and max 5 retries.
+intent-approved: 2026-03-27T16:00:00Z
+intent-hash: f1a2b3c4d5e6
+distilled-from:
+  - path: src/retry.py
+    hash: a3f8c2e9b7d1
+non_goals:
+  - Circuit breaker or load shedding
+  - Request deduplication
+---
+
+# retry spec
+"""
+    # Provenance persists
+    distilled2 = parse_distilled_from(ratified_content)
+    assert len(distilled2) == 1
+    assert distilled2[0]["path"] == "src/retry.py"
+
+    # Uncertain cleared
+    uncertain2 = parse_uncertain(ratified_content)
+    assert uncertain2 == []
+
+    # Non-goals ratified (no more "(inferred)" suffix)
+    goals2 = parse_non_goals(ratified_content)
+    assert len(goals2) == 2
+    assert "(inferred)" not in goals2[0]
+
+
+def test_parse_uncertain_colons_in_values():
+    """Values containing colons should be preserved (split on first colon only)."""
+    content = """---
+uncertain:
+  - title: "Error: connection refused"
+    observation: "Caught at line 42: socket.error swallowed."
+    question: "Should errors propagate: yes or no?"
+---
+
+# spec
+"""
+    result = parse_uncertain(content)
+    assert len(result) == 1
+    assert result[0]["title"] == "Error: connection refused"
+    assert "socket.error" in result[0]["observation"]
+    assert "yes or no?" in result[0]["question"]
+
+
+def test_parse_uncertain_malformed_indentation(capsys):
+    """Wrong indentation emits a warning and stops collecting."""
+    content = """---
+uncertain:
+  - title: "First"
+    observation: "Good"
+   question: "Wrong indent (3 spaces)"
+  - title: "Second entry lost"
+    observation: "Never parsed"
+    question: "Why?"
+---
+
+# spec
+"""
+    result = parse_uncertain(content)
+    # First entry flushed (missing question), second lost due to parse exit
+    assert len(result) == 0
+    captured = capsys.readouterr()
+    assert "malformed uncertain entry" in captured.err
+
+
+def test_parse_distilled_from_malformed_indentation(capsys):
+    """Wrong indentation emits a warning and stops collecting."""
+    content = """---
+distilled-from:
+  - path: src/retry.py
+   hash: a3f8c2e9b7d1
+---
+
+# spec
+"""
+    result = parse_distilled_from(content)
+    assert len(result) == 0
+    captured = capsys.readouterr()
+    assert "malformed distilled-from entry" in captured.err

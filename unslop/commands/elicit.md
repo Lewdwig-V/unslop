@@ -23,6 +23,41 @@ Derive the spec path from the target path. The target may be a file, a directory
 - **Creation mode:** No existing spec found for this target, or `--create` was passed.
 - **Amendment mode:** Existing spec with frontmatter exists.
 
+**Distillation review sub-mode:** If the target spec exists and its frontmatter contains `distilled-from:`, switch to distillation review mode. This is a variant of amendment mode with more aggressive interrogation -- the spec was machine-inferred by `/unslop:distill`, not human-authored.
+
+When distillation review mode is detected, replace the standard amendment phases (Step 5) with the following sequence:
+
+**Phase 1: Uncertainty resolution**
+For each `uncertain:` entry in the spec frontmatter, present:
+> "Distill flagged: [observation]. [question]"
+
+The user resolves each item:
+- **Incorporate:** Add the observation as a constraint in the spec body. Remove from `uncertain:`.
+- **Non-goal:** Move to `non_goals:` (remove "(inferred)" suffix if present). Remove from `uncertain:`.
+- **Dismiss:** Remove from `uncertain:` with no spec change.
+
+**Phase 2: Non-goal ratification**
+For each `non_goals:` entry with "(inferred)" suffix:
+> "Distill inferred this as a non-goal: [text]. Confirm this is intentional?"
+
+- Confirmed: keep the text, remove "(inferred)" suffix.
+- Rejected: remove from `non_goals:`.
+
+**Phase 3: Intent validation**
+> "Distill inferred the intent as: [intent text]. Is this what this code *should* do, or just what it happens to do?"
+
+User confirms or rewrites the intent statement.
+
+**Phase 4: Standard amendment phases**
+After distillation-specific phases complete, run the standard amendment phases (change scoping, non-goal audit, downstream impact) as normal.
+
+**Post-distillation review:**
+- `uncertain:` entries are cleared from the `.proposed` output.
+- `distilled-from:` persists as provenance (do NOT clear it).
+- `intent-approved: false` (user still promotes through normal lock cycle).
+- Recompute `intent-hash` from the validated intent text.
+- **HARD RULE:** Compute `intent-hash` at draft time. Embed it in the `.proposed` file.
+
 **3. Ripple check (invariant -- always runs)**
 
 **HARD RULE:** The ripple check runs regardless of mode. Do not skip it.

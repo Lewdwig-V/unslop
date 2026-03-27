@@ -10,6 +10,18 @@ You are working in a project managed by unslop. The spec is the source of truth 
 
 ---
 
+## The Distillation Prompt
+
+If the user wants to bring existing code under spec management but doesn't have a spec yet, route through distillation.
+
+**Pattern:** "Write a spec for this file", "Infer what this code does", "I want to take over this file", "Bring this under management", "What does this code do?"
+
+**Route:** `/unslop:takeover <file>` (full pipeline: distill -> elicit -> generate) or `/unslop:distill <file>` (spec inference only, no generation)
+
+**Key distinction from `/unslop:elicit`:** Distill reads existing code and infers what it does. Elicit creates or amends a spec through dialogue. If code already exists and the user wants a spec derived from it, route to distill. If no code exists yet or the user wants to design from scratch, route to elicit.
+
+**Key distinction from `/unslop:takeover`:** Takeover is the full pipeline (distill + elicit + generate). Distill is just the first phase. If the user wants the whole workflow, route to takeover. If they just want the spec, route to distill or `/unslop:takeover --spec-only`.
+
 ## The Elicitation Prompt
 
 If the user wants to create a new spec from scratch, or wants to make a broad/vague change to an existing spec, route through elicitation rather than direct change.

@@ -36,26 +36,34 @@ The pipeline has three independent agents with a **Chinese Wall** between them:
 
 Before dispatching any adversarial agent, read `.unslop/config.json`. If a `models` block exists and contains a key matching the agent role, pass that value as the `model` parameter when dispatching via `Agent()`. If the `models` block is missing or the role key is absent, use the hardcoded default. Note: the adversarial agents are dispatched by the controlling session -- no `Agent()` code block exists in this skill. The controlling session must set the `model` parameter when creating each agent.
 
-| Role | Default |
-|---|---|
-| archaeologist | sonnet |
-| mason | sonnet |
-| saboteur | haiku |
+| Role | Default | Notes |
+|---|---|---|
+| archaeologist (distill mode) | opus | Judgment: inferring intent from code under uncertainty |
+| archaeologist (generate mode) | sonnet | Mechanical: well-defined spec-to-spec projection |
+| mason | sonnet | Chinese Wall removes context, model must compensate with stronger reasoning |
+| saboteur | haiku | Mechanical mutation (swap operators, remove calls) |
 
 The `model` parameter controls which Claude model runs the subagent. Valid values: `sonnet`, `opus`, `haiku`, or a full model ID (e.g., `claude-sonnet-4-6`). In the dispatch annotations below, `config.models.<role>` refers to the value at `.unslop/config.json` -> `models` -> `<role>`.
 
-### Phase 1: Archaeologist (Intent Extraction)
+### Phase 1: Archaeologist (Intent Extraction + Strategic Projection)
 
-**Dispatch model:** `config.models.archaeologist` (default: sonnet)
+**Dispatch model:** `config.models.archaeologist` -- default depends on mode: **opus** in distill mode (judgment under uncertainty), **sonnet** in generate mode (well-defined transformation). The calling command sets the model based on context.
 
-The Archaeologist reads source code and extracts behavioural intent into the
-**Behaviour DSL** — a structured YAML format that captures constraints, invariants,
-and error conditions without implementation detail.
+The Archaeologist operates in two distinct modes depending on its invocation context:
 
-**Input:** Source code + existing specs
-**Output:** `*.behaviour.yaml` file
+**Distill mode (inferential):** Reads source code and existing tests, then produces a candidate abstract spec by inferring behavioural intent from the implementation. This is the mode invoked by `/unslop:distill`. The output is an abstract spec (`.spec.md`) suitable for review and promotion. The Archaeologist must not write tests in this mode -- only declarative specs.
 
-The Archaeologist must NOT write tests. It only writes declarative behaviour specs.
+**Generate mode (projective):** Reads an abstract spec, a principles file, and the project file tree, then produces a concrete spec (`.impl.md`) and a `behaviour.yaml` in a single pass. This replaces the former Strategist role. Because the Archaeologist has full context of both implementation strategy and test constraints, it can produce a coherent concrete spec where the behaviour contract and the generation plan are derived from the same source of intent.
+
+In both modes, the Archaeologist must NOT write tests. It writes specs and behaviour contracts only.
+
+**Input (distill mode):** Source code + existing tests
+**Output (distill mode):** Abstract spec (`*.spec.md`)
+
+**Input (generate mode):** Abstract spec + principles file + file tree
+**Output (generate mode):** Concrete spec (`*.impl.md`) + `*.behaviour.yaml`
+
+The Strategist persona (v0.24.0-v0.34.0) has been subsumed by the Archaeologist as of v0.35.0. The Archaeologist produces both concrete specs (formerly Strategist's responsibility) and behaviour.yaml in a single pass, providing a coherent view of how implementation strategy and test constraints relate.
 
 ### Phase 2: Mason (Spec-Blind Test Construction)
 
@@ -77,11 +85,16 @@ to Phase 3. Tests that mock internal modules are Hard Rejected.
 
 **Dispatch model:** `config.models.saboteur` (default: haiku)
 
-The Saboteur runs the Mason's tests against mutated versions of the source code.
-If a mutant survives (tests still pass despite a code change), it indicates either:
+The Saboteur operates in two contexts:
 
-1. **Weak Assertions** — the Mason's tests don't cover a critical behaviour
-2. **Spec Failure** — the Archaeologist failed to extract a constraint
+**Verify mode (post-generate):** Runs async mutation testing as a fidelity check after the generate pipeline completes. Results are stored in `.unslop/verification/`. This mode is triggered automatically by `/unslop:generate` and on-demand by `/unslop:verify`. It validates that the generated code matches the behavioural contract defined in the behaviour.yaml.
+
+**Cover mode:** Gap analysis on existing tests, integrated with Archaeologist classification and Mason gap-filling (same as before). See "Archaeologist Classification + Diff-Mode (Cover Mode)" below.
+
+In both modes, if a mutant survives (tests still pass despite a code change), it indicates either:
+
+1. **Weak Assertions** -- the Mason's tests don't cover a critical behaviour
+2. **Spec Failure** -- the Archaeologist failed to extract a constraint
 
 The Saboteur classifies each surviving mutant and routes feedback to the correct phase.
 
@@ -214,7 +227,7 @@ The adversarial pipeline runs AFTER code generation (Stage B) and BEFORE the fin
 quality gate. It replaces simple test-run validation with mutation-gated validation:
 
 ```
-Stage A (Architect) → Stage A.2 (Strategist) → Stage B (Builder)
+Stage A (Architect) → Stage A.2 (Archaeologist, generate mode) → Stage B (Builder)
     → Adversarial Pipeline [Archaeologist → Mason → Saboteur]
     → Final quality gate
 ```
