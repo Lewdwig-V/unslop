@@ -12,14 +12,12 @@ import json
 from unslop.scripts.mcp_server import (
     unslop_build_order,
     unslop_bulk_sync_plan,
-    unslop_check_drift,
     unslop_check_freshness,
     unslop_classify_file,
     unslop_deep_sync_plan,
     unslop_discover,
     unslop_resolve_deps,
     unslop_ripple_check,
-    unslop_symbol_audit,
 )
 from unslop.scripts.orchestrator import compute_hash
 
@@ -139,31 +137,6 @@ def test_bulk_sync_plan_empty_project(tmp_path):
     (tmp_path / ".unslop").mkdir()
     result = json.loads(unslop_bulk_sync_plan(project_root=str(tmp_path)))
     assert "error" not in result
-
-
-def test_symbol_audit_error_on_missing():
-    """symbol_audit on missing files returns structured error."""
-    result = json.loads(
-        unslop_symbol_audit(
-            original_path="/nonexistent/a.py",
-            generated_path="/nonexistent/b.py",
-        )
-    )
-    # audit_symbols may return {"hint": ...} or the wrapper catches the exception
-    assert "hint" in result or "error" in result
-
-
-def test_check_drift_error_on_missing():
-    """check_drift on missing files returns error."""
-    result = json.loads(
-        unslop_check_drift(
-            old_path="/nonexistent/a.py",
-            new_path="/nonexistent/b.py",
-            affected_symbols=["foo"],
-        )
-    )
-    # check_drift returns {"status": "error"} or wrapper catches exception
-    assert result.get("status") == "error" or "error" in result
 
 
 def test_discover_finds_files(tmp_path):
