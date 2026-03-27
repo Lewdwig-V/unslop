@@ -36,6 +36,7 @@ from unslop.scripts.orchestrator import (
     parse_discovered,
     parse_absorbed_from,
     parse_exuded_from,
+    parse_provenance_history,
     parse_intent,
     compute_intent_hash,
     validate_intent_hash,
@@ -6769,3 +6770,159 @@ exuded-from:
     assert len(result) == 1
     assert result[0]["path"] == "C:/Users/dev/src/network.unit.spec.md"
     assert result[0]["hash"] == "a3f8c2e9b7d1"
+
+
+# --- parse_provenance_history tests ---
+
+
+def test_parse_provenance_history_basic():
+    """Single entry with all 4 required fields."""
+    content = """---
+provenance-history:
+  - type: absorbed-from
+    path: src/retry.py
+    hash: a3f8c2e9b7d1
+    timestamp: 2026-03-15T14:30:00Z
+---
+
+# spec
+"""
+    result = parse_provenance_history(content)
+    assert len(result) == 1
+    assert result[0]["type"] == "absorbed-from"
+    assert result[0]["path"] == "src/retry.py"
+    assert result[0]["hash"] == "a3f8c2e9b7d1"
+    assert result[0]["timestamp"] == "2026-03-15T14:30:00Z"
+
+
+def test_parse_provenance_history_multiple():
+    """Two entries -- one absorbed-from, one exuded-from."""
+    content = """---
+provenance-history:
+  - type: absorbed-from
+    path: src/retry.py
+    hash: a3f8c2e9b7d1
+    timestamp: 2026-03-15T14:30:00Z
+  - type: exuded-from
+    path: src/network.unit.spec.md
+    hash: b4e7d1f2c8a3
+    timestamp: 2026-03-16T09:00:00Z
+---
+
+# spec
+"""
+    result = parse_provenance_history(content)
+    assert len(result) == 2
+    assert result[0]["type"] == "absorbed-from"
+    assert result[0]["path"] == "src/retry.py"
+    assert result[1]["type"] == "exuded-from"
+    assert result[1]["path"] == "src/network.unit.spec.md"
+
+
+def test_parse_provenance_history_missing():
+    """Field not present returns empty list."""
+    content = """---
+intent: Handles retry logic
+---
+
+# spec
+"""
+    result = parse_provenance_history(content)
+    assert result == []
+
+
+def test_parse_provenance_history_no_frontmatter():
+    """No frontmatter at all returns empty list."""
+    content = """# spec
+
+Some content here.
+"""
+    result = parse_provenance_history(content)
+    assert result == []
+
+
+def test_parse_provenance_history_missing_required_field(capsys):
+    """Entry missing timestamp is skipped with a warning."""
+    content = """---
+provenance-history:
+  - type: absorbed-from
+    path: src/retry.py
+    hash: a3f8c2e9b7d1
+---
+
+# spec
+"""
+    result = parse_provenance_history(content)
+    assert result == []
+    captured = capsys.readouterr()
+    assert "provenance-history entry missing required field(s)" in captured.err
+    assert "timestamp" in captured.err
+
+
+def test_parse_provenance_history_malformed_indentation(capsys):
+    """Wrong indentation triggers a warning."""
+    content = """---
+provenance-history:
+   - type: absorbed-from
+     path: src/retry.py
+     hash: a3f8c2e9b7d1
+     timestamp: 2026-03-15T14:30:00Z
+---
+
+# spec
+"""
+    result = parse_provenance_history(content)
+    assert result == []
+    captured = capsys.readouterr()
+    assert "malformed provenance-history entry" in captured.err
+
+
+def test_parse_provenance_history_with_other_fields():
+    """Parser works when provenance-history appears between other frontmatter fields."""
+    content = """---
+intent: Handles retry logic
+provenance-history:
+  - type: absorbed-from
+    path: src/retry.py
+    hash: a3f8c2e9b7d1
+    timestamp: 2026-03-15T14:30:00Z
+non_goals:
+  - Circuit breaker
+---
+
+# spec
+"""
+    result = parse_provenance_history(content)
+    assert len(result) == 1
+    assert result[0]["type"] == "absorbed-from"
+    assert result[0]["path"] == "src/retry.py"
+
+
+def test_parse_provenance_history_preserves_order():
+    """Three entries preserve input order."""
+    content = """---
+provenance-history:
+  - type: absorbed-from
+    path: src/alpha.py
+    hash: aaa111
+    timestamp: 2026-03-01T00:00:00Z
+  - type: exuded-from
+    path: src/beta.spec.md
+    hash: bbb222
+    timestamp: 2026-03-02T00:00:00Z
+  - type: absorbed-from
+    path: src/gamma.py
+    hash: ccc333
+    timestamp: 2026-03-03T00:00:00Z
+---
+
+# spec
+"""
+    result = parse_provenance_history(content)
+    assert len(result) == 3
+    assert result[0]["path"] == "src/alpha.py"
+    assert result[1]["path"] == "src/beta.spec.md"
+    assert result[2]["path"] == "src/gamma.py"
+    assert result[0]["timestamp"] == "2026-03-01T00:00:00Z"
+    assert result[1]["timestamp"] == "2026-03-02T00:00:00Z"
+    assert result[2]["timestamp"] == "2026-03-03T00:00:00Z"
