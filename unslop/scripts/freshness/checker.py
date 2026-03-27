@@ -486,7 +486,9 @@ def check_freshness(directory: str, exclude_dirs: list[str] | None = None) -> di
             managed_name = re.sub(r"\.spec\.md$", "", spec_path.name)
             managed_path = spec_path.parent / managed_name
         if not managed_path.exists():
-            # Classify missing managed file as pending or structural based on provenance
+            # Check provenance to decide structural vs pending.
+            # Note: provenance-history and spec-changelog are audit-only fields
+            # excluded from this check -- they are not active provenance signals.
             has_provenance = bool(
                 parse_distilled_from(spec_content) or parse_absorbed_from(spec_content) or parse_exuded_from(spec_content)
             )
