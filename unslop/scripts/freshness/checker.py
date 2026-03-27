@@ -488,7 +488,7 @@ def check_freshness(directory: str, exclude_dirs: list[str] | None = None) -> di
         if not managed_path.exists():
             # Check provenance to decide structural vs pending.
             # Note: provenance-history and spec-changelog are audit-only fields
-            # excluded from this check -- they are not active provenance signals.
+            # not consulted here -- they are not active provenance signals.
             has_provenance = bool(
                 parse_distilled_from(spec_content) or parse_absorbed_from(spec_content) or parse_exuded_from(spec_content)
             )

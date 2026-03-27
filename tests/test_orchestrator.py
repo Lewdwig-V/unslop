@@ -7300,6 +7300,22 @@ rejected:
     assert "rationale" in captured.err
 
 
+def test_parse_rejected_colons_in_values():
+    """Rationale containing colons is parsed correctly."""
+    content = """---
+rejected:
+  - title: "Rule: no runtime deps"
+    rationale: "Policy: zero dependencies in Lambda. See also: deployment guide section 4."
+---
+
+# spec
+"""
+    result = parse_rejected(content)
+    assert len(result) == 1
+    assert result[0]["title"] == "Rule: no runtime deps"
+    assert "zero dependencies" in result[0]["rationale"]
+
+
 # --- parse_spec_changelog tests ---
 
 
