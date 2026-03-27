@@ -1,1 +1,1 @@
-"""Validation modules -- symbol audit and future structural checks."""
+"""Validation modules -- spec diffing for surgical mode."""
