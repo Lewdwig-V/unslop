@@ -6087,3 +6087,14 @@ def test_check_freshness_surfaces_needs_review_unit_spec(tmp_path):
     unit_entries = [f for f in result["files"] if f["spec"].endswith(".unit.spec.md")]
     assert len(unit_entries) == 1
     assert unit_entries[0].get("needs_review") == "c3d4e5f6a1b2"
+
+
+def test_check_freshness_needs_review_on_missing_managed_file(tmp_path):
+    """Stale entry for missing managed file should still surface needs-review."""
+    spec = tmp_path / "missing.py.spec.md"
+    spec.write_text("---\nneeds-review: d4e5f6a1b2c3\n---\n\n# missing spec\n## Purpose\nGone.\n")
+    # Do NOT create the managed file -- it's missing
+    result = check_freshness(str(tmp_path))
+    assert len(result["files"]) == 1
+    assert result["files"][0]["state"] == "stale"
+    assert result["files"][0].get("needs_review") == "d4e5f6a1b2c3"

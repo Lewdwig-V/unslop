@@ -462,7 +462,11 @@ def check_freshness(directory: str, exclude_dirs: list[str] | None = None) -> di
             managed_name = re.sub(r"\.spec\.md$", "", spec_path.name)
             managed_path = spec_path.parent / managed_name
         if not managed_path.exists():
-            files.append({"managed": str(managed_path.relative_to(root)), "spec": rel_spec, "state": "stale"})
+            entry = {"managed": str(managed_path.relative_to(root)), "spec": rel_spec, "state": "stale"}
+            needs_review = parse_needs_review(spec_content)
+            if needs_review:
+                entry["needs_review"] = needs_review
+            files.append(entry)
             continue
 
         result = classify_file(str(managed_path), str(spec_path), project_root=str(root))
