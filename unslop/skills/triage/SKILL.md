@@ -85,6 +85,15 @@ If the user is unsure what's current, what's changed, or where things stand, rou
 **Pattern:** "Show me what's stale and why", "Why is X ghost-stale?", "What caused this staleness?"
 **Route:** `/unslop:graph --stale-only` -- renders the causal subgraph including upstream concrete providers that triggered the staleness, even if those providers have no managed output of their own. Context providers are styled distinctly so the user can trace the infection path from cause to symptom.
 
+## The Drift Detection Prompt
+
+If the user suspects that code has drifted from spec intent, or wants to audit whether generated code still matches what the spec describes, route to weed.
+
+**Pattern:** "What drifted?", "Is the code still matching the spec?", "Check for drift", "Audit this file against its spec", "Weed out drift"
+**Route:** `/unslop:weed` (all modified) or `/unslop:weed <file>` (targeted)
+
+**Key distinction from /unslop:status:** Status tells you *that* something changed (hash mismatch). Weed tells you *what* drifted and *whether the spec or the code is wrong*. If the user already knows a file is modified and wants to understand the drift, route to weed, not status.
+
 ## The Bulk Sync
 
 If the user wants to sync everything that's stale across the project, route to bulk sync. This batches all stale files into worktree groups that respect topological order.
