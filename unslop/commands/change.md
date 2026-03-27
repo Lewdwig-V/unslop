@@ -51,29 +51,27 @@ Wait for explicit user confirmation before proceeding. If the user declines, sto
 
 **HARD RULE:** The ripple check runs on every `/unslop:change` invocation. Do not skip it, even for tactical changes.
 
-If the target has a spec, call `python ${CLAUDE_PLUGIN_ROOT}/scripts/orchestrator.py ripple-check <spec-path> --root .` (or use MCP `unslop_ripple_check` if available).
+Call `python ${CLAUDE_PLUGIN_ROOT}/scripts/orchestrator.py ripple-check <spec-path> --root .` (or use MCP `unslop_ripple_check` if available). The spec is guaranteed to exist (Step 1 verified this).
 
 Store the result for:
 - Downstream flagging after spec mutation (Step 5c)
 - Elicitation decision (Step 1c)
 
-If no spec exists yet (the user is creating a new managed file), skip the ripple check.
-
 **1c. Elicitation decision**
+
+Note: `/unslop:change` requires a managed file with an existing spec (Step 1 prerequisites). For creating specs from scratch, use `/unslop:elicit` directly.
 
 **Route to `/unslop:elicit`** when ANY of these conditions hold:
 
-1. **No existing spec** -- the target has no `.spec.md` (or `.unit.spec.md`). Run elicit in creation mode.
-2. **Vague or broad request** -- the description (from arguments or user input) does not target a single specific section, or is ambiguous about scope. Use your judgment.
-3. **Multiple specs affected** -- the ripple check (Step 1b) identifies 2+ specs in the blast radius that would need mutation.
-4. **Locked downstream dependent** -- any downstream spec in the ripple blast radius has `intent-approved` set to a timestamp (intent is locked). A locked downstream spec signals that the change may have already-ratified semantic consequences worth surfacing.
+1. **Vague or broad request** -- the description (from arguments or user input) does not target a single specific section, or is ambiguous about scope. Use your judgment.
+2. **Multiple specs affected** -- the ripple check (Step 1b) identifies 2+ specs in the blast radius that would need mutation.
+3. **Locked downstream dependent** -- any downstream spec in the ripple blast radius has `intent-approved` set to a timestamp (intent is locked). A locked downstream spec signals that the change may have already-ratified semantic consequences worth surfacing.
 
 **Skip elicitation** when ALL of these hold:
 
-1. Existing spec with frontmatter exists.
-2. Change description is concrete, narrow, and targets a single section.
-3. No downstream dependents have locked intent.
-4. The user passed `--tactical` (explicit fast-path).
+1. Change description is concrete, narrow, and targets a single section.
+2. No downstream dependents have locked intent.
+3. The user passed `--tactical` (explicit fast-path).
 
 When elicitation is triggered, run `/unslop:elicit <target-path>` (which handles the Socratic dialogue, candidate output, approval, and downstream flagging) and then return. The change entry in `*.change.md` is NOT written -- the elicit flow writes the spec directly.
 

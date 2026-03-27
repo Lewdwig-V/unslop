@@ -6011,3 +6011,79 @@ non_goals:
     assert parsed["intent"] == intent_text
     assert parsed["intent_hash"] == precomputed
     assert validate_intent_hash(parsed["intent"], parsed["intent_hash"])
+
+
+def test_parse_non_goals_hyphenated_field_name():
+    """Parser accepts non-goals: (hyphenated) as well as non_goals: (underscore)."""
+    content = """---
+non-goals:
+  - Circuit breaker
+  - Rate limiting
+---
+
+# spec
+"""
+    result = parse_non_goals(content)
+    assert result == ["Circuit breaker", "Rate limiting"]
+
+
+def test_parse_non_goals_malformed_indentation(capsys):
+    """Malformed indentation emits a warning and stops collecting."""
+    content = """---
+non_goals:
+    - Wrong indent (4 spaces)
+  - After malformed line
+---
+
+# spec
+"""
+    result = parse_non_goals(content)
+    # 4-space indent exits non_goals state; subsequent 2-space item is not collected
+    assert result == []
+    captured = capsys.readouterr()
+    assert "malformed non_goals entry" in captured.err
+
+
+def test_parse_needs_review_empty_value():
+    """needs-review: with no value returns None, not empty string."""
+    content = """---
+needs-review:
+---
+
+# spec
+"""
+    result = parse_needs_review(content)
+    assert result is None
+
+
+def test_parse_review_acknowledged_empty_value():
+    """review-acknowledged: with no value returns None, not empty string."""
+    content = """---
+review-acknowledged:
+---
+
+# spec
+"""
+    result = parse_review_acknowledged(content)
+    assert result is None
+
+
+def test_check_freshness_surfaces_needs_review_unit_spec(tmp_path):
+    """Unit spec path should surface needs-review flag."""
+    spec = tmp_path / "utils.unit.spec.md"
+    spec_body = "---\nneeds-review: c3d4e5f6a1b2\n---\n\n# utils unit spec\n## Files\n- `helper.py`\n"
+    spec.write_text(spec_body)
+    managed = tmp_path / "helper.py"
+    spec_content = spec.read_text()
+    spec_hash = compute_hash(spec_content)
+    body = "def helper(): pass\n"
+    output_hash = compute_hash(body)
+    managed.write_text(
+        f"# @unslop-managed -- do not edit directly. Edit utils.unit.spec.md instead.\n"
+        f"# spec-hash:{spec_hash} output-hash:{output_hash} generated:2026-03-27T00:00:00Z\n\n"
+        f"{body}"
+    )
+    result = check_freshness(str(tmp_path))
+    unit_entries = [f for f in result["files"] if f["spec"].endswith(".unit.spec.md")]
+    assert len(unit_entries) == 1
+    assert unit_entries[0].get("needs_review") == "c3d4e5f6a1b2"

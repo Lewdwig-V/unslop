@@ -193,6 +193,12 @@ def parse_non_goals(content: str) -> list[str]:
             match = re.match(r"^  - (.+)$", line)
             if match:
                 items.append(match.group(1).strip())
+            elif re.match(r"^\s+- ", line):
+                print(
+                    f"Warning: possible malformed non_goals entry (wrong indentation): {line!r}",
+                    file=sys.stderr,
+                )
+                in_non_goals = False
             else:
                 in_non_goals = False
 

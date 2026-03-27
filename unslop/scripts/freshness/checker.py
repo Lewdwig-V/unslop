@@ -559,7 +559,11 @@ def check_freshness(directory: str, exclude_dirs: list[str] | None = None) -> di
                     # Surface needs-review from spec frontmatter
                     try:
                         _spec_content = spec_full.read_text(encoding="utf-8")
-                    except (OSError, UnicodeDecodeError):
+                    except (OSError, UnicodeDecodeError) as e:
+                        print(
+                            json.dumps({"warning": f"Cannot read spec for needs-review check: {source_spec} ({e})"}),
+                            file=sys.stderr,
+                        )
                         _spec_content = ""
                     _nr = parse_needs_review(_spec_content)
                     if _nr:
