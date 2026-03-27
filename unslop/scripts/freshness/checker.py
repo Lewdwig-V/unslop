@@ -413,7 +413,16 @@ def check_freshness(directory: str, exclude_dirs: list[str] | None = None) -> di
                 continue
 
             worst_state = "fresh"
-            priority = {"fresh": 0, "old_format": 1, "stale": 2, "modified": 3, "conflict": 4, "unmanaged": 5, "error": 6}
+            priority = {
+                "fresh": 0,
+                "old_format": 1,
+                "stale": 2,
+                "structural": 3,
+                "modified": 4,
+                "conflict": 5,
+                "unmanaged": 6,
+                "error": 7,
+            }
             missing_files = []
             principles_hints = []
             for uf in unit_files:
@@ -427,8 +436,13 @@ def check_freshness(directory: str, exclude_dirs: list[str] | None = None) -> di
                         principles_hints.append(r_hint)
                 else:
                     missing_files.append(uf)
-                    if priority.get("stale", 0) > priority.get(worst_state, 0):
-                        worst_state = "stale"
+                    # Check provenance to decide structural vs stale
+                    has_prov = bool(
+                        parse_distilled_from(content) or parse_absorbed_from(content) or parse_exuded_from(content)
+                    )
+                    new_state = "structural" if has_prov else "stale"
+                    if priority.get(new_state, 0) > priority.get(worst_state, 0):
+                        worst_state = new_state
 
             entry = {"managed": str(spec_path.parent.relative_to(root)), "spec": rel_spec, "state": worst_state}
             if missing_files:

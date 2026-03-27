@@ -469,11 +469,13 @@ def parse_absorbed_from(content: str) -> list[dict]:
                     entries.append(current_entry)
                     current_entry = None
                 in_absorbed = False
+                continue
             else:
                 if current_entry is not None:
                     entries.append(current_entry)
                     current_entry = None
                 in_absorbed = False
+                continue
 
         if stripped == "absorbed-from:":
             in_absorbed = True
@@ -555,11 +557,13 @@ def parse_exuded_from(content: str) -> list[dict]:
                     entries.append(current_entry)
                     current_entry = None
                 in_exuded = False
+                continue
             else:
                 if current_entry is not None:
                     entries.append(current_entry)
                     current_entry = None
                 in_exuded = False
+                continue
 
         if stripped == "exuded-from:":
             in_exuded = True
@@ -643,11 +647,13 @@ def parse_provenance_history(content: str) -> list[dict]:
                     entries.append(current_entry)
                     current_entry = None
                 in_provenance = False
+                continue
             else:
                 if current_entry is not None:
                     entries.append(current_entry)
                     current_entry = None
                 in_provenance = False
+                continue
 
         if stripped == "provenance-history:":
             in_provenance = True

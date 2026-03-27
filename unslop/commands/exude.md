@@ -84,7 +84,7 @@ After approval, for each target file:
      ```
    - `depends-on:` inherited from the unit spec where applicable, plus cross-dependencies between child specs if the partition reveals them
 
-2. For pre-refactor mode targets (file doesn't exist): the child spec enters `pending` state naturally (spec exists, no managed file, no blocking provenance).
+2. For pre-refactor mode targets (file doesn't exist): the child spec enters `structural` state because `exuded-from:` is active provenance signaling an in-progress granularity change. The file will be created by `/unslop:generate`. Once the spec is ratified and `exuded-from:` moves to `provenance-history:`, re-running generate on a spec with no managed file (and no remaining active provenance) would classify it as `pending`.
 
 **5. DAG update**
 

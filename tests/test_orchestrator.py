@@ -6222,6 +6222,32 @@ provenance-history:
     assert len(pending_files) == 1
 
 
+def test_freshness_unit_spec_structural_with_absorbed_from(tmp_path):
+    """Unit spec with absorbed-from and missing managed file -> structural."""
+    spec_dir = tmp_path / "src" / "utils"
+    spec_dir.mkdir(parents=True)
+    spec = spec_dir / "utils.unit.spec.md"
+    spec.write_text("""---
+intent: Utility functions
+absorbed-from:
+  - path: src/utils/helpers.py.spec.md
+    hash: abc123
+---
+
+# utils unit spec
+
+## Files
+
+- `helper.py`
+""")
+    # helper.py does NOT exist
+    (tmp_path / ".unslop").mkdir()
+    result = check_freshness(str(tmp_path))
+    unit_files = [f for f in result["files"] if "utils" in f.get("managed", "")]
+    assert len(unit_files) >= 1
+    assert unit_files[0]["state"] == "structural"
+
+
 def test_parse_uncertain_basic():
     content = """---
 uncertain:
