@@ -117,6 +117,33 @@ Total: 3 specs, 2 concrete specs, 3 managed files would be regenerated.
 
 This gives the user a complete view of the "blast radius" before committing to a bulk regeneration.
 
+**4c. Check for `needs-review` flags**
+
+For each spec file classified as stale, modified, or conflict (i.e., files that will be regenerated), read the spec's frontmatter and check for a `needs-review` field.
+
+**Preferred:** If the MCP server is running and `check_freshness` was used, the `needs_review` field is already in the freshness output. Otherwise read the spec and call `parse_needs_review`.
+
+For each spec with `needs-review`, present:
+
+```
+⚠ Spec `<spec-path>` is flagged needs-review.
+  Upstream spec changed (intent-hash: <hash>).
+
+  (a) Acknowledge and proceed -- I've verified this change doesn't affect <managed-file>
+  (b) Open elicit to review the impact
+  (q) Abort generation
+```
+
+**Option (a):** Write `review-acknowledged: <needs-review-hash>` into the spec's frontmatter. Remove the `needs-review` field. Stage the spec change (`git add`). Continue with generation.
+
+**Option (b):** Route to `/unslop:elicit <managed-file>` in amendment mode. After elicit completes, the spec will have been updated (which removes `needs-review`). Re-classify and continue.
+
+**Option (q):** Stop generation. The flag remains. No files are modified.
+
+If multiple specs have `needs-review`, present them one at a time. If the user chooses (q) on any, stop entirely.
+
+**HARD RULE:** Do not silently skip `needs-review` flags. The user MUST explicitly acknowledge or address each one before generation proceeds.
+
 **5. Dispatch Builders (Stage B -- worktree isolation)**
 
 For each file classified as new, stale, modified (confirmed), or conflict (confirmed), in build order:
