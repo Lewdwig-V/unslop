@@ -337,6 +337,76 @@ A spec is in the `pending` freshness state when it describes intent with no curr
 - **Orthogonal to:** `intent-approved`, `needs-review`, `uncertain:` -- pending is about implementation existence, not spec quality.
 - **Invalid transitions:** Never transitions to `stale` or `drifted`. Never triggers weed.
 
+## Rejected Alternatives
+
+The `rejected` field records design decisions that were explicitly considered and dismissed, with the reasoning that led to the rejection.
+
+```yaml
+---
+rejected:
+  - title: "Database-backed storage"
+    rationale: "Zero runtime dependencies required. SQLite adds a binary dependency and complicates deployment to Lambda."
+  - title: "Global retry counter"
+    rationale: "Per-request isolation is a hard requirement. A shared counter creates contention under concurrent load."
+---
+```
+
+Each entry has two required fields: `title` and `rationale`.
+
+- **Written by:** `/unslop:elicit` when the user explicitly rejects a proposed approach with a reason. The Architect prompts once for a rationale; if the user declines, no entry is recorded ("no rationale, no record").
+- **Consumed by:** `/unslop:elicit` in amendment mode -- the Architect reads `rejected:` before proposing changes to avoid re-proposing rejected approaches.
+- **Consumed by:** `/unslop:generate` Stage 0 -- the Archaeologist reads `rejected:` and, if its preferred strategy aligns with a rejected entry, surfaces a `discovered:` item for user decision rather than silently proceeding.
+- **Persists after ratification.** The reasoning behind a rejection is permanent context that prevents re-litigation across sessions.
+- **Can be removed explicitly** during an elicit amendment pass if circumstances change.
+
+**Distinction from `non_goals:`:** Non-goals are intent assertions ("we are not doing X"). Rejected alternatives are reasoning records ("we considered X and decided against it because Y"). The model needs both -- non-goals to know what's out of scope, rejected alternatives to know *why* so it doesn't argue back.
+
+## Spec Changelog
+
+The spec changelog records intent mutations in two linked layers: a structured frontmatter envelope and a narrative body section.
+
+### Structured Layer: `spec-changelog:` Frontmatter
+
+```yaml
+---
+spec-changelog:
+  - hash: abc123def456
+    timestamp: 2026-03-27T14:30:00Z
+    operation: elicit-amend
+    prior-hash: 9f8e7d6c5b4a
+  - hash: 7a8b9c0d1e2f
+    timestamp: 2026-03-27T10:15:00Z
+    operation: absorb
+    prior-hash: null
+---
+```
+
+Each entry has four required fields: `hash` (intent-hash after change), `timestamp` (ISO 8601), `operation` (what produced the delta), `prior-hash` (intent-hash before change, null for first entry).
+
+**Operation vocabulary:** `elicit-create`, `elicit-amend`, `elicit-distill-review`, `distill`, `absorb`, `exude`, `change-tactical`, `change-pending`.
+
+- **Append-only.** Entries are never modified or removed.
+- **Not an analysis signal.** The freshness checker, weed, generate, and all analysis layers MUST filter out `spec-changelog:` before analysis. Consumed only by display (status) and audit tooling.
+- **Written by:** Any operation that mutates the spec body and recomputes intent-hash: elicit, change, distill, absorb, exude.
+
+### Narrative Layer: `## Changelog` Section
+
+Always the **last section** in the spec body. Reverse chronological (most recent first). Each entry keyed by first 6 characters of intent-hash:
+
+```markdown
+## Changelog
+
+### abc123 -- 2026-03-27
+Narrowed retry scope after discovering the connection pool handles its own
+backoff. Considered making retry configurable per-caller but rejected it --
+YAGNI.
+
+### 7a8b9c -- 2026-03-27
+Initial spec created via absorb from retry.py.spec.md and backoff.py.spec.md.
+```
+
+Written by the agent that produced the change, at the moment of mutation while reasoning is still in context.
+
 ## Dependencies Between Specs
 
 When a managed file imports from or relies on another managed file, declare the dependency in YAML frontmatter:

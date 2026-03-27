@@ -297,7 +297,7 @@ def _parse_nested_list_field(
                 if current_entry is not None:
                     entries.append((current_entry, seen_keys))
                 val = line.split(":", 1)[1].strip().strip('"').strip("'")
-                current_entry = {first_key: val}
+                current_entry = {first_key: val} if val else {}
                 seen_keys = {first_key}
                 continue
             elif current_entry is not None and re.match(r"^    \w", line):
@@ -399,6 +399,16 @@ def parse_provenance_history(content: str) -> list[dict]:
     return _parse_nested_list_field(content, "provenance-history", "type", {"type", "path", "hash", "timestamp"})
 
 
+def parse_spec_changelog(content: str) -> list[dict]:
+    """Parse spec-changelog entries from spec frontmatter.
+
+    Append-only structured envelope for spec mutation history.
+    Each entry has four required fields: hash, timestamp, operation, prior-hash.
+    Returns ordered list of dicts, or empty list if absent or no frontmatter.
+    """
+    return _parse_nested_list_field(content, "spec-changelog", "hash", {"hash", "timestamp", "operation", "prior-hash"})
+
+
 def parse_discovered(content: str) -> list[dict]:
     """Parse discovered constraint entries from abstract spec frontmatter.
 
@@ -407,6 +417,15 @@ def parse_discovered(content: str) -> list[dict]:
     Returns list of dicts, or empty list if absent or no frontmatter.
     """
     return _parse_nested_list_field(content, "discovered", "title", {"title", "observation", "question"})
+
+
+def parse_rejected(content: str) -> list[dict]:
+    """Parse rejected alternatives from spec frontmatter.
+
+    Each entry has two required fields: title and rationale.
+    Returns list of dicts, or empty list if absent or no frontmatter.
+    """
+    return _parse_nested_list_field(content, "rejected", "title", {"title", "rationale"})
 
 
 def parse_concrete_frontmatter(content: str) -> dict:

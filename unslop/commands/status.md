@@ -167,6 +167,7 @@ Rules for the display:
 - For unit specs (`*.unit.spec.md`): display under a `Unit specs:` section showing the directory path, spec name, and file count rather than listing each managed file individually.
 - If there are no entries in a section, omit that section header entirely.
 - Sort entries within each section alphabetically by managed file path (or spec path for unmanaged specs).
+- For specs with `spec-changelog:` entries, if any entries have timestamps after the file's last generation timestamp (from the `@unslop-managed` header), display: `Δ N spec changes since last generation`.
 
 ---
 

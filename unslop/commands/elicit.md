@@ -51,6 +51,8 @@ User confirms or rewrites the intent statement.
 **Phase 4: Standard amendment phases**
 After distillation-specific phases complete, run the standard amendment phases (change scoping, non-goal audit, downstream impact) as normal.
 
+**Rejected alternatives:** During the dialogue, if the user explicitly rejects an approach you proposed, prompt once for a rationale: "Can you say briefly why not? This helps avoid re-proposing it in future sessions." If the user provides a reason, record a `rejected:` entry with title and rationale. If the user declines ("just move on"), do not record. Do not prompt more than once per rejection. Do not record implicit dismissals (user ignores, changes topic).
+
 **Post-distillation review:**
 - `uncertain:` entries are cleared from the `.proposed` output.
 - `distilled-from:` persists as provenance (do NOT clear it).
@@ -110,6 +112,8 @@ If the user volunteers additional non-goals, accept them directly.
 
 These inform the spec's constraints section, not the test suite directly.
 
+**Rejected alternatives:** During the dialogue, if the user explicitly rejects an approach you proposed, prompt once for a rationale: "Can you say briefly why not? This helps avoid re-proposing it in future sessions." If the user provides a reason, record a `rejected:` entry with title and rationale. If the user declines ("just move on"), do not record. Do not prompt more than once per rejection. Do not record implicit dismissals (user ignores, changes topic).
+
 **Phase 6: Draft candidate**
 
 After all phases complete, produce a complete spec file and write it to `<spec-path>.proposed`. The candidate includes:
@@ -135,6 +139,8 @@ Followed by the spec body with sections: `## Purpose`, `## Behavior`, `## Constr
 Present the candidate to the user for review.
 
 **5. Amendment mode: surgical spec mutation**
+
+**Read rejected alternatives:** Before proposing any changes, read the `rejected:` frontmatter. If you consider proposing something that aligns with a rejected entry, acknowledge the prior decision: "This was previously rejected because [rationale]. Has anything changed?" Do not silently re-propose rejected approaches.
 
 **Phase 1: Context loading**
 
@@ -185,6 +191,8 @@ For each downstream dependent surfaced by the ripple check:
 - User confirms: note for downstream flagging in Step 7.
 - User denies: acknowledged and recorded.
 
+**Rejected alternatives:** During the dialogue, if the user explicitly rejects an approach you proposed, prompt once for a rationale: "Can you say briefly why not? This helps avoid re-proposing it in future sessions." If the user provides a reason, record a `rejected:` entry with title and rationale. If the user declines ("just move on"), do not record. Do not prompt more than once per rejection. Do not record implicit dismissals (user ignores, changes topic).
+
 **Phase 6: Draft candidate**
 
 Produce the complete proposed spec state (not a diff format -- the full file as it would look after the change) and write to `<spec-path>.proposed`.
@@ -208,6 +216,10 @@ After presenting the candidate:
 **(a) Approve:**
 
 Rename `<spec-path>.proposed` to `<spec-path>`. The pre-computed `intent-hash` is already embedded. `intent-approved` is `false` -- the user promotes intent through the normal lock cycle.
+
+**Changelog entry:** After writing the spec, append both:
+1. A `spec-changelog:` frontmatter entry with the new intent-hash, current timestamp, the appropriate operation (`elicit-create`, `elicit-amend`, or `elicit-distill-review`), and the prior intent-hash (null for creation, previous hash for amendment).
+2. A `## Changelog` prose entry at the bottom of the spec body (reverse chronological -- prepend to the section) describing what changed and why.
 
 Stage the spec: `git add <spec-path>`.
 

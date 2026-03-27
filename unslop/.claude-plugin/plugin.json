@@ -1,7 +1,7 @@
 {
   "name": "unslop",
-  "version": "0.38.0",
-  "description": "Spec-driven development harness for Claude Code -- 19 commands, five-phase model, five agents, unified generate pipeline, spec granularity mutations, 377 tests",
+  "version": "0.40.0",
+  "description": "Spec-driven development harness for Claude Code -- 19 commands, five-phase model, five agents, unified generate pipeline, spec granularity mutations, rejected alternatives, spec changelog, 397 tests",
   "author": {
     "name": "lewdwig"
   },

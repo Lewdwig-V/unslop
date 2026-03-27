@@ -154,6 +154,9 @@ Inject the failure report contents as "Previous Attempt Post-Mortem" context for
 (Note: Step 0 validates "am I solving the right problem?" Step 3 validates "is this the right spec change?" These are independent gates -- see Phase 0a.0 in the generation skill.)
 
 4. If approved: apply the spec update to the spec file, stage it (`git add <spec_path>`). Do NOT commit.
+   **Changelog entry:** After writing the spec update, append both:
+   1. A `spec-changelog:` frontmatter entry with the new intent-hash, current timestamp, the appropriate operation (`change-tactical` or `change-pending`), and the prior intent-hash.
+   2. A `## Changelog` prose entry at the bottom of the spec body (reverse chronological -- prepend to the section) describing what changed and why.
 5. If rejected: stop. The entry remains in `<file>.change.md` for manual resolution.
 
 **Stage B (Builder -- worktree isolation):**

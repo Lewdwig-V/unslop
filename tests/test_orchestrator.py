@@ -37,6 +37,8 @@ from unslop.scripts.orchestrator import (
     parse_absorbed_from,
     parse_exuded_from,
     parse_provenance_history,
+    parse_rejected,
+    parse_spec_changelog,
     parse_intent,
     compute_intent_hash,
     validate_intent_hash,
@@ -7167,3 +7169,347 @@ targets:
     target_files = [f for f in result["files"] if f.get("managed") == "src/retry.py"]
     assert len(target_files) >= 1
     assert any(f["state"] == "structural" for f in target_files)
+
+
+# --- parse_rejected tests ---
+
+
+def test_parse_rejected_basic():
+    """Single entry with title and rationale."""
+    content = """---
+rejected:
+  - title: "Database-backed storage"
+    rationale: "Zero runtime dependencies required."
+---
+
+# spec
+"""
+    result = parse_rejected(content)
+    assert len(result) == 1
+    assert result[0]["title"] == "Database-backed storage"
+    assert result[0]["rationale"] == "Zero runtime dependencies required."
+
+
+def test_parse_rejected_multiple():
+    """Two entries parsed correctly."""
+    content = """---
+rejected:
+  - title: "Database-backed storage"
+    rationale: "Zero runtime dependencies required."
+  - title: "Global retry counter"
+    rationale: "Per-request isolation is a hard requirement."
+---
+
+# spec
+"""
+    result = parse_rejected(content)
+    assert len(result) == 2
+    assert result[0]["title"] == "Database-backed storage"
+    assert result[0]["rationale"] == "Zero runtime dependencies required."
+    assert result[1]["title"] == "Global retry counter"
+    assert result[1]["rationale"] == "Per-request isolation is a hard requirement."
+
+
+def test_parse_rejected_missing():
+    """Field not present returns empty list."""
+    content = """---
+intent: Handles retry logic
+---
+
+# spec
+"""
+    result = parse_rejected(content)
+    assert result == []
+
+
+def test_parse_rejected_no_frontmatter():
+    """No frontmatter at all returns empty list."""
+    content = """# spec
+
+Some content here.
+"""
+    result = parse_rejected(content)
+    assert result == []
+
+
+def test_parse_rejected_missing_required_field(capsys):
+    """Entry with title but no rationale is skipped with a warning."""
+    content = """---
+rejected:
+  - title: "Database-backed storage"
+---
+
+# spec
+"""
+    result = parse_rejected(content)
+    assert result == []
+    captured = capsys.readouterr()
+    assert "rejected entry missing field" in captured.err
+    assert "rationale" in captured.err
+
+
+def test_parse_rejected_malformed_indentation(capsys):
+    """Wrong indentation triggers a warning."""
+    content = """---
+rejected:
+   - title: "Database-backed storage"
+     rationale: "Zero runtime dependencies required."
+---
+
+# spec
+"""
+    result = parse_rejected(content)
+    assert result == []
+    captured = capsys.readouterr()
+    assert "malformed rejected entry" in captured.err
+
+
+def test_parse_rejected_with_other_fields():
+    """Parser works when rejected: appears between other frontmatter fields."""
+    content = """---
+intent: Handles retry logic
+rejected:
+  - title: "Database-backed storage"
+    rationale: "Zero runtime dependencies required."
+non_goals:
+  - Circuit breaker
+---
+
+# spec
+"""
+    result = parse_rejected(content)
+    assert len(result) == 1
+    assert result[0]["title"] == "Database-backed storage"
+    assert result[0]["rationale"] == "Zero runtime dependencies required."
+
+
+def test_parse_rejected_empty_value_warning(capsys):
+    """Field present but with empty value gets distinct warning."""
+    content = """---
+rejected:
+  - title: "Database-backed storage"
+    rationale:
+---
+
+# spec
+"""
+    result = parse_rejected(content)
+    assert result == []
+    captured = capsys.readouterr()
+    assert "empty value" in captured.err
+    assert "rationale" in captured.err
+
+
+def test_parse_rejected_colons_in_values():
+    """Rationale containing colons is parsed correctly."""
+    content = """---
+rejected:
+  - title: "Rule: no runtime deps"
+    rationale: "Policy: zero dependencies in Lambda. See also: deployment guide section 4."
+---
+
+# spec
+"""
+    result = parse_rejected(content)
+    assert len(result) == 1
+    assert result[0]["title"] == "Rule: no runtime deps"
+    assert "zero dependencies" in result[0]["rationale"]
+
+
+def test_parse_rejected_empty_first_key(capsys):
+    """Entry with empty title (first key) is rejected with warning."""
+    content = """---
+rejected:
+  - title:
+    rationale: "Some reason"
+---
+
+# spec
+"""
+    result = parse_rejected(content)
+    assert result == []
+    captured = capsys.readouterr()
+    assert "empty value" in captured.err or "missing field" in captured.err
+
+
+def test_parse_spec_changelog_empty_first_key(capsys):
+    """Entry with empty hash (first key) is rejected with warning."""
+    content = """---
+spec-changelog:
+  - hash:
+    timestamp: 2026-03-27T14:30:00Z
+    operation: elicit-amend
+    prior-hash: abc123
+---
+
+# spec
+"""
+    result = parse_spec_changelog(content)
+    assert result == []
+    captured = capsys.readouterr()
+    assert "empty value" in captured.err or "missing field" in captured.err
+
+
+# --- parse_spec_changelog tests ---
+
+
+def test_parse_spec_changelog_basic():
+    """Single entry with all 4 required fields."""
+    content = """---
+spec-changelog:
+  - hash: abc123def456
+    timestamp: 2026-03-27T14:30:00Z
+    operation: elicit-amend
+    prior-hash: 9f8e7d6c5b4a
+---
+
+# spec
+"""
+    result = parse_spec_changelog(content)
+    assert len(result) == 1
+    assert result[0]["hash"] == "abc123def456"
+    assert result[0]["timestamp"] == "2026-03-27T14:30:00Z"
+    assert result[0]["operation"] == "elicit-amend"
+    assert result[0]["prior-hash"] == "9f8e7d6c5b4a"
+
+
+def test_parse_spec_changelog_multiple():
+    """Two entries -- verify order preserved."""
+    content = """---
+spec-changelog:
+  - hash: abc123def456
+    timestamp: 2026-03-27T14:30:00Z
+    operation: elicit-amend
+    prior-hash: 9f8e7d6c5b4a
+  - hash: 7a8b9c0d1e2f
+    timestamp: 2026-03-27T10:15:00Z
+    operation: absorb
+    prior-hash: null
+---
+
+# spec
+"""
+    result = parse_spec_changelog(content)
+    assert len(result) == 2
+    assert result[0]["hash"] == "abc123def456"
+    assert result[0]["operation"] == "elicit-amend"
+    assert result[1]["hash"] == "7a8b9c0d1e2f"
+    assert result[1]["operation"] == "absorb"
+
+
+def test_parse_spec_changelog_missing():
+    """Field not present returns empty list."""
+    content = """---
+intent: Handles retry logic
+---
+
+# spec
+"""
+    result = parse_spec_changelog(content)
+    assert result == []
+
+
+def test_parse_spec_changelog_no_frontmatter():
+    """No frontmatter at all returns empty list."""
+    content = """# spec
+
+Some content here.
+"""
+    result = parse_spec_changelog(content)
+    assert result == []
+
+
+def test_parse_spec_changelog_missing_required_field(capsys):
+    """Entry missing timestamp is skipped with a warning."""
+    content = """---
+spec-changelog:
+  - hash: abc123def456
+    operation: elicit-amend
+    prior-hash: 9f8e7d6c5b4a
+---
+
+# spec
+"""
+    result = parse_spec_changelog(content)
+    assert result == []
+    captured = capsys.readouterr()
+    assert "spec-changelog entry missing field" in captured.err
+    assert "timestamp" in captured.err
+
+
+def test_parse_spec_changelog_malformed_indentation(capsys):
+    """Wrong indentation triggers a warning."""
+    content = """---
+spec-changelog:
+   - hash: abc123def456
+     timestamp: 2026-03-27T14:30:00Z
+     operation: elicit-amend
+     prior-hash: 9f8e7d6c5b4a
+---
+
+# spec
+"""
+    result = parse_spec_changelog(content)
+    assert result == []
+    captured = capsys.readouterr()
+    assert "malformed spec-changelog entry" in captured.err
+
+
+def test_parse_spec_changelog_with_other_fields():
+    """Parser works when spec-changelog appears between other frontmatter fields."""
+    content = """---
+intent: Handles retry logic
+spec-changelog:
+  - hash: abc123def456
+    timestamp: 2026-03-27T14:30:00Z
+    operation: elicit-amend
+    prior-hash: 9f8e7d6c5b4a
+non_goals:
+  - Circuit breaker
+---
+
+# spec
+"""
+    result = parse_spec_changelog(content)
+    assert len(result) == 1
+    assert result[0]["hash"] == "abc123def456"
+    assert result[0]["prior-hash"] == "9f8e7d6c5b4a"
+
+
+def test_parse_spec_changelog_null_prior_hash():
+    """First entry with prior-hash: null parses correctly."""
+    content = """---
+spec-changelog:
+  - hash: 7a8b9c0d1e2f
+    timestamp: 2026-03-27T10:15:00Z
+    operation: absorb
+    prior-hash: null
+---
+
+# spec
+"""
+    result = parse_spec_changelog(content)
+    assert len(result) == 1
+    assert result[0]["hash"] == "7a8b9c0d1e2f"
+    assert result[0]["prior-hash"] == "null"
+    assert result[0]["operation"] == "absorb"
+    assert result[0]["timestamp"] == "2026-03-27T10:15:00Z"
+
+
+def test_parse_spec_changelog_empty_value_warning(capsys):
+    """Field present but with empty value gets distinct warning."""
+    content = """---
+spec-changelog:
+  - hash: abc123def456
+    timestamp: 2026-03-27T14:30:00Z
+    operation:
+    prior-hash: 9f8e7d6c5b4a
+---
+
+# spec
+"""
+    result = parse_spec_changelog(content)
+    assert result == []
+    captured = capsys.readouterr()
+    assert "empty value" in captured.err
+    assert "operation" in captured.err
