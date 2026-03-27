@@ -210,6 +210,23 @@ def unslop_discover(
     extra_excludes: list[str] | None = None,
 ) -> str:
     """Find source files and test files in a directory."""
+    # Load exclude_patterns from .unslop/config.json if caller didn't provide
+    if extra_excludes is None:
+        from pathlib import Path
+
+        search = Path(directory).resolve()
+        while search != search.parent:
+            config_path = search / ".unslop" / "config.json"
+            if config_path.exists():
+                try:
+                    import json as _json
+
+                    config = _json.loads(config_path.read_text(encoding="utf-8"))
+                    extra_excludes = config.get("exclude_patterns", [])
+                except (json.JSONDecodeError, OSError):
+                    pass
+                break
+            search = search.parent
     result = discover_files(directory, extensions=extensions, extra_excludes=extra_excludes)
     return _serialize(result, "unslop_discover")
 

@@ -3,7 +3,10 @@
     "unslop": {
       "command": "python3",
       "args": ["-m", "unslop.scripts.mcp_server"],
-      "cwd": "${PROJECT_ROOT}"
+      "cwd": "${PROJECT_ROOT}",
+      "env": {
+        "PYTHONPATH": "${CLAUDE_PLUGIN_ROOT}/.."
+      }
     }
   }
 }
