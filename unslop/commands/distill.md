@@ -30,6 +30,8 @@ Derive the spec path from the target path:
 
 **Phase 1: Read and Infer (Archaeologist)**
 
+**Model note:** Distillation is judgment work -- inferring intent from code under uncertainty. The Archaeologist's distill mode recommends opus. If running as a subagent, dispatch with `model: "opus"` (or `config.models.archaeologist_distill` if configured). See the adversarial skill's model table.
+
 The Archaeologist reads the existing code without any prior knowledge of its intent. Infer everything from what is actually present.
 
 **Step 1.1: Read the source**

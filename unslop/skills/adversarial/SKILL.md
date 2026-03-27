@@ -36,17 +36,18 @@ The pipeline has three independent agents with a **Chinese Wall** between them:
 
 Before dispatching any adversarial agent, read `.unslop/config.json`. If a `models` block exists and contains a key matching the agent role, pass that value as the `model` parameter when dispatching via `Agent()`. If the `models` block is missing or the role key is absent, use the hardcoded default. Note: the adversarial agents are dispatched by the controlling session -- no `Agent()` code block exists in this skill. The controlling session must set the `model` parameter when creating each agent.
 
-| Role | Default |
-|---|---|
-| archaeologist | sonnet |
-| mason | sonnet |
-| saboteur | haiku |
+| Role | Default | Notes |
+|---|---|---|
+| archaeologist (distill mode) | opus | Judgment: inferring intent from code under uncertainty |
+| archaeologist (generate mode) | sonnet | Mechanical: well-defined spec-to-spec projection |
+| mason | sonnet | Chinese Wall removes context, model must compensate with stronger reasoning |
+| saboteur | haiku | Mechanical mutation (swap operators, remove calls) |
 
 The `model` parameter controls which Claude model runs the subagent. Valid values: `sonnet`, `opus`, `haiku`, or a full model ID (e.g., `claude-sonnet-4-6`). In the dispatch annotations below, `config.models.<role>` refers to the value at `.unslop/config.json` -> `models` -> `<role>`.
 
 ### Phase 1: Archaeologist (Intent Extraction + Strategic Projection)
 
-**Dispatch model:** `config.models.archaeologist` (default: sonnet)
+**Dispatch model:** `config.models.archaeologist` -- default depends on mode: **opus** in distill mode (judgment under uncertainty), **sonnet** in generate mode (well-defined transformation). The calling command sets the model based on context.
 
 The Archaeologist operates in two distinct modes depending on its invocation context:
 

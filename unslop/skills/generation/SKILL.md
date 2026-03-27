@@ -125,12 +125,14 @@ Before dispatching subagents, read `.unslop/config.json`. If a `models` block ex
 
 | Role | Config key | Default | Rationale |
 |---|---|---|---|
-| Archaeologist | `archaeologist` | sonnet | Algorithmic analysis, pattern selection, dual projection (concrete spec + behaviour.yaml) |
+| Archaeologist (generate mode) | `archaeologist` | sonnet | Mechanical: spec-to-spec projection (concrete spec + behaviour.yaml) |
 | Mason | `mason` | sonnet | Chinese Wall removes context, model must compensate with stronger reasoning |
 | Builder | `builder` | sonnet | Code generation from detailed specs |
 | Saboteur | `saboteur` | haiku | Mechanical mutation (swap operators, remove calls) |
 
 The `model` parameter controls which Claude model runs the subagent. Valid values: `sonnet`, `opus`, `haiku`, or a full model ID (e.g., `claude-sonnet-4-6`).
+
+**Note on Archaeologist model selection:** The Archaeologist uses **sonnet** in generate mode (spec projection -- well-defined transformation) but **opus** in distill mode (inferring intent from code -- judgment under uncertainty). The generate pipeline always uses generate mode. The distill pipeline (invoked by `/unslop:distill` or `/unslop:takeover`) uses distill mode. See the adversarial skill for distill-mode model defaults.
 
 ### Subagent Dependency Chain
 
