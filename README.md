@@ -147,8 +147,8 @@ Every managed file tracks hashes that detect exactly *why* it needs regeneration
 | **ghost-stale** | An upstream dependency's spec changed | `/unslop:sync <file> --deep` |
 | **conflict** | Spec and code both changed | Resolve manually, then sync |
 | **pending** | Spec written but never generated | `/unslop:generate` |
-| **structural** | File structure changed (renames, splits) | `/unslop:sync <file>` |
-| **test-drifted** | Tests changed but spec hasn't | `/unslop:weed` to check for drift |
+| **structural** | File structure changed (renames, splits) | `/unslop:absorb`, `/unslop:exude`, or remove spec |
+| **test-drifted** | Spec changed since tests were generated | `/unslop:generate --regenerate-tests` or `/unslop:cover` |
 
 `/unslop:status` reports all of these. `/unslop:graph --stale-only` renders the causal chain so you can trace ghost staleness from root cause to symptom.
 
