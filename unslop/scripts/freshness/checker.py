@@ -556,6 +556,14 @@ def check_freshness(directory: str, exclude_dirs: list[str] | None = None) -> di
                     result["managed"] = target_rel
                     result["spec"] = source_spec
                     result["impl_path"] = rel_impl
+                    # Surface needs-review from spec frontmatter
+                    try:
+                        _spec_content = spec_full.read_text(encoding="utf-8")
+                    except (OSError, UnicodeDecodeError):
+                        _spec_content = ""
+                    _nr = parse_needs_review(_spec_content)
+                    if _nr:
+                        result["needs_review"] = _nr
                     files.append(result)
             elif not target_full.exists():
                 files.append(

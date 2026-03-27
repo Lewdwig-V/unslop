@@ -213,7 +213,7 @@ def parse_needs_review(content: str) -> str | None:
         if stripped == "---":
             break
         if stripped.startswith("needs-review:"):
-            return stripped.split(":", 1)[1].strip()
+            return stripped.split(":", 1)[1].strip() or None
 
     return None
 
@@ -232,7 +232,7 @@ def parse_review_acknowledged(content: str) -> str | None:
         if stripped == "---":
             break
         if stripped.startswith("review-acknowledged:"):
-            return stripped.split(":", 1)[1].strip()
+            return stripped.split(":", 1)[1].strip() or None
 
     return None
 
