@@ -424,7 +424,7 @@ The `check-drift` CLI command is available as a diagnostic tool for users who wa
 python ${CLAUDE_PLUGIN_ROOT}/scripts/orchestrator.py check-drift <old-file> <new-file> --affected s1,s2,s3
 ```
 
-Uses the LSP semantic query layer for symbol extraction when a language server is available, falling back to Python `ast` for `.py` files. Non-Python files without an LSP server skip the drift check with actionable guidance on installing the appropriate language server plugin.
+For intent drift detection after generation, use `/unslop:weed` to compare spec intent against generated code.
 
 ### Triage Summary Templates
 

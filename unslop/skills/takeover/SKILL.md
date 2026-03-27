@@ -19,7 +19,7 @@ Steps:
 2b. **Raise to Abstract** -- Extract observable behavior and constraints into an Abstract Spec (the original "Why")
 2c. **Generate Behaviour YAML** -- (testless path only) Extract given/when/then constraints for adversarial validation
 3. **Archive** -- Archive the original to `.unslop/archive/` before it is replaced
-4. **Lower & Generate** -- Stage A.2 (fresh Concrete Spec), Stage B.1 (auditable implementation strategy), Stage B.2 (worktree-isolated Builder); symbol audit (testless path)
+4. **Lower & Generate** -- Stage A.2 (fresh Concrete Spec), Stage B.1 (auditable implementation strategy), Stage B.2 (worktree-isolated Builder)
 5. **Adversarial Validation** -- (testless path only) Mason/Saboteur pipeline as quality gate
 6. **Validate** -- (tests-exist path) Run tests; commit if green, enter convergence loop if red
 7. **Convergence Loop** -- Enrich the spec and regenerate until tests pass or iterations are exhausted
@@ -36,7 +36,7 @@ Before discovery, the Architect analyzes the target file's complexity to determi
 Read the target file and compute:
 
 1. **Line count** -- total lines
-2. **Public symbol count** -- using `get_symbol_manifest()` from `lsp_queries.py` if available, otherwise count by reading the file
+2. **Public symbol count** -- count by reading the file (grep for exported functions, public types, module-level constants).
 3. **Estimated token weight** -- `file_size_bytes / 4`
 4. **Protected region scan** -- identify tail blocks that serve a different purpose than the implementation above them (e.g., compile-time test conditionals, main entry guards, example/benchmark blocks)
 
@@ -304,23 +304,6 @@ Dispatch with:
 - The abstract spec path as the primary source of truth
 - The concrete spec (from Stage B.1) as strategic guidance
 
-### Step 4b: Symbol Audit (testless path only)
-
-Skip this step if `testless_mode = false`.
-
-After the Builder completes, run a symbol audit to verify the generated code covers all public symbols from the original:
-
-```
-python ${CLAUDE_PLUGIN_ROOT}/scripts/orchestrator.py symbol-audit <archive-path> <generated-path> [--removed <legacy-smell-symbols>]
-```
-
-Pass any symbols the user chose to discard during Legacy Smell Detection (Step 2c) via `--removed`.
-
-Interpret the result:
-- **pass:** All symbols accounted for. Proceed to adversarial validation (Step 5).
-- **fail:** Missing symbols detected. Re-enter convergence -- enrich the spec with the missing symbols and re-generate.
-- **error:** Report the error to the user and await guidance.
-
 ---
 
 ## Step 5: Adversarial Validation (testless path only)
@@ -410,15 +393,13 @@ a. **Diagnose** -- Read the failure source. Classify as one of:
 b. **Route** based on diagnosis:
    - `weak_test`: Mason retries with stronger assertions. Re-run from Step 5c.
    - `spec_gap`: Architect enriches behaviour.yaml and abstract spec. Get user approval. Re-run from Step 5a.
-   - `test_failure`: Enrich abstract spec, re-lower, dispatch new Builder. Run symbol audit (Step 4b). Re-run from Step 5a.
+   - `test_failure`: Enrich abstract spec, re-lower, dispatch new Builder. Re-run from Step 5a.
 
 c. **Re-build** -- Dispatch fresh Builder if needed (same as tests-exist convergence step g).
 
-d. **Symbol Audit** -- Re-run Step 4b after each re-build.
+d. **Re-validate** -- Re-run adversarial validation (Step 5).
 
-e. **Re-validate** -- Re-run adversarial validation (Step 5).
-
-f. **Measure entropy** -- Track kill rate delta between iterations.
+e. **Measure entropy** -- Track kill rate delta between iterations.
 
 **Entropy Threshold:** If delta < `entropy_threshold` (kill rate improvement is stalling) and kill rate < 100%, trigger **Radical Spec Hardening**: a one-shot rewrite of behaviour.yaml using the Archaeologist's surviving mutant summary. This consumes the radical iteration slot.
 
