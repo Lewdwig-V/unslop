@@ -413,6 +413,91 @@ def parse_distilled_from(content: str) -> list[dict]:
     return validated
 
 
+def parse_absorbed_from(content: str) -> list[dict]:
+    """Parse absorbed-from list from abstract spec frontmatter.
+
+    Each entry has two required fields: path and hash.
+    Entries missing required fields are skipped with a stderr warning.
+
+    Supported format (strict string matching, not YAML):
+        ---
+        absorbed-from:
+          - path: src/retry.py
+            hash: a3f8c2e9b7d1
+        ---
+
+    Returns list of dicts, or empty list if absent or no frontmatter.
+    """
+    lines = content.split("\n")
+    if not lines or lines[0].strip() != "---":
+        return []
+
+    end = -1
+    for i in range(1, len(lines)):
+        if lines[i].strip() == "---":
+            end = i
+            break
+    if end == -1:
+        return []
+
+    frontmatter_lines = lines[1:end]
+
+    entries = []
+    in_absorbed = False
+    current_entry: dict | None = None
+
+    for line in frontmatter_lines:
+        stripped = line.strip()
+
+        if in_absorbed:
+            if re.match(r"^  - path:", line):
+                if current_entry is not None:
+                    entries.append(current_entry)
+                current_entry = {"path": line.split(":", 1)[1].strip().strip('"').strip("'")}
+                continue
+            elif current_entry is not None and re.match(r"^    \w", line):
+                key, _, val = stripped.partition(":")
+                if key.strip() and val.strip():
+                    current_entry[key.strip()] = val.strip().strip('"').strip("'")
+                continue
+            elif re.match(r"^\s+- ", line) or (current_entry is not None and re.match(r"^\s+\w", line)):
+                print(
+                    json.dumps({"warning": f"possible malformed absorbed-from entry (wrong indentation): {line!r}"}),
+                    file=sys.stderr,
+                )
+                if current_entry is not None:
+                    entries.append(current_entry)
+                    current_entry = None
+                in_absorbed = False
+            else:
+                if current_entry is not None:
+                    entries.append(current_entry)
+                    current_entry = None
+                in_absorbed = False
+
+        if stripped == "absorbed-from:":
+            in_absorbed = True
+
+    # Flush final entry
+    if current_entry is not None:
+        entries.append(current_entry)
+
+    _required_fields = {"path", "hash"}
+    validated = []
+    for entry in entries:
+        missing = _required_fields - set(entry.keys())
+        if missing:
+            msg = f"absorbed-from entry missing required field(s) {sorted(missing)}, skipping: {entry}"
+            print(
+                json.dumps({"warning": msg}),
+                file=sys.stderr,
+            )
+        else:
+            validated.append(entry)
+
+    return validated
+
+
 def parse_discovered(content: str) -> list[dict]:
     """Parse discovered constraint entries from abstract spec frontmatter.
 

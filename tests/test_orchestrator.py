@@ -34,6 +34,7 @@ from unslop.scripts.orchestrator import (
     parse_uncertain,
     parse_distilled_from,
     parse_discovered,
+    parse_absorbed_from,
     parse_intent,
     compute_intent_hash,
     validate_intent_hash,
@@ -6511,3 +6512,131 @@ uncertain:
     result = parse_discovered(content)
     assert len(result) == 1
     assert result[0]["title"] == "Hidden dep"
+
+
+# --- parse_absorbed_from tests ---
+
+
+def test_parse_absorbed_from_basic():
+    """Single entry with path and hash."""
+    content = """---
+absorbed-from:
+  - path: src/retry.py
+    hash: a3f8c2e9b7d1
+---
+
+# spec
+"""
+    result = parse_absorbed_from(content)
+    assert len(result) == 1
+    assert result[0]["path"] == "src/retry.py"
+    assert result[0]["hash"] == "a3f8c2e9b7d1"
+
+
+def test_parse_absorbed_from_multiple():
+    """Two entries parsed correctly."""
+    content = """---
+absorbed-from:
+  - path: src/retry.py
+    hash: a3f8c2e9b7d1
+  - path: src/timeout.py
+    hash: b4e7d1f2c8a3
+---
+
+# spec
+"""
+    result = parse_absorbed_from(content)
+    assert len(result) == 2
+    assert result[0]["path"] == "src/retry.py"
+    assert result[0]["hash"] == "a3f8c2e9b7d1"
+    assert result[1]["path"] == "src/timeout.py"
+    assert result[1]["hash"] == "b4e7d1f2c8a3"
+
+
+def test_parse_absorbed_from_missing():
+    """Field not present returns empty list."""
+    content = """---
+intent: Handles retry logic
+---
+
+# spec
+"""
+    result = parse_absorbed_from(content)
+    assert result == []
+
+
+def test_parse_absorbed_from_no_frontmatter():
+    """No frontmatter at all returns empty list."""
+    content = """# spec
+
+Some content here.
+"""
+    result = parse_absorbed_from(content)
+    assert result == []
+
+
+def test_parse_absorbed_from_missing_required_field(capsys):
+    """Entry with path but no hash is skipped with a warning."""
+    content = """---
+absorbed-from:
+  - path: src/retry.py
+---
+
+# spec
+"""
+    result = parse_absorbed_from(content)
+    assert result == []
+    captured = capsys.readouterr()
+    assert "absorbed-from entry missing required field(s)" in captured.err
+    assert "hash" in captured.err
+
+
+def test_parse_absorbed_from_malformed_indentation(capsys):
+    """Wrong indentation triggers a warning."""
+    content = """---
+absorbed-from:
+   - path: src/retry.py
+     hash: a3f8c2e9b7d1
+---
+
+# spec
+"""
+    result = parse_absorbed_from(content)
+    assert result == []
+    captured = capsys.readouterr()
+    assert "malformed absorbed-from entry" in captured.err
+
+
+def test_parse_absorbed_from_with_other_fields():
+    """Parser works when absorbed-from: appears between other frontmatter fields."""
+    content = """---
+intent: Handles retry logic
+absorbed-from:
+  - path: src/retry.py
+    hash: a3f8c2e9b7d1
+non_goals:
+  - Circuit breaker
+---
+
+# spec
+"""
+    result = parse_absorbed_from(content)
+    assert len(result) == 1
+    assert result[0]["path"] == "src/retry.py"
+    assert result[0]["hash"] == "a3f8c2e9b7d1"
+
+
+def test_parse_absorbed_from_colons_in_values():
+    """Path containing colons is parsed correctly."""
+    content = """---
+absorbed-from:
+  - path: C:/Users/dev/src/retry.py
+    hash: a3f8c2e9b7d1
+---
+
+# spec
+"""
+    result = parse_absorbed_from(content)
+    assert len(result) == 1
+    assert result[0]["path"] == "C:/Users/dev/src/retry.py"
+    assert result[0]["hash"] == "a3f8c2e9b7d1"
