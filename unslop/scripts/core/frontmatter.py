@@ -162,6 +162,87 @@ def validate_intent_hash(intent_text: str, stored_hash: str) -> bool:
     return compute_intent_hash(intent_text) == stored_hash
 
 
+def parse_non_goals(content: str) -> list[str]:
+    """Parse non_goals list from abstract spec frontmatter.
+
+    Accepts both ``non_goals:`` and ``non-goals:`` as the field name.
+    Returns list of strings, or empty list if absent or no frontmatter.
+    """
+    lines = content.split("\n")
+    if not lines or lines[0].strip() != "---":
+        return []
+
+    end = -1
+    for i in range(1, len(lines)):
+        if lines[i].strip() == "---":
+            end = i
+            break
+    if end == -1:
+        return []
+
+    frontmatter_lines = lines[1:end]
+
+    items = []
+    in_non_goals = False
+    for line in frontmatter_lines:
+        stripped = line.strip()
+        if stripped in ("non_goals:", "non-goals:"):
+            in_non_goals = True
+            continue
+        if in_non_goals:
+            match = re.match(r"^  - (.+)$", line)
+            if match:
+                items.append(match.group(1).strip())
+            elif re.match(r"^\s+- ", line):
+                print(
+                    f"Warning: possible malformed non_goals entry (wrong indentation): {line!r}",
+                    file=sys.stderr,
+                )
+                in_non_goals = False
+            else:
+                in_non_goals = False
+
+    return items
+
+
+def parse_needs_review(content: str) -> str | None:
+    """Extract needs-review field from spec frontmatter.
+
+    Returns the intent-hash string if present, or None.
+    """
+    lines = content.split("\n")
+    if not lines or lines[0].strip() != "---":
+        return None
+
+    for i in range(1, len(lines)):
+        stripped = lines[i].strip()
+        if stripped == "---":
+            break
+        if stripped.startswith("needs-review:"):
+            return stripped.split(":", 1)[1].strip() or None
+
+    return None
+
+
+def parse_review_acknowledged(content: str) -> str | None:
+    """Extract review-acknowledged field from spec frontmatter.
+
+    Returns the intent-hash string if present, or None.
+    """
+    lines = content.split("\n")
+    if not lines or lines[0].strip() != "---":
+        return None
+
+    for i in range(1, len(lines)):
+        stripped = lines[i].strip()
+        if stripped == "---":
+            break
+        if stripped.startswith("review-acknowledged:"):
+            return stripped.split(":", 1)[1].strip() or None
+
+    return None
+
+
 def parse_concrete_frontmatter(content: str) -> dict:
     """Parse frontmatter from a concrete spec (.impl.md) file.
 

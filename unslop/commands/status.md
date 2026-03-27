@@ -63,6 +63,18 @@ For files classified as fresh, check if any of their dependencies (from `depends
 
 Ghost staleness means the abstract spec and generated code are both unchanged, but an upstream implementation strategy has shifted — the Builder needs to re-lower through a fresh concrete spec.
 
+**Needs-review flagging.** If a spec's frontmatter contains a `needs-review` field (set by `/unslop:change` when an upstream spec was modified), display with the annotation `(needs-review)` and a hint showing the upstream change:
+
+```
+  needs-review  src/handler.py           <- src/handler.py.spec.md (needs-review)
+                                            upstream spec changed. Review or acknowledge.
+```
+
+A file can be both `fresh` and `needs-review` simultaneously. The `needs-review` annotation is additive -- it does not change the hash-based classification. In the display:
+- If the file is `fresh` and `needs-review`, show as `needs-review` (the review flag takes display priority since it requires user action).
+- If the file is `stale` and `needs-review`, show as `stale (needs-review)` (both require action).
+- If the file has `review-acknowledged` in frontmatter, show as `fresh (review-acknowledged)` to indicate the flag was consciously dismissed.
+
 ---
 
 **Unit spec classification.** For each `*.unit.spec.md` file:
@@ -106,6 +118,8 @@ Rules for the display:
 - For **old_format** entries, include the note `(old header — regenerate to update)`.
 - For **stale\*** entries, include the note `(dependency stale)`.
 - For **ghost-stale** entries, include the note `(upstream concrete spec changed: <path>)`.
+- For **needs-review** entries, include the note `(needs-review)` and show which upstream spec changed on an indented line.
+- For **review-acknowledged** entries, include `(review-acknowledged)` to show the flag was consciously dismissed.
 - If a spec has `depends-on` frontmatter, show the dependencies on an indented line below the entry.
 - For unit specs (`*.unit.spec.md`): display under a `Unit specs:` section showing the directory path, spec name, and file count rather than listing each managed file individually.
 - If there are no entries in a section, omit that section header entirely.

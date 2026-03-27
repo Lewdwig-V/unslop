@@ -258,6 +258,29 @@ If the managed file has state `modified` (user hand-edited the code) and the spe
 
 Option (a) uses Mode A (full regen). Option (b) routes to `/unslop:change`. Option (c) skips.
 
+**Check for `needs-review` flags**
+
+Before dispatching any Builder, check each target spec's frontmatter for `needs-review`. For bulk and deep sync, check all specs in the plan.
+
+For each flagged spec, present:
+
+```
+⚠ Spec `<spec-path>` is flagged needs-review.
+  Upstream spec changed (intent-hash: <hash>).
+
+  (a) Acknowledge and proceed
+  (b) Open elicit to review the impact
+  (q) Abort sync
+```
+
+**Option (a):** Write `review-acknowledged: <needs-review-hash>` into the spec frontmatter. Remove `needs-review`. Stage.
+
+**Option (b):** Route to `/unslop:elicit <managed-file>` in amendment mode. After elicit completes, re-classify and continue.
+
+**Option (q):** Stop sync.
+
+**HARD RULE:** Do not silently skip `needs-review` flags.
+
 **Stage B (Builder -- worktree isolation):**
 Dispatch a Builder Agent using the generation skill's two-stage execution model:
 - test_policy: `"Do NOT create or modify spec-backed test files. Use existing tests for validation only. Tests marked @unslop-incidental may be updated or removed if they fail against regenerated code that correctly follows the spec."` See the generation skill's `@unslop-incidental Test Lifecycle` section for details.

@@ -28,6 +28,9 @@ from unslop.scripts.orchestrator import (
     get_all_strategy_providers,
     get_registry_key_for_spec,
     parse_managed_file,
+    parse_needs_review,
+    parse_non_goals,
+    parse_review_acknowledged,
     parse_intent,
     compute_intent_hash,
     validate_intent_hash,
@@ -5769,3 +5772,329 @@ def test_validate_intent_hash_edited_intent():
     h = compute_intent_hash(original)
     edited = "Pure state machine core with extra stuff."
     assert validate_intent_hash(edited, h) is False
+
+
+def test_parse_non_goals_basic():
+    content = """---
+non_goals:
+  - Circuit breaker or load shedding
+  - Request deduplication
+---
+
+# spec
+"""
+    result = parse_non_goals(content)
+    assert result == [
+        "Circuit breaker or load shedding",
+        "Request deduplication",
+    ]
+
+
+def test_parse_non_goals_empty():
+    content = """---
+non_goals:
+---
+
+# spec
+"""
+    result = parse_non_goals(content)
+    assert result == []
+
+
+def test_parse_non_goals_missing():
+    content = """---
+depends-on:
+  - foo.spec.md
+---
+
+# spec
+"""
+    result = parse_non_goals(content)
+    assert result == []
+
+
+def test_parse_non_goals_no_frontmatter():
+    content = "# Just a spec\n\nNo frontmatter."
+    result = parse_non_goals(content)
+    assert result == []
+
+
+def test_parse_non_goals_with_other_fields():
+    content = """---
+depends-on:
+  - auth.spec.md
+intent: Handles retry logic
+non_goals:
+  - Circuit breaker
+  - Rate limiting
+intent-approved: 2026-03-27T14:00:00Z
+---
+
+# spec
+"""
+    result = parse_non_goals(content)
+    assert result == ["Circuit breaker", "Rate limiting"]
+
+
+def test_parse_needs_review_present():
+    content = """---
+depends-on:
+  - auth.spec.md
+needs-review: a1b2c3d4e5f6
+---
+
+# spec
+"""
+    result = parse_needs_review(content)
+    assert result == "a1b2c3d4e5f6"
+
+
+def test_parse_needs_review_absent():
+    content = """---
+depends-on:
+  - auth.spec.md
+---
+
+# spec
+"""
+    result = parse_needs_review(content)
+    assert result is None
+
+
+def test_parse_needs_review_no_frontmatter():
+    content = "# Just a spec"
+    result = parse_needs_review(content)
+    assert result is None
+
+
+def test_parse_review_acknowledged_present():
+    content = """---
+review-acknowledged: a1b2c3d4e5f6
+---
+
+# spec
+"""
+    result = parse_review_acknowledged(content)
+    assert result == "a1b2c3d4e5f6"
+
+
+def test_parse_review_acknowledged_absent():
+    content = """---
+depends-on:
+  - auth.spec.md
+---
+
+# spec
+"""
+    result = parse_review_acknowledged(content)
+    assert result is None
+
+
+def test_check_freshness_surfaces_needs_review(tmp_path):
+    """A spec with needs-review frontmatter should surface the flag in freshness output."""
+    spec = tmp_path / "handler.py.spec.md"
+    spec.write_text("---\nneeds-review: a1b2c3d4e5f6\n---\n\n# handler spec\n## Purpose\nHandles requests.\n")
+    managed = tmp_path / "handler.py"
+    spec_content = spec.read_text()
+    spec_hash = compute_hash(spec_content)
+    body = "def handle(): pass\n"
+    output_hash = compute_hash(body)
+    managed.write_text(
+        f"# @unslop-managed -- do not edit directly. Edit handler.py.spec.md instead.\n"
+        f"# spec-hash:{spec_hash} output-hash:{output_hash} generated:2026-03-27T00:00:00Z\n\n"
+        f"{body}"
+    )
+    result = check_freshness(str(tmp_path))
+    assert len(result["files"]) == 1
+    assert result["files"][0]["state"] == "fresh"
+    assert result["files"][0].get("needs_review") == "a1b2c3d4e5f6"
+
+
+def test_check_freshness_no_needs_review(tmp_path):
+    """A spec without needs-review should not have the key in output."""
+    spec = tmp_path / "handler.py.spec.md"
+    spec.write_text("---\n---\n\n# handler spec\n## Purpose\nHandles.\n")
+    managed = tmp_path / "handler.py"
+    spec_content = spec.read_text()
+    spec_hash = compute_hash(spec_content)
+    body = "def handle(): pass\n"
+    output_hash = compute_hash(body)
+    managed.write_text(
+        f"# @unslop-managed -- do not edit directly. Edit handler.py.spec.md instead.\n"
+        f"# spec-hash:{spec_hash} output-hash:{output_hash} generated:2026-03-27T00:00:00Z\n\n"
+        f"{body}"
+    )
+    result = check_freshness(str(tmp_path))
+    assert len(result["files"]) == 1
+    assert "needs_review" not in result["files"][0]
+
+
+def test_elicit_roundtrip_frontmatter():
+    """Verify the full frontmatter lifecycle: non_goals + needs_review + acknowledged."""
+    # 1. Spec with non_goals and needs-review
+    spec_content = """---
+depends-on:
+  - auth.spec.md
+intent: >
+  Handles HTTP retry logic with backoff and jitter.
+intent-approved: 2026-03-27T14:00:00Z
+intent-hash: eaf392b58b29
+non_goals:
+  - Circuit breaker or load shedding
+  - Request deduplication
+needs-review: b2c3d4e5f6a1
+---
+
+# retry spec
+"""
+    # Parse non_goals
+    goals = parse_non_goals(spec_content)
+    assert goals == ["Circuit breaker or load shedding", "Request deduplication"]
+
+    # Parse needs-review
+    nr = parse_needs_review(spec_content)
+    assert nr == "b2c3d4e5f6a1"
+
+    # Parse review-acknowledged (not present)
+    ra = parse_review_acknowledged(spec_content)
+    assert ra is None
+
+    # Parse intent
+    intent = parse_intent(spec_content)
+    assert intent["intent"] == "Handles HTTP retry logic with backoff and jitter."
+    assert intent["intent_hash"] == "eaf392b58b29"
+
+    # Validate intent hash
+    assert validate_intent_hash(intent["intent"], intent["intent_hash"])
+
+    # 2. After acknowledgment, review-acknowledged replaces needs-review
+    acked_content = """---
+depends-on:
+  - auth.spec.md
+intent: >
+  Handles HTTP retry logic with backoff and jitter.
+intent-approved: 2026-03-27T14:00:00Z
+intent-hash: eaf392b58b29
+non_goals:
+  - Circuit breaker or load shedding
+  - Request deduplication
+review-acknowledged: b2c3d4e5f6a1
+---
+
+# retry spec
+"""
+    nr2 = parse_needs_review(acked_content)
+    assert nr2 is None
+    ra2 = parse_review_acknowledged(acked_content)
+    assert ra2 == "b2c3d4e5f6a1"
+
+
+def test_proposed_sidecar_hash_precomputation():
+    """Verify that intent-hash computed at draft time matches validation."""
+    intent_text = "Handles HTTP retry logic with backoff and jitter."
+    precomputed = compute_intent_hash(intent_text)
+
+    # Simulate what the .proposed file would contain
+    proposed_content = f"""---
+intent: >
+  {intent_text}
+intent-approved: false
+intent-hash: {precomputed}
+non_goals:
+  - Circuit breaker
+---
+
+# retry spec
+"""
+    # Parse and validate
+    parsed = parse_intent(proposed_content)
+    assert parsed["intent"] == intent_text
+    assert parsed["intent_hash"] == precomputed
+    assert validate_intent_hash(parsed["intent"], parsed["intent_hash"])
+
+
+def test_parse_non_goals_hyphenated_field_name():
+    """Parser accepts non-goals: (hyphenated) as well as non_goals: (underscore)."""
+    content = """---
+non-goals:
+  - Circuit breaker
+  - Rate limiting
+---
+
+# spec
+"""
+    result = parse_non_goals(content)
+    assert result == ["Circuit breaker", "Rate limiting"]
+
+
+def test_parse_non_goals_malformed_indentation(capsys):
+    """Malformed indentation emits a warning and stops collecting."""
+    content = """---
+non_goals:
+    - Wrong indent (4 spaces)
+  - After malformed line
+---
+
+# spec
+"""
+    result = parse_non_goals(content)
+    # 4-space indent exits non_goals state; subsequent 2-space item is not collected
+    assert result == []
+    captured = capsys.readouterr()
+    assert "malformed non_goals entry" in captured.err
+
+
+def test_parse_needs_review_empty_value():
+    """needs-review: with no value returns None, not empty string."""
+    content = """---
+needs-review:
+---
+
+# spec
+"""
+    result = parse_needs_review(content)
+    assert result is None
+
+
+def test_parse_review_acknowledged_empty_value():
+    """review-acknowledged: with no value returns None, not empty string."""
+    content = """---
+review-acknowledged:
+---
+
+# spec
+"""
+    result = parse_review_acknowledged(content)
+    assert result is None
+
+
+def test_check_freshness_surfaces_needs_review_unit_spec(tmp_path):
+    """Unit spec path should surface needs-review flag."""
+    spec = tmp_path / "utils.unit.spec.md"
+    spec_body = "---\nneeds-review: c3d4e5f6a1b2\n---\n\n# utils unit spec\n## Files\n- `helper.py`\n"
+    spec.write_text(spec_body)
+    managed = tmp_path / "helper.py"
+    spec_content = spec.read_text()
+    spec_hash = compute_hash(spec_content)
+    body = "def helper(): pass\n"
+    output_hash = compute_hash(body)
+    managed.write_text(
+        f"# @unslop-managed -- do not edit directly. Edit utils.unit.spec.md instead.\n"
+        f"# spec-hash:{spec_hash} output-hash:{output_hash} generated:2026-03-27T00:00:00Z\n\n"
+        f"{body}"
+    )
+    result = check_freshness(str(tmp_path))
+    unit_entries = [f for f in result["files"] if f["spec"].endswith(".unit.spec.md")]
+    assert len(unit_entries) == 1
+    assert unit_entries[0].get("needs_review") == "c3d4e5f6a1b2"
+
+
+def test_check_freshness_needs_review_on_missing_managed_file(tmp_path):
+    """Stale entry for missing managed file should still surface needs-review."""
+    spec = tmp_path / "missing.py.spec.md"
+    spec.write_text("---\nneeds-review: d4e5f6a1b2c3\n---\n\n# missing spec\n## Purpose\nGone.\n")
+    # Do NOT create the managed file -- it's missing
+    result = check_freshness(str(tmp_path))
+    assert len(result["files"]) == 1
+    assert result["files"][0]["state"] == "stale"
+    assert result["files"][0].get("needs_review") == "d4e5f6a1b2c3"

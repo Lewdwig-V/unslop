@@ -10,6 +10,25 @@ You are working in a project managed by unslop. The spec is the source of truth 
 
 ---
 
+## The Elicitation Prompt
+
+If the user wants to create a new spec from scratch, or wants to make a broad/vague change to an existing spec, route through elicitation rather than direct change.
+
+**Pattern:** "I need a spec for...", "Let's design...", "What should this module do?", "I want to change how X works but I'm not sure exactly what...", any request that touches multiple concerns or doesn't name a specific spec section.
+
+**Route:** `/unslop:change <file>` (triage routing will detect that elicitation is needed and invoke `/unslop:elicit` automatically)
+
+**Key distinction from direct `/unslop:change`:** Change records a specific intent and either applies it immediately (tactical) or defers it (pending). Elicitation is a structured dialogue that *discovers* the intent through clarifying questions before committing to any spec mutation. If the user already knows exactly what they want, route to change. If they need to think it through, route to change and let the triage routing invoke elicit.
+
+## The Needs-Review Prompt
+
+If the user asks about flagged specs, or `/unslop:status` shows `needs-review` entries, route to resolution.
+
+**Pattern:** "What's flagged?", "Why is this needs-review?", "Clear the review flags", "Acknowledge the review"
+**Route:** `/unslop:generate` or `/unslop:sync` (the soft-block prompt handles acknowledgment) or `/unslop:change <file>` (for full review via elicit)
+
+**Key distinction from `/unslop:status`:** Status shows the flags. Generate/sync forces the user to address them. Change/elicit lets the user actually review the upstream impact.
+
 ## The Architect First Rule
 
 If the user wants a structural change, a new feature, or a refactor, do not suggest code edits. The spec must change first.

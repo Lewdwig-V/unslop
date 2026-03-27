@@ -1,7 +1,7 @@
 {
   "name": "unslop",
-  "version": "0.33.0",
-  "description": "Spec-driven development harness for Claude Code -- surgical diff minimization, adversarial coverage, testless takeover, mutation-driven quality, and triage routing",
+  "version": "0.34.0",
+  "description": "Spec-driven development harness for Claude Code -- surgical diff minimization, adversarial coverage, testless takeover, mutation-driven quality, structured elicitation, and triage routing",
   "author": {
     "name": "lewdwig"
   },

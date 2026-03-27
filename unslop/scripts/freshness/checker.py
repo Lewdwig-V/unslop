@@ -8,7 +8,7 @@ import sys
 from collections import Counter
 from pathlib import Path
 
-from ..core.frontmatter import parse_concrete_frontmatter, parse_managed_file
+from ..core.frontmatter import parse_concrete_frontmatter, parse_managed_file, parse_needs_review
 from ..core.hashing import compute_hash, get_body_below_header, parse_header
 from ..core.spec_discovery import get_registry_key_for_spec, parse_unit_spec_files
 from ..dependencies.concrete_graph import (
@@ -434,6 +434,9 @@ def check_freshness(directory: str, exclude_dirs: list[str] | None = None) -> di
                 prin_msg = principles_hints[0]
                 existing = entry.get("hint", "")
                 entry["hint"] = (existing + f" {prin_msg}").strip()
+            needs_review = parse_needs_review(content)
+            if needs_review:
+                entry["needs_review"] = needs_review
             files.append(entry)
             continue
 
@@ -459,12 +462,19 @@ def check_freshness(directory: str, exclude_dirs: list[str] | None = None) -> di
             managed_name = re.sub(r"\.spec\.md$", "", spec_path.name)
             managed_path = spec_path.parent / managed_name
         if not managed_path.exists():
-            files.append({"managed": str(managed_path.relative_to(root)), "spec": rel_spec, "state": "stale"})
+            entry = {"managed": str(managed_path.relative_to(root)), "spec": rel_spec, "state": "stale"}
+            needs_review = parse_needs_review(spec_content)
+            if needs_review:
+                entry["needs_review"] = needs_review
+            files.append(entry)
             continue
 
         result = classify_file(str(managed_path), str(spec_path), project_root=str(root))
         result["managed"] = str(managed_path.relative_to(root))
         result["spec"] = rel_spec
+        needs_review = parse_needs_review(spec_content)
+        if needs_review:
+            result["needs_review"] = needs_review
         files.append(result)
 
     # Target-driven discovery: scan .impl.md files with targets[] to find
@@ -550,6 +560,18 @@ def check_freshness(directory: str, exclude_dirs: list[str] | None = None) -> di
                     result["managed"] = target_rel
                     result["spec"] = source_spec
                     result["impl_path"] = rel_impl
+                    # Surface needs-review from spec frontmatter
+                    try:
+                        _spec_content = spec_full.read_text(encoding="utf-8")
+                    except (OSError, UnicodeDecodeError) as e:
+                        print(
+                            json.dumps({"warning": f"Cannot read spec for needs-review check: {source_spec} ({e})"}),
+                            file=sys.stderr,
+                        )
+                        _spec_content = ""
+                    _nr = parse_needs_review(_spec_content)
+                    if _nr:
+                        result["needs_review"] = _nr
                     files.append(result)
             elif not target_full.exists():
                 files.append(
