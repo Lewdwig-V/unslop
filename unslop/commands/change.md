@@ -47,6 +47,38 @@ If the file is in **modified** state AND `--tactical` was passed, warn the user:
 
 Wait for explicit user confirmation before proceeding. If the user declines, stop.
 
+**1b. Ripple check (invariant -- always runs)**
+
+**HARD RULE:** The ripple check runs on every `/unslop:change` invocation. Do not skip it, even for tactical changes.
+
+If the target has a spec, call `python ${CLAUDE_PLUGIN_ROOT}/scripts/orchestrator.py ripple-check <spec-path> --root .` (or use MCP `unslop_ripple_check` if available).
+
+Store the result for:
+- Downstream flagging after spec mutation (Step 5c)
+- Elicitation decision (Step 1c)
+
+If no spec exists yet (the user is creating a new managed file), skip the ripple check.
+
+**1c. Elicitation decision**
+
+**Route to `/unslop:elicit`** when ANY of these conditions hold:
+
+1. **No existing spec** -- the target has no `.spec.md` (or `.unit.spec.md`). Run elicit in creation mode.
+2. **Vague or broad request** -- the description (from arguments or user input) does not target a single specific section, or is ambiguous about scope. Use your judgment.
+3. **Multiple specs affected** -- the ripple check (Step 1b) identifies 2+ specs in the blast radius that would need mutation.
+4. **Locked downstream dependent** -- any downstream spec in the ripple blast radius has `intent-approved` set to a timestamp (intent is locked). A locked downstream spec signals that the change may have already-ratified semantic consequences worth surfacing.
+
+**Skip elicitation** when ALL of these hold:
+
+1. Existing spec with frontmatter exists.
+2. Change description is concrete, narrow, and targets a single section.
+3. No downstream dependents have locked intent.
+4. The user passed `--tactical` (explicit fast-path).
+
+When elicitation is triggered, run `/unslop:elicit <target-path>` (which handles the Socratic dialogue, candidate output, approval, and downstream flagging) and then return. The change entry in `*.change.md` is NOT written -- the elicit flow writes the spec directly.
+
+When elicitation is skipped, continue to Step 2 (the existing change flow).
+
 **2. Check for existing changes**
 
 Derive the sidecar path by appending `.change.md` to the managed file path (e.g., `src/retry.py` → `src/retry.py.change.md`).
@@ -134,6 +166,21 @@ Inject the failure report contents as "Previous Attempt Post-Mortem" context for
    b. Revert the staged spec update: `git checkout HEAD -- <spec_path>`.
    c. Report the Builder's failure report (failing tests, what was attempted, suspected spec gaps).
    d. The entry remains in `<file>.change.md`.
+
+**5c. Downstream flagging (after spec mutation)**
+
+After any spec mutation is committed (tactical Stage A approval or pending batch processing), use the ripple check result from Step 1b to flag downstream dependents:
+
+**Depth 1 (direct dependents):** Offer to queue elicit on each.
+
+> "Spec `<dep>` depends on the spec you just changed. Run elicit on it now? (y/n)"
+
+If yes: run `/unslop:elicit <dep-managed-file>` in amendment mode after the current change completes.
+If no: write `needs-review: <intent-hash of changed spec>` into the dependent spec's frontmatter. Stage the change.
+
+**Depth 2+ (transitive dependents):** Write `needs-review: <intent-hash of changed spec>` into each transitive dependent's frontmatter. Stage the changes. Report:
+
+> "N transitive dependents flagged for review."
 
 **If `[pending]` (default, no `--tactical` flag)**, inform the user:
 
