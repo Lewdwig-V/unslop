@@ -37,6 +37,7 @@ from .core.frontmatter import (
     parse_frontmatter,
     parse_intent,
     parse_managed_file,
+    parse_non_goals,
     validate_intent_hash,
 )
 from .core.hashing import (
@@ -116,6 +117,7 @@ __all__ = [
     "parse_concrete_frontmatter",
     "parse_frontmatter",
     "parse_managed_file",
+    "parse_non_goals",
     "parse_intent",
     "compute_intent_hash",
     "validate_intent_hash",

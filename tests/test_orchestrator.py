@@ -28,6 +28,7 @@ from unslop.scripts.orchestrator import (
     get_all_strategy_providers,
     get_registry_key_for_spec,
     parse_managed_file,
+    parse_non_goals,
     parse_intent,
     compute_intent_hash,
     validate_intent_hash,
@@ -5769,3 +5770,65 @@ def test_validate_intent_hash_edited_intent():
     h = compute_intent_hash(original)
     edited = "Pure state machine core with extra stuff."
     assert validate_intent_hash(edited, h) is False
+
+
+def test_parse_non_goals_basic():
+    content = """---
+non_goals:
+  - Circuit breaker or load shedding
+  - Request deduplication
+---
+
+# spec
+"""
+    result = parse_non_goals(content)
+    assert result == [
+        "Circuit breaker or load shedding",
+        "Request deduplication",
+    ]
+
+
+def test_parse_non_goals_empty():
+    content = """---
+non_goals:
+---
+
+# spec
+"""
+    result = parse_non_goals(content)
+    assert result == []
+
+
+def test_parse_non_goals_missing():
+    content = """---
+depends-on:
+  - foo.spec.md
+---
+
+# spec
+"""
+    result = parse_non_goals(content)
+    assert result == []
+
+
+def test_parse_non_goals_no_frontmatter():
+    content = "# Just a spec\n\nNo frontmatter."
+    result = parse_non_goals(content)
+    assert result == []
+
+
+def test_parse_non_goals_with_other_fields():
+    content = """---
+depends-on:
+  - auth.spec.md
+intent: Handles retry logic
+non_goals:
+  - Circuit breaker
+  - Rate limiting
+intent-approved: 2026-03-27T14:00:00Z
+---
+
+# spec
+"""
+    result = parse_non_goals(content)
+    assert result == ["Circuit breaker", "Rate limiting"]
