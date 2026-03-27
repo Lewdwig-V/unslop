@@ -5888,3 +5888,42 @@ depends-on:
 """
     result = parse_review_acknowledged(content)
     assert result is None
+
+
+def test_check_freshness_surfaces_needs_review(tmp_path):
+    """A spec with needs-review frontmatter should surface the flag in freshness output."""
+    spec = tmp_path / "handler.py.spec.md"
+    spec.write_text("---\nneeds-review: a1b2c3d4e5f6\n---\n\n# handler spec\n## Purpose\nHandles requests.\n")
+    managed = tmp_path / "handler.py"
+    spec_content = spec.read_text()
+    spec_hash = compute_hash(spec_content)
+    body = "def handle(): pass\n"
+    output_hash = compute_hash(body)
+    managed.write_text(
+        f"# @unslop-managed -- do not edit directly. Edit handler.py.spec.md instead.\n"
+        f"# spec-hash:{spec_hash} output-hash:{output_hash} generated:2026-03-27T00:00:00Z\n\n"
+        f"{body}"
+    )
+    result = check_freshness(str(tmp_path))
+    assert len(result["files"]) == 1
+    assert result["files"][0]["state"] == "fresh"
+    assert result["files"][0].get("needs_review") == "a1b2c3d4e5f6"
+
+
+def test_check_freshness_no_needs_review(tmp_path):
+    """A spec without needs-review should not have the key in output."""
+    spec = tmp_path / "handler.py.spec.md"
+    spec.write_text("---\n---\n\n# handler spec\n## Purpose\nHandles.\n")
+    managed = tmp_path / "handler.py"
+    spec_content = spec.read_text()
+    spec_hash = compute_hash(spec_content)
+    body = "def handle(): pass\n"
+    output_hash = compute_hash(body)
+    managed.write_text(
+        f"# @unslop-managed -- do not edit directly. Edit handler.py.spec.md instead.\n"
+        f"# spec-hash:{spec_hash} output-hash:{output_hash} generated:2026-03-27T00:00:00Z\n\n"
+        f"{body}"
+    )
+    result = check_freshness(str(tmp_path))
+    assert len(result["files"]) == 1
+    assert "needs_review" not in result["files"][0]

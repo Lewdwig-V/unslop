@@ -8,7 +8,7 @@ import sys
 from collections import Counter
 from pathlib import Path
 
-from ..core.frontmatter import parse_concrete_frontmatter, parse_managed_file
+from ..core.frontmatter import parse_concrete_frontmatter, parse_managed_file, parse_needs_review
 from ..core.hashing import compute_hash, get_body_below_header, parse_header
 from ..core.spec_discovery import get_registry_key_for_spec, parse_unit_spec_files
 from ..dependencies.concrete_graph import (
@@ -434,6 +434,9 @@ def check_freshness(directory: str, exclude_dirs: list[str] | None = None) -> di
                 prin_msg = principles_hints[0]
                 existing = entry.get("hint", "")
                 entry["hint"] = (existing + f" {prin_msg}").strip()
+            needs_review = parse_needs_review(content)
+            if needs_review:
+                entry["needs_review"] = needs_review
             files.append(entry)
             continue
 
@@ -465,6 +468,9 @@ def check_freshness(directory: str, exclude_dirs: list[str] | None = None) -> di
         result = classify_file(str(managed_path), str(spec_path), project_root=str(root))
         result["managed"] = str(managed_path.relative_to(root))
         result["spec"] = rel_spec
+        needs_review = parse_needs_review(spec_content)
+        if needs_review:
+            result["needs_review"] = needs_review
         files.append(result)
 
     # Target-driven discovery: scan .impl.md files with targets[] to find
