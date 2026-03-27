@@ -416,12 +416,13 @@ def check_freshness(directory: str, exclude_dirs: list[str] | None = None) -> di
             priority = {
                 "fresh": 0,
                 "old_format": 1,
-                "stale": 2,
-                "structural": 3,
-                "modified": 4,
-                "conflict": 5,
-                "unmanaged": 6,
-                "error": 7,
+                "pending": 2,
+                "stale": 3,
+                "structural": 4,
+                "modified": 5,
+                "conflict": 6,
+                "unmanaged": 7,
+                "error": 8,
             }
             missing_files = []
             principles_hints = []
@@ -436,11 +437,13 @@ def check_freshness(directory: str, exclude_dirs: list[str] | None = None) -> di
                         principles_hints.append(r_hint)
                 else:
                     missing_files.append(uf)
-                    # Check provenance to decide structural vs stale
+                    # Check unit spec provenance to decide structural vs pending.
+                    # For unit specs, the provenance is on the unit spec itself
+                    # (not on per-file specs, which don't exist in this model).
                     has_prov = bool(
                         parse_distilled_from(content) or parse_absorbed_from(content) or parse_exuded_from(content)
                     )
-                    new_state = "structural" if has_prov else "stale"
+                    new_state = "structural" if has_prov else "pending"
                     if priority.get(new_state, 0) > priority.get(worst_state, 0):
                         worst_state = new_state
 
@@ -569,7 +572,14 @@ def check_freshness(directory: str, exclude_dirs: list[str] | None = None) -> di
             target_full = root / target_rel
             if spec_full and spec_full.exists():
                 if not target_full.exists():
-                    spec_content_target = spec_full.read_text()
+                    try:
+                        spec_content_target = spec_full.read_text(encoding="utf-8")
+                    except (OSError, UnicodeDecodeError) as e:
+                        print(
+                            json.dumps({"warning": f"Cannot read spec for provenance check: {source_spec} ({e})"}),
+                            file=sys.stderr,
+                        )
+                        spec_content_target = ""
                     has_provenance_target = bool(
                         parse_distilled_from(spec_content_target)
                         or parse_absorbed_from(spec_content_target)

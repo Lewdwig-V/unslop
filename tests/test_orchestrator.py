@@ -6222,6 +6222,29 @@ provenance-history:
     assert len(pending_files) == 1
 
 
+def test_freshness_unit_spec_pending_no_provenance(tmp_path):
+    """Unit spec with missing managed file and no provenance -> pending."""
+    spec_dir = tmp_path / "src" / "utils"
+    spec_dir.mkdir(parents=True)
+    spec = spec_dir / "utils.unit.spec.md"
+    spec.write_text("""---
+intent: Utility functions
+---
+
+# utils unit spec
+
+## Files
+
+- `helper.py`
+""")
+    # helper.py does NOT exist, no provenance on spec
+    (tmp_path / ".unslop").mkdir()
+    result = check_freshness(str(tmp_path))
+    unit_files = [f for f in result["files"] if "utils" in f.get("managed", "")]
+    assert len(unit_files) >= 1
+    assert unit_files[0]["state"] == "pending"
+
+
 def test_freshness_unit_spec_structural_with_absorbed_from(tmp_path):
     """Unit spec with absorbed-from and missing managed file -> structural."""
     spec_dir = tmp_path / "src" / "utils"

@@ -422,7 +422,7 @@ def parse_absorbed_from(content: str) -> list[dict]:
     Supported format (strict string matching, not YAML):
         ---
         absorbed-from:
-          - path: src/retry.py
+          - path: src/retry.py.spec.md
             hash: a3f8c2e9b7d1
         ---
 

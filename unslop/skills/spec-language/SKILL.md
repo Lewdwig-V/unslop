@@ -262,6 +262,7 @@ Each entry has two required fields: `path` and `hash`.
 - **Persists after ratification.** Provenance records how the spec was produced, not whether it's been reviewed. A spec with `distilled-from:` and `intent-approved: <timestamp>` means "machine-inferred, then human-ratified." Clearing the provenance would destroy the audit trail.
 - **Used by elicit:** Triggers distillation review mode (aggressive interrogation of inferred content).
 - **Used by weed:** If the source file's current hash doesn't match the `distilled-from` hash, the spec may be out of date relative to the code it was inferred from.
+- **Blocks `pending` classification:** A spec with `distilled-from:` and missing managed files is classified as `structural` (not `pending`), because the provenance indicates the spec was inferred from existing code that has since disappeared.
 
 ## Absorb Provenance
 

@@ -45,7 +45,7 @@ Dispatch an Architect subagent to analyze the input specs and detect:
 1. **Intent conflicts:** Goals or constraints in one spec that contradict another.
 2. **Non-goal conflicts:** Non-goals in one spec that overlap with goals in another.
 3. **Dependency conflicts:** Circular or contradictory `depends-on` relationships.
-4. **Frontmatter collisions:** Multiple specs with `intent-approved: true` but conflicting `intent-hash` values.
+4. **Frontmatter collisions:** Multiple specs with `intent-approved` timestamps but conflicting `intent-hash` values.
 
 Each conflict becomes an `uncertain:` entry with title/observation/question structure.
 
