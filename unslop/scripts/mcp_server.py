@@ -20,7 +20,6 @@ from .dependencies.graph import build_order_from_dir, resolve_deps
 from .planning.ripple import ripple_check
 from .planning.deep_sync import compute_deep_sync_plan
 from .planning.bulk_sync import compute_bulk_sync_plan
-from .validation.symbol_audit import audit_symbols, check_drift
 from .core.spec_discovery import discover_files
 
 # MCP wiring is optional -- tools work as plain functions without it
@@ -172,32 +171,6 @@ def unslop_bulk_sync_plan(
     """Compute a sync plan for all stale files with parallel batch grouping."""
     result = compute_bulk_sync_plan(project_root, force=force, max_batch_size=max_batch_size)
     return _serialize(result, "unslop_bulk_sync_plan")
-
-
-# --- Validation ---
-
-
-@_tool
-def unslop_symbol_audit(
-    original_path: str,
-    generated_path: str,
-    removed: list[str] | None = None,
-) -> str:
-    """Compare public symbols between two versions of a file."""
-    result = audit_symbols(original_path, generated_path, removed=removed)
-    return _serialize(result, "unslop_symbol_audit")
-
-
-@_tool
-def unslop_check_drift(
-    old_path: str,
-    new_path: str,
-    affected_symbols: list[str],
-) -> str:
-    """Check symbol-level drift between two file versions.
-    Flags changes to symbols NOT in the affected list."""
-    result = check_drift(old_path, new_path, affected_symbols)
-    return _serialize(result, "unslop_check_drift")
 
 
 # --- Discovery ---

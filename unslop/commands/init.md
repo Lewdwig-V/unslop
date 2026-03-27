@@ -156,7 +156,7 @@ jobs:
      - `dependencies/` directory (graph, concrete_graph, unified_dag)
      - `freshness/` directory (checker, manifest)
      - `planning/` directory (ripple, deep_sync, bulk_sync, resume, graph_renderer)
-     - `validation/` directory (placeholder for future symbol_audit)
+     - `validation/` directory (spec_diff for surgical mode)
    - Do NOT copy `validate_spec.py`, `validate_behaviour.py`, `validate_mocks.py`, or `pseudocode_linter.py` -- these are used by the generation skill during interactive sessions, not by CI.
    - Write a `version.txt` file at `.unslop/scripts/version.txt` containing the current plugin version (e.g. `0.13.0`). This allows the orchestrator to warn the user if their vendored CI logic is out of sync with their installed unslop plugin.
 
