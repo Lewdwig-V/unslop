@@ -1,3 +1,5 @@
+> **SUPERSEDED** by `2026-03-27-weed-and-lsp-removal-design.md`. The LSP semantic query layer and AST-based symbol audit have been removed. Drift detection is now LLM-native via `/unslop:weed`.
+
 # LSP Semantic Query Layer -- PR 1: Wrapper + Drift Migration
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.

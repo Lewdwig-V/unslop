@@ -1,3 +1,5 @@
+> **SUPERSEDED** by `2026-03-27-weed-and-lsp-removal-design.md`. The LSP semantic query layer and AST-based symbol audit have been removed. Drift detection is now LLM-native via `/unslop:weed`.
+
 # LSP Semantic Query Layer Design Spec
 
 **Date:** 2026-03-24
