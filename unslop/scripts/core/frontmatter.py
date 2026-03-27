@@ -297,7 +297,7 @@ def _parse_nested_list_field(
                 if current_entry is not None:
                     entries.append((current_entry, seen_keys))
                 val = line.split(":", 1)[1].strip().strip('"').strip("'")
-                current_entry = {first_key: val}
+                current_entry = {first_key: val} if val else {}
                 seen_keys = {first_key}
                 continue
             elif current_entry is not None and re.match(r"^    \w", line):

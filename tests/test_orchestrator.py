@@ -7316,6 +7316,40 @@ rejected:
     assert "zero dependencies" in result[0]["rationale"]
 
 
+def test_parse_rejected_empty_first_key(capsys):
+    """Entry with empty title (first key) is rejected with warning."""
+    content = """---
+rejected:
+  - title:
+    rationale: "Some reason"
+---
+
+# spec
+"""
+    result = parse_rejected(content)
+    assert result == []
+    captured = capsys.readouterr()
+    assert "empty value" in captured.err or "missing field" in captured.err
+
+
+def test_parse_spec_changelog_empty_first_key(capsys):
+    """Entry with empty hash (first key) is rejected with warning."""
+    content = """---
+spec-changelog:
+  - hash:
+    timestamp: 2026-03-27T14:30:00Z
+    operation: elicit-amend
+    prior-hash: abc123
+---
+
+# spec
+"""
+    result = parse_spec_changelog(content)
+    assert result == []
+    captured = capsys.readouterr()
+    assert "empty value" in captured.err or "missing field" in captured.err
+
+
 # --- parse_spec_changelog tests ---
 
 
@@ -7460,3 +7494,22 @@ spec-changelog:
     assert result[0]["prior-hash"] == "null"
     assert result[0]["operation"] == "absorb"
     assert result[0]["timestamp"] == "2026-03-27T10:15:00Z"
+
+
+def test_parse_spec_changelog_empty_value_warning(capsys):
+    """Field present but with empty value gets distinct warning."""
+    content = """---
+spec-changelog:
+  - hash: abc123def456
+    timestamp: 2026-03-27T14:30:00Z
+    operation:
+    prior-hash: 9f8e7d6c5b4a
+---
+
+# spec
+"""
+    result = parse_spec_changelog(content)
+    assert result == []
+    captured = capsys.readouterr()
+    assert "empty value" in captured.err
+    assert "operation" in captured.err
