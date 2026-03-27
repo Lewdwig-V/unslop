@@ -42,6 +42,7 @@ from .core.frontmatter import (
     parse_review_acknowledged,
     parse_uncertain,
     parse_distilled_from,
+    parse_discovered,
     validate_intent_hash,
 )
 from .core.hashing import (
@@ -126,6 +127,7 @@ __all__ = [
     "parse_review_acknowledged",
     "parse_uncertain",
     "parse_distilled_from",
+    "parse_discovered",
     "parse_intent",
     "compute_intent_hash",
     "validate_intent_hash",
