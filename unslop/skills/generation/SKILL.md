@@ -57,6 +57,8 @@ After the Architect finalizes the Abstract Spec (Stage A.1) and before dispatchi
 
 **Dual projection:** The Archaeologist produces both artefacts in a single pass. The Concrete Spec is the implementation strategy for the Builder (algorithmic "how"). The `behaviour.yaml` fragment is the testable constraint set for Mason (behavioural "what"). `non_goals:` from the Abstract Spec are projected into `behaviour.yaml` as negative constraints (invariants asserting behaviour is NOT present) and into the Concrete Spec as explicit exclusions. The two projections are derived from the same spec read but delivered to different consumers -- the Builder never reads `behaviour.yaml` and Mason never reads the Concrete Spec (Chinese Wall).
 
+**Discovered constraints:** During spec projection, the Archaeologist may discover correctness requirements the abstract spec didn't anticipate -- implicit ordering constraints, hidden dependencies, boundary conditions the spec failed to specify. These are returned as `discovered:` entries (title/observation/question) alongside the concrete spec and behaviour.yaml. Generate's Stage 0b presents each discovery to the user for promote-or-dismiss resolution. Promoted discoveries update the abstract spec and trigger a Stage 0 re-run. The concrete spec must never silently absorb a constraint the user didn't explicitly approve.
+
 **When Stage A.2 runs:**
 - **Always** for new files and takeover (full pipeline)
 - **Always** for `--force` regeneration
@@ -138,7 +140,7 @@ The `model` parameter controls which Claude model runs the subagent. Valid value
 The generation pipeline has a strict dependency order:
 
 ```
-Archaeologist -> Mason -> Builder -> Validator
+Archaeologist -> Discovery Gate (if discoveries) -> Mason -> Builder -> Validator
 ```
 
 The Architect dispatches Archaeologist, receives the concrete spec and behaviour.yaml, dispatches Mason (test generation, if applicable), then dispatches Builder with the concrete spec. No parallelism within a single file's pipeline -- Mason must complete before Builder to ensure tests exist before code is generated.
