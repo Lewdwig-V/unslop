@@ -33,6 +33,7 @@ from unslop.scripts.orchestrator import (
     parse_review_acknowledged,
     parse_uncertain,
     parse_distilled_from,
+    parse_discovered,
     parse_intent,
     compute_intent_hash,
     validate_intent_hash,
@@ -6390,3 +6391,123 @@ distilled-from:
     assert len(result) == 0
     captured = capsys.readouterr()
     assert "malformed distilled-from entry" in captured.err
+
+
+def test_parse_discovered_basic():
+    content = """---
+discovered:
+  - title: "Implicit ordering constraint"
+    observation: "Retry depends on token refresh before each attempt."
+    question: "Should the spec require token refresh before retry?"
+  - title: "Hidden dependency"
+    observation: "Concrete strategy requires a connection pool."
+    question: "Should the spec add a depends-on for pool?"
+---
+
+# spec
+"""
+    result = parse_discovered(content)
+    assert len(result) == 2
+    assert result[0]["title"] == "Implicit ordering constraint"
+    assert result[1]["question"] == "Should the spec add a depends-on for pool?"
+
+
+def test_parse_discovered_empty():
+    content = """---
+discovered:
+---
+
+# spec
+"""
+    result = parse_discovered(content)
+    assert result == []
+
+
+def test_parse_discovered_missing():
+    content = """---
+depends-on:
+  - foo.spec.md
+---
+
+# spec
+"""
+    result = parse_discovered(content)
+    assert result == []
+
+
+def test_parse_discovered_no_frontmatter():
+    content = "# Just a spec"
+    result = parse_discovered(content)
+    assert result == []
+
+
+def test_parse_discovered_missing_required_field(capsys):
+    content = """---
+discovered:
+  - title: "Missing question"
+    observation: "Something found."
+---
+
+# spec
+"""
+    result = parse_discovered(content)
+    assert result == []
+    captured = capsys.readouterr()
+    assert "missing required field" in captured.err
+
+
+def test_parse_discovered_malformed_indentation(capsys):
+    content = """---
+discovered:
+  - title: "First"
+    observation: "Good"
+   question: "Wrong indent"
+---
+
+# spec
+"""
+    result = parse_discovered(content)
+    assert len(result) == 0
+    captured = capsys.readouterr()
+    assert "malformed discovered entry" in captured.err
+
+
+def test_parse_discovered_colons_in_values():
+    """Values containing colons should be preserved (split on first colon only)."""
+    content = """---
+discovered:
+  - title: "Ordering: token before retry"
+    observation: "Retry depends on: token refresh before each attempt."
+    question: "Should the spec require: token refresh ordering?"
+---
+
+# spec
+"""
+    result = parse_discovered(content)
+    assert len(result) == 1
+    assert result[0]["title"] == "Ordering: token before retry"
+    assert "token refresh" in result[0]["observation"]
+    assert "token refresh ordering?" in result[0]["question"]
+
+
+def test_parse_discovered_with_other_fields():
+    """Parser works when discovered: appears between other frontmatter fields."""
+    content = """---
+intent: Handles retry logic
+discovered:
+  - title: "Hidden dep"
+    observation: "Needs connection pool."
+    question: "Add depends-on?"
+non_goals:
+  - Circuit breaker
+uncertain:
+  - title: "Unbounded loop"
+    observation: "No cap."
+    question: "Intentional?"
+---
+
+# spec
+"""
+    result = parse_discovered(content)
+    assert len(result) == 1
+    assert result[0]["title"] == "Hidden dep"

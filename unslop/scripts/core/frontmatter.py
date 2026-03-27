@@ -413,6 +413,91 @@ def parse_distilled_from(content: str) -> list[dict]:
     return validated
 
 
+def parse_discovered(content: str) -> list[dict]:
+    """Parse discovered constraint entries from abstract spec frontmatter.
+
+    Written by the Archaeologist during Generate Stage 0.
+    Entries missing required fields are skipped with a stderr warning.
+
+    Supported format (strict string matching, not YAML):
+        ---
+        discovered:
+          - title: "Implicit ordering constraint"
+            observation: "Retry depends on token refresh before each attempt."
+            question: "Should the spec require token refresh before retry?"
+        ---
+
+    Returns list of dicts, or empty list if absent or no frontmatter.
+    """
+    lines = content.split("\n")
+    if not lines or lines[0].strip() != "---":
+        return []
+
+    end = -1
+    for i in range(1, len(lines)):
+        if lines[i].strip() == "---":
+            end = i
+            break
+    if end == -1:
+        return []
+
+    frontmatter_lines = lines[1:end]
+
+    entries = []
+    in_discovered = False
+    current_entry: dict | None = None
+
+    for line in frontmatter_lines:
+        stripped = line.strip()
+
+        if in_discovered:
+            if re.match(r"^  - title:", line):
+                if current_entry is not None:
+                    entries.append(current_entry)
+                current_entry = {"title": line.split(":", 1)[1].strip().strip('"').strip("'")}
+                continue
+            elif current_entry is not None and re.match(r"^    \w", line):
+                key, _, val = stripped.partition(":")
+                if key.strip() and val.strip():
+                    current_entry[key.strip()] = val.strip().strip('"').strip("'")
+                continue
+            elif re.match(r"^\s+- ", line) or (current_entry is not None and re.match(r"^\s+\w", line)):
+                print(
+                    json.dumps({"warning": f"possible malformed discovered entry (wrong indentation): {line!r}"}),
+                    file=sys.stderr,
+                )
+                if current_entry is not None:
+                    entries.append(current_entry)
+                    current_entry = None
+                in_discovered = False
+            else:
+                if current_entry is not None:
+                    entries.append(current_entry)
+                    current_entry = None
+                in_discovered = False
+
+        if stripped == "discovered:":
+            in_discovered = True
+
+    # Flush final entry
+    if current_entry is not None:
+        entries.append(current_entry)
+
+    _required_fields = {"title", "observation", "question"}
+    validated = []
+    for entry in entries:
+        missing = _required_fields - set(entry.keys())
+        if missing:
+            print(
+                json.dumps({"warning": f"discovered entry missing required field(s) {sorted(missing)}, skipping: {entry}"}),
+                file=sys.stderr,
+            )
+        else:
+            validated.append(entry)
+
+    return validated
+
+
 def parse_concrete_frontmatter(content: str) -> dict:
     """Parse frontmatter from a concrete spec (.impl.md) file.
 
