@@ -66,6 +66,16 @@ If multiple indicators are found, or none are found, ask the user which test com
 
 **Migration:** If `.unslop/config.md` exists, read its test command value, migrate to `config.json`, then delete `config.md`. Include the deletion in the commit.
 
+**MCP server dependency:** Check if the `mcp` Python package is installed:
+
+```bash
+python3 -c "import mcp" 2>/dev/null && echo "MCP available" || echo "MCP not available"
+```
+
+If not available, inform the user:
+
+> "Optional: install the `mcp` package (`pip install mcp`) to enable MCP tools. Without it, the orchestrator CLI still works but tools won't auto-register in Claude Code."
+
 **5. Create `.unslop/principles.md` (optional)**
 
 Ask the user: 'Would you like to define project principles? These are non-negotiable constraints that apply to all generated code (e.g., error handling style, architecture patterns).'

@@ -41,6 +41,8 @@ Find all `*.spec.md` files in the project tree (excluding `.unslop/` and `node_m
 
 **3b. Resolve build order**
 
+**Preferred:** If available, use MCP tools (`unslop_check_freshness`, `unslop_build_order`, `unslop_ripple_check`) instead of shelling out to `orchestrator.py`. Fall back to CLI if MCP is not available.
+
 Check if any of the found spec files have `depends-on` frontmatter (look for `---` at the start of any spec file). If dependency frontmatter is found:
 
 1. Call `python ${CLAUDE_PLUGIN_ROOT}/scripts/orchestrator.py build-order .` to get the full build order across all specs.
