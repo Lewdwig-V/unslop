@@ -1,6 +1,6 @@
 ---
 description: Regenerate all stale managed files from their specs
-argument-hint: "[--force] [--force-ambiguous] [--force-pseudocode] [--force-strategy] [--incremental] [--refactor] [--dry-run]"
+argument-hint: "[--force] [--force-ambiguous] [--force-pseudocode] [--force-strategy] [--incremental] [--refactor] [--regenerate-tests] [--dry-run]"
 ---
 
 **1. Verify prerequisites**
@@ -24,6 +24,8 @@ Read `.unslop/config.json` to obtain the test command. If `config.json` does not
 **Check for `--force-pseudocode` flag:** If `$ARGUMENTS` contains `--force-pseudocode`, note this for the generation skill. When present, pseudocode linting violations (Phase 0a.1) are reported as warnings instead of blocking generation.
 
 **Check for `--force-strategy` flag:** If `$ARGUMENTS` contains `--force-strategy`, note this for the generation skill. When present, concrete spec strategy incoherence (Phase 0e.1) is reported as warnings instead of blocking generation.
+
+**Check for `--regenerate-tests` flag:** If `$ARGUMENTS` contains `--regenerate-tests`, note this -- it forces Mason (Stage 1) to regenerate tests even when existing tests are present for a managed file.
 
 **Check for `--dry-run` flag:** If `$ARGUMENTS` contains `--dry-run`, perform a ripple-effect analysis instead of generating code. This shows the user exactly what would happen — which specs, concrete specs, and managed files would be affected — without spawning any worktrees or modifying any files. See Step 4b below.
 
@@ -144,16 +146,46 @@ If multiple specs have `needs-review`, present them one at a time. If the user c
 
 **HARD RULE:** Do not silently skip `needs-review` flags. The user MUST explicitly acknowledge or address each one before generation proceeds.
 
-**5. Dispatch Builders (Stage B -- worktree isolation)**
+**5. Dispatch pipeline (four-stage)**
 
 For each file classified as new, stale, modified (confirmed), or conflict (confirmed), in build order:
+
+**5a. Stage 0: Archaeologist -- Spec Projection**
+
+Dispatch an Archaeologist subagent to produce the concrete spec and behaviour specification in a single pass. The Archaeologist replaces the former Strategist role.
+
+- **Input:** abstract spec (including any `non_goals:` frontmatter), `.unslop/principles.md` (if present), file tree context
+- **Output:** concrete spec + `behaviour.yaml` (written as sidecar next to the spec, e.g. `src/retry.py.behaviour.yaml`)
+- **Non-goals projection:** If the abstract spec contains `non_goals:`, the Archaeologist:
+  1. Projects each non-goal into `behaviour.yaml` as a negative constraint (invariant asserting the behaviour is NOT present, prefixed `MUST NOT`)
+  2. Projects each non-goal into the concrete spec as an explicit exclusion under a `## Exclusions` section
+- **Model:** `config.models.archaeologist` (default: `sonnet`)
+- **Note:** The Archaeologist reads the abstract spec, NOT source code. Source reading is for distill mode only.
+
+**5b. Stage 1: Mason -- Test Derivation (conditional)**
+
+Derive the expected test file path from project conventions (e.g. `src/retry.py` -> `tests/test_retry.py`).
+
+- **If tests exist AND `--regenerate-tests` was NOT passed:** Skip Stage 1. The Builder will use existing tests for validation.
+- **If no tests exist OR `--regenerate-tests` was passed:** Dispatch a Mason subagent in a worktree:
+  - **Input:** `behaviour.yaml` ONLY.
+  - **HARD RULE:** Mason NEVER sees the abstract spec, concrete spec, or source code. Chinese Wall -- behaviour.yaml is the sole input. This ensures tests are derived purely from observable behaviour, not implementation details.
+  - **Output:** test file with `@unslop-managed` header containing `spec-hash` (hash of behaviour.yaml) and `generated` timestamp
+  - **Model:** `config.models.mason` (default: `sonnet`)
+  - **Isolation:** worktree (merge test file on success)
+
+**5c. Stage 2: Code Implementation (Builder)**
+
+Select generation mode and dispatch the Builder:
 
 1. **Select generation mode:**
    - New file (no existing code): Mode A (full generation).
    - `--refactor` flag: Mode A (full generation, ignore existing structure).
    - `--incremental` flag: emit deprecation warning `"--incremental is deprecated. Surgical mode is now the default. Use --refactor for full regeneration."` and proceed with Surgical mode.
    - Otherwise: **Surgical mode** (default). See the generation skill's Surgical Context section.
-2. **Dispatch a Builder Agent** using the generation skill's two-stage execution model:
+2. **Dispatch a Builder Agent** using the generation skill's execution model:
+   - The Builder receives the concrete spec from Stage 0 (Archaeologist output).
+   - If Stage 1 produced a test file, the Builder receives it as additional validation input.
    - test_policy: `"Do NOT create or modify spec-backed test files. Use existing tests for validation only. Tests marked @unslop-incidental may be updated or removed if they fail against regenerated code that correctly follows the spec."`
    - For Surgical mode: include Existing Code, Spec Diff, and Affected Symbols context blocks.
 3. **Verify result:**
@@ -162,6 +194,32 @@ For each file classified as new, stale, modified (confirmed), or conflict (confi
 4. If a dependency was regenerated in this run, mark its dependents as stale even if their own specs haven't changed.
 
 If cascading regeneration of a dependent causes Builder failure, stop and report: which upstream regeneration caused the failure, which dependent broke, and the Builder's failure report.
+
+**5d. Stage 3: Async Verification (Saboteur)**
+
+After the Builder succeeds and the worktree merges, dispatch the Saboteur in the background. **HARD RULE:** Generate returns immediately after Builder success. The Saboteur does NOT block.
+
+- **Input:** abstract spec + source file (post-merge) + test file
+- **Timeout:** `config.verification_timeout` (default: 300s)
+- **Output:** Write result to `.unslop/verification/<managed-file-hash>.json`:
+  ```json
+  {
+    "managed": "<managed-file-path>",
+    "spec": "<spec-file-path>",
+    "timestamp": "<ISO8601>",
+    "status": "pass|fail|error|timeout|pending",
+    "mutants_killed": 0,
+    "mutants_survived": 0,
+    "mutants_total": 0,
+    "source_hash": "<12-hex>",
+    "spec_hash": "<12-hex>"
+  }
+  ```
+- **Failure modes:**
+  - Saboteur crashes -> `{"status": "error", ...}` with error message
+  - Saboteur exceeds timeout -> `{"status": "timeout", ...}`
+  - Source or spec changed during run (hash mismatch on completion) -> `{"status": "stale", ...}` (result is discarded as unreliable)
+- The Saboteur uses the adversarial pipeline (Archaeologist -> Mason -> Saboteur from the adversarial skill) to run mutation testing against the generated code.
 
 **6. Update the alignment summary**
 
