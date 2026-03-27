@@ -44,6 +44,7 @@ from .core.frontmatter import (
     parse_distilled_from,
     parse_discovered,
     parse_absorbed_from,
+    parse_exuded_from,
     validate_intent_hash,
 )
 from .core.hashing import (
@@ -130,6 +131,7 @@ __all__ = [
     "parse_distilled_from",
     "parse_discovered",
     "parse_absorbed_from",
+    "parse_exuded_from",
     "parse_intent",
     "compute_intent_hash",
     "validate_intent_hash",

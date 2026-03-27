@@ -35,6 +35,7 @@ from unslop.scripts.orchestrator import (
     parse_distilled_from,
     parse_discovered,
     parse_absorbed_from,
+    parse_exuded_from,
     parse_intent,
     compute_intent_hash,
     validate_intent_hash,
@@ -6639,4 +6640,132 @@ absorbed-from:
     result = parse_absorbed_from(content)
     assert len(result) == 1
     assert result[0]["path"] == "C:/Users/dev/src/retry.py"
+    assert result[0]["hash"] == "a3f8c2e9b7d1"
+
+
+# --- parse_exuded_from tests ---
+
+
+def test_parse_exuded_from_basic():
+    """Single entry with path and hash."""
+    content = """---
+exuded-from:
+  - path: src/network.unit.spec.md
+    hash: a3f8c2e9b7d1
+---
+
+# spec
+"""
+    result = parse_exuded_from(content)
+    assert len(result) == 1
+    assert result[0]["path"] == "src/network.unit.spec.md"
+    assert result[0]["hash"] == "a3f8c2e9b7d1"
+
+
+def test_parse_exuded_from_multiple():
+    """Two entries parsed correctly."""
+    content = """---
+exuded-from:
+  - path: src/network.unit.spec.md
+    hash: a3f8c2e9b7d1
+  - path: src/transport.unit.spec.md
+    hash: b4e7d1f2c8a3
+---
+
+# spec
+"""
+    result = parse_exuded_from(content)
+    assert len(result) == 2
+    assert result[0]["path"] == "src/network.unit.spec.md"
+    assert result[0]["hash"] == "a3f8c2e9b7d1"
+    assert result[1]["path"] == "src/transport.unit.spec.md"
+    assert result[1]["hash"] == "b4e7d1f2c8a3"
+
+
+def test_parse_exuded_from_missing():
+    """Field not present returns empty list."""
+    content = """---
+intent: Handles retry logic
+---
+
+# spec
+"""
+    result = parse_exuded_from(content)
+    assert result == []
+
+
+def test_parse_exuded_from_no_frontmatter():
+    """No frontmatter at all returns empty list."""
+    content = """# spec
+
+Some content here.
+"""
+    result = parse_exuded_from(content)
+    assert result == []
+
+
+def test_parse_exuded_from_missing_required_field(capsys):
+    """Entry with path but no hash is skipped with a warning."""
+    content = """---
+exuded-from:
+  - path: src/network.unit.spec.md
+---
+
+# spec
+"""
+    result = parse_exuded_from(content)
+    assert result == []
+    captured = capsys.readouterr()
+    assert "exuded-from entry missing required field(s)" in captured.err
+    assert "hash" in captured.err
+
+
+def test_parse_exuded_from_malformed_indentation(capsys):
+    """Wrong indentation triggers a warning."""
+    content = """---
+exuded-from:
+   - path: src/network.unit.spec.md
+     hash: a3f8c2e9b7d1
+---
+
+# spec
+"""
+    result = parse_exuded_from(content)
+    assert result == []
+    captured = capsys.readouterr()
+    assert "malformed exuded-from entry" in captured.err
+
+
+def test_parse_exuded_from_with_other_fields():
+    """Parser works when exuded-from: appears between other frontmatter fields."""
+    content = """---
+intent: Handles retry logic
+exuded-from:
+  - path: src/network.unit.spec.md
+    hash: a3f8c2e9b7d1
+non_goals:
+  - Circuit breaker
+---
+
+# spec
+"""
+    result = parse_exuded_from(content)
+    assert len(result) == 1
+    assert result[0]["path"] == "src/network.unit.spec.md"
+    assert result[0]["hash"] == "a3f8c2e9b7d1"
+
+
+def test_parse_exuded_from_colons_in_values():
+    """Path containing colons is parsed correctly."""
+    content = """---
+exuded-from:
+  - path: C:/Users/dev/src/network.unit.spec.md
+    hash: a3f8c2e9b7d1
+---
+
+# spec
+"""
+    result = parse_exuded_from(content)
+    assert len(result) == 1
+    assert result[0]["path"] == "C:/Users/dev/src/network.unit.spec.md"
     assert result[0]["hash"] == "a3f8c2e9b7d1"
