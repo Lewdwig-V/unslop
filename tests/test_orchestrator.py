@@ -6262,3 +6262,76 @@ intent-approved: false
     result = parse_distilled_from(content)
     assert len(result) == 1
     assert result[0]["path"] == "src/retry.py"
+
+
+def test_distill_roundtrip_frontmatter():
+    """Verify the full distill frontmatter lifecycle: uncertain + distilled-from + non_goals."""
+    spec_content = """---
+intent: >
+  Handles HTTP retry logic with backoff and jitter.
+intent-approved: false
+intent-hash: eaf392b58b29
+distilled-from:
+  - path: src/retry.py
+    hash: a3f8c2e9b7d1
+non_goals:
+  - Circuit breaker or load shedding (inferred)
+  - Request deduplication (inferred)
+uncertain:
+  - title: "Unbounded retry loop"
+    observation: "Code retries indefinitely with no cap."
+    question: "Is the missing cap intentional?"
+  - title: "Silent exception swallowing"
+    observation: "ConnectionError caught and returns None."
+    question: "Should errors propagate?"
+---
+
+# retry spec
+"""
+    # Parse all fields
+    intent = parse_intent(spec_content)
+    assert intent["intent"] == "Handles HTTP retry logic with backoff and jitter."
+
+    distilled = parse_distilled_from(spec_content)
+    assert len(distilled) == 1
+    assert distilled[0]["path"] == "src/retry.py"
+    assert distilled[0]["hash"] == "a3f8c2e9b7d1"
+
+    goals = parse_non_goals(spec_content)
+    assert len(goals) == 2
+    assert "(inferred)" in goals[0]
+
+    uncertain = parse_uncertain(spec_content)
+    assert len(uncertain) == 2
+    assert uncertain[0]["title"] == "Unbounded retry loop"
+    assert uncertain[1]["question"] == "Should errors propagate?"
+
+    # After ratification: uncertain clears, distilled-from persists
+    ratified_content = """---
+intent: >
+  Handles HTTP retry logic with backoff, jitter, and max 5 retries.
+intent-approved: 2026-03-27T16:00:00Z
+intent-hash: f1a2b3c4d5e6
+distilled-from:
+  - path: src/retry.py
+    hash: a3f8c2e9b7d1
+non_goals:
+  - Circuit breaker or load shedding
+  - Request deduplication
+---
+
+# retry spec
+"""
+    # Provenance persists
+    distilled2 = parse_distilled_from(ratified_content)
+    assert len(distilled2) == 1
+    assert distilled2[0]["path"] == "src/retry.py"
+
+    # Uncertain cleared
+    uncertain2 = parse_uncertain(ratified_content)
+    assert uncertain2 == []
+
+    # Non-goals ratified (no more "(inferred)" suffix)
+    goals2 = parse_non_goals(ratified_content)
+    assert len(goals2) == 2
+    assert "(inferred)" not in goals2[0]
