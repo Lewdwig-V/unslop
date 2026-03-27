@@ -6333,7 +6333,7 @@ uncertain:
     result = parse_uncertain(content)
     assert result == []
     captured = capsys.readouterr()
-    assert "missing required field" in captured.err
+    assert "missing field" in captured.err
 
 
 def test_parse_uncertain_with_other_fields():
@@ -6414,7 +6414,7 @@ distilled-from:
     result = parse_distilled_from(content)
     assert result == []
     captured = capsys.readouterr()
-    assert "missing required field" in captured.err
+    assert "missing field" in captured.err
 
 
 def test_parse_distilled_from_with_other_fields():
@@ -6621,7 +6621,7 @@ discovered:
     result = parse_discovered(content)
     assert result == []
     captured = capsys.readouterr()
-    assert "missing required field" in captured.err
+    assert "missing field" in captured.err
 
 
 def test_parse_discovered_malformed_indentation(capsys):
@@ -6754,7 +6754,7 @@ absorbed-from:
     result = parse_absorbed_from(content)
     assert result == []
     captured = capsys.readouterr()
-    assert "absorbed-from entry missing required field(s)" in captured.err
+    assert "absorbed-from entry missing field" in captured.err
     assert "hash" in captured.err
 
 
@@ -6807,6 +6807,23 @@ absorbed-from:
     assert len(result) == 1
     assert result[0]["path"] == "C:/Users/dev/src/retry.py"
     assert result[0]["hash"] == "a3f8c2e9b7d1"
+
+
+def test_parse_absorbed_from_empty_value_warning(capsys):
+    """Field present but with empty value gets distinct warning."""
+    content = """---
+absorbed-from:
+  - path: src/retry.py.spec.md
+    hash:
+---
+
+# spec
+"""
+    result = parse_absorbed_from(content)
+    assert result == []
+    captured = capsys.readouterr()
+    assert "empty value" in captured.err
+    assert "hash" in captured.err
 
 
 # --- parse_exuded_from tests ---
@@ -6882,7 +6899,7 @@ exuded-from:
     result = parse_exuded_from(content)
     assert result == []
     captured = capsys.readouterr()
-    assert "exuded-from entry missing required field(s)" in captured.err
+    assert "exuded-from entry missing field" in captured.err
     assert "hash" in captured.err
 
 
@@ -7020,7 +7037,7 @@ provenance-history:
     result = parse_provenance_history(content)
     assert result == []
     captured = capsys.readouterr()
-    assert "provenance-history entry missing required field(s)" in captured.err
+    assert "provenance-history entry missing field" in captured.err
     assert "timestamp" in captured.err
 
 
