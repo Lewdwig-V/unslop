@@ -162,7 +162,32 @@ Dispatch an Archaeologist subagent to produce the concrete spec and behaviour sp
 - **Model:** `config.models.archaeologist` (default: `sonnet`)
 - **Note:** The Archaeologist reads the abstract spec, NOT source code. Source reading is for distill mode only.
 
-**5b. Stage 1: Mason -- Test Derivation (conditional)**
+**5b. Stage 0b: Discovery Gate (conditional)**
+
+If the Archaeologist produced `discovered:` entries during Stage 0, generate pauses before proceeding to Mason.
+
+For each discovery, present:
+
+```
+⚠ Archaeologist discovery: [title]
+  [observation]
+  [question]
+
+  (p) Promote to abstract spec -- add this constraint
+  (d) Dismiss -- proceed without this constraint
+```
+
+**If promoted:** Update the abstract spec body with the new constraint. Set `intent-approved: false`. Recompute `intent-hash`. Stage the spec change (`git add`).
+
+**If dismissed:** Remove the `discovered:` entry. The concrete spec must not encode the dismissed constraint.
+
+**After all discoveries are resolved:**
+- If any were promoted: the abstract spec has changed. Re-run Stage 0 (Archaeologist) with the updated spec to produce a consistent concrete spec + behaviour.yaml. The re-run will not produce new discoveries for constraints that were just promoted (they're now in the spec).
+- If all were dismissed (or no discoveries existed): proceed to Stage 1.
+
+**HARD RULE:** Discovered constraints flow back through the abstract spec via explicit user approval. The concrete spec is never a ratification path for abstract spec changes. If the Archaeologist finds a correctness requirement the abstract spec doesn't cover, it must surface via `discovered:` -- never silently absorbed into the concrete spec.
+
+**5c. Stage 1: Mason -- Test Derivation (conditional)**
 
 Derive the expected test file path from project conventions (e.g. `src/retry.py` -> `tests/test_retry.py`).
 
@@ -174,7 +199,7 @@ Derive the expected test file path from project conventions (e.g. `src/retry.py`
   - **Model:** `config.models.mason` (default: `sonnet`)
   - **Isolation:** worktree (merge test file on success)
 
-**5c. Stage 2: Code Implementation (Builder)**
+**5d. Stage 2: Code Implementation (Builder)**
 
 Select generation mode and dispatch the Builder:
 
@@ -195,7 +220,7 @@ Select generation mode and dispatch the Builder:
 
 If cascading regeneration of a dependent causes Builder failure, stop and report: which upstream regeneration caused the failure, which dependent broke, and the Builder's failure report.
 
-**5d. Stage 3: Async Verification (Saboteur)**
+**5e. Stage 3: Async Verification (Saboteur)**
 
 After the Builder succeeds and the worktree merges, dispatch the Saboteur in the background. **HARD RULE:** Generate returns immediately after Builder success. The Saboteur does NOT block.
 
