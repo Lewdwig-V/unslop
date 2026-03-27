@@ -95,7 +95,7 @@ intent-approved: false
 intent-hash: [pre-computed SHA-256 of intent text, first 12 hex chars]
 distilled-from:
   - path: <source-file-path>
-    sha256: <sha256-of-source-file-at-distillation-time>
+    hash: <sha256-of-source-file-at-distillation-time, first 12 hex chars>
 non_goals:
   - [inferred non-goal 1 (inferred)]
   - [inferred non-goal 2 (inferred)]

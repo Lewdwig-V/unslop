@@ -170,7 +170,7 @@ Derive the expected test file path from project conventions (e.g. `src/retry.py`
 - **If no tests exist OR `--regenerate-tests` was passed:** Dispatch a Mason subagent in a worktree:
   - **Input:** `behaviour.yaml` ONLY.
   - **HARD RULE:** Mason NEVER sees the abstract spec, concrete spec, or source code. Chinese Wall -- behaviour.yaml is the sole input. This ensures tests are derived purely from observable behaviour, not implementation details.
-  - **Output:** test file with `@unslop-managed` header containing `spec-hash` (hash of behaviour.yaml) and `generated` timestamp
+  - **Output:** test file with `@unslop-managed` header containing `spec-hash` (hash of the **abstract spec**, not behaviour.yaml -- this ensures status/weed drift checks compare tests against the same spec hash used for code files) and `generated` timestamp
   - **Model:** `config.models.mason` (default: `sonnet`)
   - **Isolation:** worktree (merge test file on success)
 

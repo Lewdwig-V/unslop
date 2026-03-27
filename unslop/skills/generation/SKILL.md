@@ -457,11 +457,29 @@ After the Builder reports DONE with green tests and the Architect has authorized
 - Path to the Mason-generated test file (if present)
 - Model: `config.models.saboteur` (default: `haiku`)
 
-**Saboteur outputs:** Results are written to `.unslop/verification/<spec-path-hash>/saboteur-<timestamp>.md`. These files are excluded from version control (`.unslop/.gitignore`).
+**Saboteur outputs:** Results are written as JSON to `.unslop/verification/<managed-file-hash>.json`. The JSON contract matches what `/unslop:status` and `/unslop:verify` consume:
 
-**Timeout semantics:** The Saboteur has a default timeout of 120 seconds. If it does not complete within the timeout, the result file is written with `status: timeout` and a partial mutation report. The timeout does not affect the generation output in any way.
+```json
+{
+  "managed": "<managed-file-path>",
+  "spec": "<spec-path>",
+  "timestamp": "<ISO8601>",
+  "status": "pass|fail|error|timeout|pending",
+  "mutants_total": 20,
+  "mutants_killed": 18,
+  "mutants_equivalent": 2,
+  "mutants_surviving": 0,
+  "surviving_details": [],
+  "source_hash": "<12-hex>",
+  "spec_hash": "<12-hex>"
+}
+```
 
-**Does not block generate:** A Saboteur failure or timeout never rolls back the commit, reverts the merge, or modifies the managed file. Saboteur results surface through `/unslop:status` and `/unslop:adversarial`. If the Saboteur identifies escaping mutants, the user can trigger a full adversarial run via `/unslop:adversarial` to produce spec-backed tests.
+These files are excluded from version control (`.unslop/.gitignore`).
+
+**Timeout semantics:** The Saboteur has a configurable timeout: `config.verification_timeout` (default: 300 seconds). If it does not complete within the timeout, the result file is written with `"status": "timeout"` and a partial mutation report. The timeout does not affect the generation output in any way.
+
+**Does not block generate:** A Saboteur failure or timeout never rolls back the commit, reverts the merge, or modifies the managed file. Saboteur results surface through `/unslop:status` and `/unslop:verify`. If the Saboteur identifies escaping mutants, the user can trigger a full cover run via `/unslop:cover` to investigate gaps.
 
 **Skipped when:**
 - `adversarial: "mason-only"` was set during testless takeover
