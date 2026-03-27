@@ -64,6 +64,8 @@ After the Architect finalizes the Abstract Spec (Stage A.1) and before dispatchi
 - **Always** for `--force` regeneration
 - **Skipped** for Surgical mode (default existing-file sync) unless the spec delta changes algorithmic behavior
 - **Skipped** if a permanent Concrete Spec (`ephemeral: false`) already exists and the Abstract Spec hasn't changed
+- **Hard block** if the managed file does not exist AND the spec has active provenance (`distilled-from:`, `absorbed-from:`, `exuded-from:`). This is a structural mismatch -- the spec's subject disappeared. Generate cannot proceed. Report the mismatch and suggest `/unslop:absorb`, `/unslop:exude`, or spec removal.
+- **Pending specs** (managed file missing, no active provenance): the Archaeologist skips the existing-code read entirely and projects from the abstract spec alone. No implementation context is available, so the concrete spec is based purely on spec intent. The discovery gate (Stage 0b) is especially important for pending specs -- without existing code as a safety net, undiscovered correctness requirements are more likely.
 
 **Ephemeral vs Permanent:**
 - By default, the Concrete Spec is **ephemeral** — generated as the Builder's strategic input, discarded after successful generation

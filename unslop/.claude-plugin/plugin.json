@@ -1,7 +1,7 @@
 {
   "name": "unslop",
-  "version": "0.36.0",
-  "description": "Spec-driven development harness for Claude Code -- five-phase model (distill, elicit, generate, cover, weed), unified test-then-implement pipeline, discovery gate, async verification, and structured elicitation",
+  "version": "0.37.0",
+  "description": "Spec-driven development harness for Claude Code -- five-phase model (distill, elicit, generate, cover, weed), unified test-then-implement pipeline, discovery gate, async verification, structured elicitation, and spec granularity mutations (absorb/exude)",
   "author": {
     "name": "lewdwig"
   },
