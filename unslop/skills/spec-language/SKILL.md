@@ -218,6 +218,32 @@ Each entry has three required fields: `title`, `observation`, `question`.
 - **Cleared when:** Elicit completes its review. Each item is resolved into the spec body, added as a non-goal, or explicitly dismissed.
 - **If entries remain:** Informational warnings. Generate proceeds but the spec is less trustworthy.
 
+## Discovered Constraints
+
+The `discovered` field records correctness requirements found by the Archaeologist during Generate Stage 0 (spec projection) that the abstract spec didn't anticipate.
+
+```yaml
+---
+discovered:
+  - title: "Implicit ordering constraint"
+    observation: "Retry depends on token refresh before each attempt."
+    question: "Should the spec require token refresh before retry?"
+---
+```
+
+Each entry has three required fields: `title`, `observation`, `question`. Same structure as `uncertain:`, but different provenance.
+
+| | `uncertain:` | `discovered:` |
+|---|---|---|
+| **Written by** | Archaeologist in distill mode | Archaeologist in generate mode |
+| **Question** | "Was this accidental?" | "Does your intent require this?" |
+| **Cleared by** | Elicit distillation review | Generate discovery gate (Stage 0b) |
+| **Persistence** | May remain as warnings | Must be resolved before generate proceeds |
+
+- **Written by:** Archaeologist during Generate Stage 0.
+- **Resolved by:** Generate's Stage 0b discovery gate. Each item is promoted into the abstract spec or explicitly dismissed.
+- **Must be resolved:** Unlike `uncertain:`, discovered constraints are transient -- they must be resolved before generation proceeds because they may affect correctness of the generated code.
+
 ## Distillation Provenance
 
 The `distilled-from` field records which source file(s) a spec was inferred from and their content hash at distillation time.
