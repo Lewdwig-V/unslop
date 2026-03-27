@@ -198,6 +198,45 @@ When an upstream spec changes via `/unslop:change`, downstream specs that depend
 
 **Why the hash?** A naked boolean flag would tell you "something upstream changed" but not what. The hash lets you diff against the specific upstream change, and it lets the system distinguish "flagged and ignored" from "flagged and consciously dismissed."
 
+## Uncertainties
+
+The `uncertain` field records items flagged by `/unslop:distill` as potentially accidental behaviour rather than deliberate design. Each entry gives `/unslop:elicit` a structured question to ask the user.
+
+```yaml
+---
+uncertain:
+  - title: "Unbounded retry loop"
+    observation: "Code retries indefinitely with no cap. No test covers this path."
+    question: "Is the missing cap intentional or an oversight?"
+---
+```
+
+Each entry has three required fields: `title`, `observation`, `question`.
+
+- **Written by:** `/unslop:distill` during spec inference.
+- **Consumed by:** `/unslop:elicit` in distillation review mode.
+- **Cleared when:** Elicit completes its review. Each item is resolved into the spec body, added as a non-goal, or explicitly dismissed.
+- **If entries remain:** Informational warnings. Generate proceeds but the spec is less trustworthy.
+
+## Distillation Provenance
+
+The `distilled-from` field records which source file(s) a spec was inferred from and their content hash at distillation time.
+
+```yaml
+---
+distilled-from:
+  - path: src/retry.py
+    hash: a3f8c2e9b7d1
+---
+```
+
+Each entry has two required fields: `path` and `hash`.
+
+- **Written by:** `/unslop:distill`.
+- **Persists after ratification.** Provenance records how the spec was produced, not whether it's been reviewed. A spec with `distilled-from:` and `intent-approved: <timestamp>` means "machine-inferred, then human-ratified." Clearing the provenance would destroy the audit trail.
+- **Used by elicit:** Triggers distillation review mode (aggressive interrogation of inferred content).
+- **Used by weed:** If the source file's current hash doesn't match the `distilled-from` hash, the spec may be out of date relative to the code it was inferred from.
+
 ## Dependencies Between Specs
 
 When a managed file imports from or relies on another managed file, declare the dependency in YAML frontmatter:
