@@ -158,6 +158,10 @@ Then offer the approval flow:
 
 Rename `<spec-path>.proposed` to `<spec-path>`. The pre-computed `intent-hash` is already embedded. `intent-approved` remains `false` -- intent is promoted through the normal lock cycle via `/unslop:elicit`.
 
+**Changelog entry:** After writing the spec, append both:
+1. A `spec-changelog:` frontmatter entry with the new intent-hash, current timestamp, operation `distill`, and the prior intent-hash (null for initial distillation).
+2. A `## Changelog` prose entry at the bottom of the spec body (reverse chronological -- prepend to the section) describing what changed and why.
+
 Stage the spec: `git add <spec-path>`.
 
 **Revise:**

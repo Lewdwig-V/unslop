@@ -86,6 +86,10 @@ After approval, for each target file:
 
 2. For pre-refactor mode targets (file doesn't exist): the child spec enters `structural` state because `exuded-from:` is active provenance signaling an in-progress granularity change. The file will be created by `/unslop:generate`. Once the spec is ratified and `exuded-from:` moves to `provenance-history:`, re-running generate on a spec with no managed file (and no remaining active provenance) would classify it as `pending`.
 
+**Changelog entry:** After writing each child spec, append both:
+1. A `spec-changelog:` frontmatter entry with the new intent-hash, current timestamp, operation `exude`, and the prior intent-hash (null for new child specs).
+2. A `## Changelog` prose entry at the bottom of the spec body (reverse chronological -- prepend to the section) describing what changed and why.
+
 **5. DAG update**
 
 Scan all `*.spec.md` files for `depends-on` entries referencing the unit spec path. For each dependent spec, present:

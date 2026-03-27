@@ -217,6 +217,10 @@ After presenting the candidate:
 
 Rename `<spec-path>.proposed` to `<spec-path>`. The pre-computed `intent-hash` is already embedded. `intent-approved` is `false` -- the user promotes intent through the normal lock cycle.
 
+**Changelog entry:** After writing the spec, append both:
+1. A `spec-changelog:` frontmatter entry with the new intent-hash, current timestamp, the appropriate operation (`elicit-create`, `elicit-amend`, or `elicit-distill-review`), and the prior intent-hash (null for creation, previous hash for amendment).
+2. A `## Changelog` prose entry at the bottom of the spec body (reverse chronological -- prepend to the section) describing what changed and why.
+
 Stage the spec: `git add <spec-path>`.
 
 **(b) Revise:**

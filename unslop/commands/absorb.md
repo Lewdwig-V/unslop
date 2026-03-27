@@ -69,6 +69,10 @@ Write the merged unit spec with:
 - Merged `uncertain:` entries (from conflicts + carried forward from inputs)
 - Merged `discovered:` entries (carried forward from inputs)
 
+**Changelog entry:** After writing the merged spec, append both:
+1. A `spec-changelog:` frontmatter entry with the new intent-hash, current timestamp, operation `absorb`, and the prior intent-hash (null if this is a new unit spec).
+2. A `## Changelog` prose entry at the bottom of the spec body (reverse chronological -- prepend to the section) describing what changed and why.
+
 **7. DAG update**
 
 Scan all `*.spec.md` files in the project for `depends-on` entries referencing any absorbed spec path. For each match:
