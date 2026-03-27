@@ -1537,7 +1537,7 @@ def test_check_freshness_relative_source_spec(tmp_path):
 
 
 def test_check_freshness_multi_target_stale(tmp_path):
-    """A missing target file should appear as stale."""
+    """A missing target file with no provenance should appear as pending."""
     spec = "# auth spec\n\n## Behavior\nAuth logic.\nMore detail.\n"
 
     src_dir = tmp_path / "src"
@@ -1554,12 +1554,12 @@ def test_check_freshness_multi_target_stale(tmp_path):
         "---\n\n## Strategy\nShared auth.\n"
     )
 
-    # Neither target file exists
+    # Neither target file exists, no provenance -> pending
     result = check_freshness(str(tmp_path))
     target_entries = [f for f in result["files"] if f["managed"] in ("src/api/auth.py", "frontend/src/api/auth.ts")]
     assert len(target_entries) == 2
     for entry in target_entries:
-        assert entry["state"] == "stale"
+        assert entry["state"] == "pending"
 
 
 def test_check_freshness_target_collision(tmp_path):
@@ -7042,3 +7042,62 @@ provenance-history:
     assert result[0]["timestamp"] == "2026-03-01T00:00:00Z"
     assert result[1]["timestamp"] == "2026-03-02T00:00:00Z"
     assert result[2]["timestamp"] == "2026-03-03T00:00:00Z"
+
+
+def test_freshness_target_driven_pending(tmp_path):
+    """Target-driven spec with no target file and no provenance -> pending."""
+    (tmp_path / ".unslop").mkdir()
+    src = tmp_path / "src"
+    src.mkdir()
+    spec = src / "retry.py.spec.md"
+    spec.write_text("""---
+intent: Retry with backoff
+---
+
+# retry.py spec
+""")
+    impl = src / "retry.py.impl.md"
+    impl.write_text("""---
+source-spec: retry.py.spec.md
+targets:
+  - path: src/retry.py
+---
+
+# impl
+""")
+    result = check_freshness(str(tmp_path))
+    # The per-file path may also pick this up. Find any entry with managed=src/retry.py
+    target_files = [f for f in result["files"] if f.get("managed") == "src/retry.py"]
+    assert len(target_files) >= 1
+    # At least one should be pending
+    assert any(f["state"] == "pending" for f in target_files)
+
+
+def test_freshness_target_driven_structural(tmp_path):
+    """Target-driven spec with no target file and provenance -> structural."""
+    (tmp_path / ".unslop").mkdir()
+    src = tmp_path / "src"
+    src.mkdir()
+    spec = src / "retry.py.spec.md"
+    spec.write_text("""---
+intent: Retry with backoff
+absorbed-from:
+  - path: src/old_retry.py
+    hash: abc123
+---
+
+# retry.py spec
+""")
+    impl = src / "retry.py.impl.md"
+    impl.write_text("""---
+source-spec: retry.py.spec.md
+targets:
+  - path: src/retry.py
+---
+
+# impl
+""")
+    result = check_freshness(str(tmp_path))
+    target_files = [f for f in result["files"] if f.get("managed") == "src/retry.py"]
+    assert len(target_files) >= 1
+    assert any(f["state"] == "structural" for f in target_files)

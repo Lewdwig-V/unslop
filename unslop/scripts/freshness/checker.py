@@ -555,11 +555,18 @@ def check_freshness(directory: str, exclude_dirs: list[str] | None = None) -> di
             target_full = root / target_rel
             if spec_full and spec_full.exists():
                 if not target_full.exists():
+                    spec_content_target = spec_full.read_text()
+                    has_provenance_target = bool(
+                        parse_distilled_from(spec_content_target)
+                        or parse_absorbed_from(spec_content_target)
+                        or parse_exuded_from(spec_content_target)
+                    )
+                    target_state = "structural" if has_provenance_target else "pending"
                     files.append(
                         {
                             "managed": target_rel,
                             "spec": source_spec,
-                            "state": "stale",
+                            "state": target_state,
                             "impl_path": rel_impl,
                         }
                     )
