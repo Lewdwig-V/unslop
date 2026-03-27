@@ -8,7 +8,14 @@ import sys
 from collections import Counter
 from pathlib import Path
 
-from ..core.frontmatter import parse_concrete_frontmatter, parse_managed_file, parse_needs_review
+from ..core.frontmatter import (
+    parse_absorbed_from,
+    parse_concrete_frontmatter,
+    parse_distilled_from,
+    parse_exuded_from,
+    parse_managed_file,
+    parse_needs_review,
+)
 from ..core.hashing import compute_hash, get_body_below_header, parse_header
 from ..core.spec_discovery import get_registry_key_for_spec, parse_unit_spec_files
 from ..dependencies.concrete_graph import (
@@ -406,7 +413,17 @@ def check_freshness(directory: str, exclude_dirs: list[str] | None = None) -> di
                 continue
 
             worst_state = "fresh"
-            priority = {"fresh": 0, "old_format": 1, "stale": 2, "modified": 3, "conflict": 4, "unmanaged": 5, "error": 6}
+            priority = {
+                "fresh": 0,
+                "old_format": 1,
+                "pending": 2,
+                "stale": 3,
+                "structural": 4,
+                "modified": 5,
+                "conflict": 6,
+                "unmanaged": 7,
+                "error": 8,
+            }
             missing_files = []
             principles_hints = []
             for uf in unit_files:
@@ -420,8 +437,15 @@ def check_freshness(directory: str, exclude_dirs: list[str] | None = None) -> di
                         principles_hints.append(r_hint)
                 else:
                     missing_files.append(uf)
-                    if priority.get("stale", 0) > priority.get(worst_state, 0):
-                        worst_state = "stale"
+                    # Check unit spec provenance to decide structural vs pending.
+                    # For unit specs, the provenance is on the unit spec itself
+                    # (not on per-file specs, which don't exist in this model).
+                    has_prov = bool(
+                        parse_distilled_from(content) or parse_absorbed_from(content) or parse_exuded_from(content)
+                    )
+                    new_state = "structural" if has_prov else "pending"
+                    if priority.get(new_state, 0) > priority.get(worst_state, 0):
+                        worst_state = new_state
 
             entry = {"managed": str(spec_path.parent.relative_to(root)), "spec": rel_spec, "state": worst_state}
             if missing_files:
@@ -462,7 +486,12 @@ def check_freshness(directory: str, exclude_dirs: list[str] | None = None) -> di
             managed_name = re.sub(r"\.spec\.md$", "", spec_path.name)
             managed_path = spec_path.parent / managed_name
         if not managed_path.exists():
-            entry = {"managed": str(managed_path.relative_to(root)), "spec": rel_spec, "state": "stale"}
+            # Classify missing managed file as pending or structural based on provenance
+            has_provenance = bool(
+                parse_distilled_from(spec_content) or parse_absorbed_from(spec_content) or parse_exuded_from(spec_content)
+            )
+            state = "structural" if has_provenance else "pending"
+            entry = {"managed": str(managed_path.relative_to(root)), "spec": rel_spec, "state": state}
             needs_review = parse_needs_review(spec_content)
             if needs_review:
                 entry["needs_review"] = needs_review
@@ -543,11 +572,25 @@ def check_freshness(directory: str, exclude_dirs: list[str] | None = None) -> di
             target_full = root / target_rel
             if spec_full and spec_full.exists():
                 if not target_full.exists():
+                    try:
+                        spec_content_target = spec_full.read_text(encoding="utf-8")
+                    except (OSError, UnicodeDecodeError) as e:
+                        print(
+                            json.dumps({"warning": f"Cannot read spec for provenance check: {source_spec} ({e})"}),
+                            file=sys.stderr,
+                        )
+                        spec_content_target = ""
+                    has_provenance_target = bool(
+                        parse_distilled_from(spec_content_target)
+                        or parse_absorbed_from(spec_content_target)
+                        or parse_exuded_from(spec_content_target)
+                    )
+                    target_state = "structural" if has_provenance_target else "pending"
                     files.append(
                         {
                             "managed": target_rel,
                             "spec": source_spec,
-                            "state": "stale",
+                            "state": target_state,
                             "impl_path": rel_impl,
                         }
                     )

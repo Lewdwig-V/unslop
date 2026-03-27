@@ -146,6 +146,28 @@ If multiple specs have `needs-review`, present them one at a time. If the user c
 
 **HARD RULE:** Do not silently skip `needs-review` flags. The user MUST explicitly acknowledge or address each one before generation proceeds.
 
+**4d. Check for structural mismatches**
+
+For each spec that will be processed, check if the managed file exists. If the managed file does not exist:
+
+1. Check the spec's frontmatter for provenance fields (`distilled-from:`, `absorbed-from:`, `exuded-from:`). **Do not check `provenance-history:` -- it is an audit log, not an active signal.**
+2. **If provenance present (structural mismatch):** Hard block. Stop generation for this file with:
+
+```
+Cannot generate: managed file `<path>` does not exist.
+  Spec has active provenance indicating a lifecycle in progress.
+
+  If this file was merged into another module, use `/unslop:absorb`.
+  If this file was moved, update the spec's managed file reference.
+  If this file was deleted, remove the spec.
+```
+
+This is NOT a soft-block. Do not offer acknowledge/proceed options. The precondition (managed file exists) is not met.
+
+3. **If no provenance (pending state):** The spec describes intent for a file that doesn't exist yet. This is a valid generate target -- the Builder will create the file. Proceed with generation.
+
+**HARD RULE:** Structural mismatches are precondition failures, not review concerns. Generate must not proceed on a spec whose managed file disappeared unexpectedly (indicated by active provenance on the spec).
+
 **5. Dispatch pipeline (four-stage)**
 
 For each file classified as new, stale, modified (confirmed), or conflict (confirmed), in build order:
@@ -161,6 +183,7 @@ Dispatch an Archaeologist subagent to produce the concrete spec and behaviour sp
   2. Projects each non-goal into the concrete spec as an explicit exclusion under a `## Exclusions` section
 - **Model:** `config.models.archaeologist` (default: `sonnet`)
 - **Note:** The Archaeologist reads the abstract spec, NOT source code. Source reading is for distill mode only.
+- **Pending specs:** When processing a spec in `pending` state (no existing implementation), the Archaeologist skips the existing-code read entirely and projects from the abstract spec alone. The discovery gate (Stage 0b) is especially important for pending specs -- it catches correctness requirements the spec didn't anticipate, without the safety net of existing code.
 
 **5b. Stage 0b: Discovery Gate (conditional)**
 

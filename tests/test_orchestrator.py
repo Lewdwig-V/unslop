@@ -34,6 +34,9 @@ from unslop.scripts.orchestrator import (
     parse_uncertain,
     parse_distilled_from,
     parse_discovered,
+    parse_absorbed_from,
+    parse_exuded_from,
+    parse_provenance_history,
     parse_intent,
     compute_intent_hash,
     validate_intent_hash,
@@ -1534,7 +1537,7 @@ def test_check_freshness_relative_source_spec(tmp_path):
 
 
 def test_check_freshness_multi_target_stale(tmp_path):
-    """A missing target file should appear as stale."""
+    """A missing target file with no provenance should appear as pending."""
     spec = "# auth spec\n\n## Behavior\nAuth logic.\nMore detail.\n"
 
     src_dir = tmp_path / "src"
@@ -1551,12 +1554,12 @@ def test_check_freshness_multi_target_stale(tmp_path):
         "---\n\n## Strategy\nShared auth.\n"
     )
 
-    # Neither target file exists
+    # Neither target file exists, no provenance -> pending
     result = check_freshness(str(tmp_path))
     target_entries = [f for f in result["files"] if f["managed"] in ("src/api/auth.py", "frontend/src/api/auth.ts")]
     assert len(target_entries) == 2
     for entry in target_entries:
-        assert entry["state"] == "stale"
+        assert entry["state"] == "pending"
 
 
 def test_check_freshness_target_collision(tmp_path):
@@ -6093,14 +6096,179 @@ def test_check_freshness_surfaces_needs_review_unit_spec(tmp_path):
 
 
 def test_check_freshness_needs_review_on_missing_managed_file(tmp_path):
-    """Stale entry for missing managed file should still surface needs-review."""
+    """Pending entry for missing managed file should still surface needs-review."""
     spec = tmp_path / "missing.py.spec.md"
     spec.write_text("---\nneeds-review: d4e5f6a1b2c3\n---\n\n# missing spec\n## Purpose\nGone.\n")
     # Do NOT create the managed file -- it's missing
     result = check_freshness(str(tmp_path))
     assert len(result["files"]) == 1
-    assert result["files"][0]["state"] == "stale"
+    assert result["files"][0]["state"] == "pending"
     assert result["files"][0].get("needs_review") == "d4e5f6a1b2c3"
+
+
+def test_freshness_pending_state(tmp_path):
+    """Spec with no managed file AND no provenance -> pending."""
+    spec = tmp_path / "src" / "retry.py.spec.md"
+    spec.parent.mkdir(parents=True)
+    spec.write_text("""---
+intent: Retry with backoff
+intent-approved: false
+---
+
+# retry.py spec
+""")
+    (tmp_path / ".unslop").mkdir()
+    result = check_freshness(str(tmp_path))
+    pending_files = [f for f in result["files"] if f.get("state") == "pending"]
+    assert len(pending_files) == 1
+    assert pending_files[0]["managed"] == "src/retry.py"
+
+
+def test_freshness_structural_with_distilled_from(tmp_path):
+    """Spec with distilled-from and no managed file -> structural, not pending."""
+    spec = tmp_path / "src" / "retry.py.spec.md"
+    spec.parent.mkdir(parents=True)
+    spec.write_text("""---
+intent: Retry with backoff
+distilled-from:
+  - path: src/retry.py
+    hash: abc123
+---
+
+# retry.py spec
+""")
+    (tmp_path / ".unslop").mkdir()
+    result = check_freshness(str(tmp_path))
+    structural_files = [f for f in result["files"] if f.get("state") == "structural"]
+    assert len(structural_files) == 1
+    assert structural_files[0]["managed"] == "src/retry.py"
+
+
+def test_freshness_structural_with_absorbed_from(tmp_path):
+    """Spec with absorbed-from and no managed file -> structural, not pending."""
+    spec = tmp_path / "src" / "retry.py.spec.md"
+    spec.parent.mkdir(parents=True)
+    spec.write_text("""---
+intent: Retry with backoff
+absorbed-from:
+  - path: src/old.py.spec.md
+    hash: abc123
+---
+
+# retry.py spec
+""")
+    (tmp_path / ".unslop").mkdir()
+    result = check_freshness(str(tmp_path))
+    structural_files = [f for f in result["files"] if f.get("state") == "structural"]
+    assert len(structural_files) == 1
+
+
+def test_freshness_structural_with_exuded_from(tmp_path):
+    """Spec with exuded-from and no managed file -> structural, not pending."""
+    spec = tmp_path / "src" / "retry.py.spec.md"
+    spec.parent.mkdir(parents=True)
+    spec.write_text("""---
+intent: Retry with backoff
+exuded-from:
+  - path: src/network.unit.spec.md
+    hash: abc123
+---
+
+# retry.py spec
+""")
+    (tmp_path / ".unslop").mkdir()
+    result = check_freshness(str(tmp_path))
+    structural_files = [f for f in result["files"] if f.get("state") == "structural"]
+    assert len(structural_files) == 1
+
+
+def test_freshness_pending_with_needs_review(tmp_path):
+    """pending state is orthogonal to needs-review."""
+    spec = tmp_path / "src" / "retry.py.spec.md"
+    spec.parent.mkdir(parents=True)
+    spec.write_text("""---
+intent: Retry with backoff
+needs-review: abc123def456
+---
+
+# retry.py spec
+""")
+    (tmp_path / ".unslop").mkdir()
+    result = check_freshness(str(tmp_path))
+    pending_files = [f for f in result["files"] if f.get("state") == "pending"]
+    assert len(pending_files) == 1
+    assert pending_files[0].get("needs_review") == "abc123def456"
+
+
+def test_freshness_provenance_history_ignored(tmp_path):
+    """provenance-history does NOT affect state classification -- it's audit-only."""
+    spec = tmp_path / "src" / "retry.py.spec.md"
+    spec.parent.mkdir(parents=True)
+    spec.write_text("""---
+intent: Retry with backoff
+provenance-history:
+  - type: absorbed-from
+    path: src/old.py.spec.md
+    hash: abc123
+    timestamp: 2026-03-15T14:30:00Z
+---
+
+# retry.py spec
+""")
+    (tmp_path / ".unslop").mkdir()
+    result = check_freshness(str(tmp_path))
+    # provenance-history is audit-only, should NOT prevent pending classification
+    pending_files = [f for f in result["files"] if f.get("state") == "pending"]
+    assert len(pending_files) == 1
+
+
+def test_freshness_unit_spec_pending_no_provenance(tmp_path):
+    """Unit spec with missing managed file and no provenance -> pending."""
+    spec_dir = tmp_path / "src" / "utils"
+    spec_dir.mkdir(parents=True)
+    spec = spec_dir / "utils.unit.spec.md"
+    spec.write_text("""---
+intent: Utility functions
+---
+
+# utils unit spec
+
+## Files
+
+- `helper.py`
+""")
+    # helper.py does NOT exist, no provenance on spec
+    (tmp_path / ".unslop").mkdir()
+    result = check_freshness(str(tmp_path))
+    unit_files = [f for f in result["files"] if "utils" in f.get("managed", "")]
+    assert len(unit_files) >= 1
+    assert unit_files[0]["state"] == "pending"
+
+
+def test_freshness_unit_spec_structural_with_absorbed_from(tmp_path):
+    """Unit spec with absorbed-from and missing managed file -> structural."""
+    spec_dir = tmp_path / "src" / "utils"
+    spec_dir.mkdir(parents=True)
+    spec = spec_dir / "utils.unit.spec.md"
+    spec.write_text("""---
+intent: Utility functions
+absorbed-from:
+  - path: src/utils/helpers.py.spec.md
+    hash: abc123
+---
+
+# utils unit spec
+
+## Files
+
+- `helper.py`
+""")
+    # helper.py does NOT exist
+    (tmp_path / ".unslop").mkdir()
+    result = check_freshness(str(tmp_path))
+    unit_files = [f for f in result["files"] if "utils" in f.get("managed", "")]
+    assert len(unit_files) >= 1
+    assert unit_files[0]["state"] == "structural"
 
 
 def test_parse_uncertain_basic():
@@ -6165,7 +6333,7 @@ uncertain:
     result = parse_uncertain(content)
     assert result == []
     captured = capsys.readouterr()
-    assert "missing required field" in captured.err
+    assert "missing field" in captured.err
 
 
 def test_parse_uncertain_with_other_fields():
@@ -6246,7 +6414,7 @@ distilled-from:
     result = parse_distilled_from(content)
     assert result == []
     captured = capsys.readouterr()
-    assert "missing required field" in captured.err
+    assert "missing field" in captured.err
 
 
 def test_parse_distilled_from_with_other_fields():
@@ -6453,7 +6621,7 @@ discovered:
     result = parse_discovered(content)
     assert result == []
     captured = capsys.readouterr()
-    assert "missing required field" in captured.err
+    assert "missing field" in captured.err
 
 
 def test_parse_discovered_malformed_indentation(capsys):
@@ -6511,3 +6679,491 @@ uncertain:
     result = parse_discovered(content)
     assert len(result) == 1
     assert result[0]["title"] == "Hidden dep"
+
+
+# --- parse_absorbed_from tests ---
+
+
+def test_parse_absorbed_from_basic():
+    """Single entry with path and hash."""
+    content = """---
+absorbed-from:
+  - path: src/retry.py
+    hash: a3f8c2e9b7d1
+---
+
+# spec
+"""
+    result = parse_absorbed_from(content)
+    assert len(result) == 1
+    assert result[0]["path"] == "src/retry.py"
+    assert result[0]["hash"] == "a3f8c2e9b7d1"
+
+
+def test_parse_absorbed_from_multiple():
+    """Two entries parsed correctly."""
+    content = """---
+absorbed-from:
+  - path: src/retry.py
+    hash: a3f8c2e9b7d1
+  - path: src/timeout.py
+    hash: b4e7d1f2c8a3
+---
+
+# spec
+"""
+    result = parse_absorbed_from(content)
+    assert len(result) == 2
+    assert result[0]["path"] == "src/retry.py"
+    assert result[0]["hash"] == "a3f8c2e9b7d1"
+    assert result[1]["path"] == "src/timeout.py"
+    assert result[1]["hash"] == "b4e7d1f2c8a3"
+
+
+def test_parse_absorbed_from_missing():
+    """Field not present returns empty list."""
+    content = """---
+intent: Handles retry logic
+---
+
+# spec
+"""
+    result = parse_absorbed_from(content)
+    assert result == []
+
+
+def test_parse_absorbed_from_no_frontmatter():
+    """No frontmatter at all returns empty list."""
+    content = """# spec
+
+Some content here.
+"""
+    result = parse_absorbed_from(content)
+    assert result == []
+
+
+def test_parse_absorbed_from_missing_required_field(capsys):
+    """Entry with path but no hash is skipped with a warning."""
+    content = """---
+absorbed-from:
+  - path: src/retry.py
+---
+
+# spec
+"""
+    result = parse_absorbed_from(content)
+    assert result == []
+    captured = capsys.readouterr()
+    assert "absorbed-from entry missing field" in captured.err
+    assert "hash" in captured.err
+
+
+def test_parse_absorbed_from_malformed_indentation(capsys):
+    """Wrong indentation triggers a warning."""
+    content = """---
+absorbed-from:
+   - path: src/retry.py
+     hash: a3f8c2e9b7d1
+---
+
+# spec
+"""
+    result = parse_absorbed_from(content)
+    assert result == []
+    captured = capsys.readouterr()
+    assert "malformed absorbed-from entry" in captured.err
+
+
+def test_parse_absorbed_from_with_other_fields():
+    """Parser works when absorbed-from: appears between other frontmatter fields."""
+    content = """---
+intent: Handles retry logic
+absorbed-from:
+  - path: src/retry.py
+    hash: a3f8c2e9b7d1
+non_goals:
+  - Circuit breaker
+---
+
+# spec
+"""
+    result = parse_absorbed_from(content)
+    assert len(result) == 1
+    assert result[0]["path"] == "src/retry.py"
+    assert result[0]["hash"] == "a3f8c2e9b7d1"
+
+
+def test_parse_absorbed_from_colons_in_values():
+    """Path containing colons is parsed correctly."""
+    content = """---
+absorbed-from:
+  - path: C:/Users/dev/src/retry.py
+    hash: a3f8c2e9b7d1
+---
+
+# spec
+"""
+    result = parse_absorbed_from(content)
+    assert len(result) == 1
+    assert result[0]["path"] == "C:/Users/dev/src/retry.py"
+    assert result[0]["hash"] == "a3f8c2e9b7d1"
+
+
+def test_parse_absorbed_from_empty_value_warning(capsys):
+    """Field present but with empty value gets distinct warning."""
+    content = """---
+absorbed-from:
+  - path: src/retry.py.spec.md
+    hash:
+---
+
+# spec
+"""
+    result = parse_absorbed_from(content)
+    assert result == []
+    captured = capsys.readouterr()
+    assert "empty value" in captured.err
+    assert "hash" in captured.err
+
+
+# --- parse_exuded_from tests ---
+
+
+def test_parse_exuded_from_basic():
+    """Single entry with path and hash."""
+    content = """---
+exuded-from:
+  - path: src/network.unit.spec.md
+    hash: a3f8c2e9b7d1
+---
+
+# spec
+"""
+    result = parse_exuded_from(content)
+    assert len(result) == 1
+    assert result[0]["path"] == "src/network.unit.spec.md"
+    assert result[0]["hash"] == "a3f8c2e9b7d1"
+
+
+def test_parse_exuded_from_multiple():
+    """Two entries parsed correctly."""
+    content = """---
+exuded-from:
+  - path: src/network.unit.spec.md
+    hash: a3f8c2e9b7d1
+  - path: src/transport.unit.spec.md
+    hash: b4e7d1f2c8a3
+---
+
+# spec
+"""
+    result = parse_exuded_from(content)
+    assert len(result) == 2
+    assert result[0]["path"] == "src/network.unit.spec.md"
+    assert result[0]["hash"] == "a3f8c2e9b7d1"
+    assert result[1]["path"] == "src/transport.unit.spec.md"
+    assert result[1]["hash"] == "b4e7d1f2c8a3"
+
+
+def test_parse_exuded_from_missing():
+    """Field not present returns empty list."""
+    content = """---
+intent: Handles retry logic
+---
+
+# spec
+"""
+    result = parse_exuded_from(content)
+    assert result == []
+
+
+def test_parse_exuded_from_no_frontmatter():
+    """No frontmatter at all returns empty list."""
+    content = """# spec
+
+Some content here.
+"""
+    result = parse_exuded_from(content)
+    assert result == []
+
+
+def test_parse_exuded_from_missing_required_field(capsys):
+    """Entry with path but no hash is skipped with a warning."""
+    content = """---
+exuded-from:
+  - path: src/network.unit.spec.md
+---
+
+# spec
+"""
+    result = parse_exuded_from(content)
+    assert result == []
+    captured = capsys.readouterr()
+    assert "exuded-from entry missing field" in captured.err
+    assert "hash" in captured.err
+
+
+def test_parse_exuded_from_malformed_indentation(capsys):
+    """Wrong indentation triggers a warning."""
+    content = """---
+exuded-from:
+   - path: src/network.unit.spec.md
+     hash: a3f8c2e9b7d1
+---
+
+# spec
+"""
+    result = parse_exuded_from(content)
+    assert result == []
+    captured = capsys.readouterr()
+    assert "malformed exuded-from entry" in captured.err
+
+
+def test_parse_exuded_from_with_other_fields():
+    """Parser works when exuded-from: appears between other frontmatter fields."""
+    content = """---
+intent: Handles retry logic
+exuded-from:
+  - path: src/network.unit.spec.md
+    hash: a3f8c2e9b7d1
+non_goals:
+  - Circuit breaker
+---
+
+# spec
+"""
+    result = parse_exuded_from(content)
+    assert len(result) == 1
+    assert result[0]["path"] == "src/network.unit.spec.md"
+    assert result[0]["hash"] == "a3f8c2e9b7d1"
+
+
+def test_parse_exuded_from_colons_in_values():
+    """Path containing colons is parsed correctly."""
+    content = """---
+exuded-from:
+  - path: C:/Users/dev/src/network.unit.spec.md
+    hash: a3f8c2e9b7d1
+---
+
+# spec
+"""
+    result = parse_exuded_from(content)
+    assert len(result) == 1
+    assert result[0]["path"] == "C:/Users/dev/src/network.unit.spec.md"
+    assert result[0]["hash"] == "a3f8c2e9b7d1"
+
+
+# --- parse_provenance_history tests ---
+
+
+def test_parse_provenance_history_basic():
+    """Single entry with all 4 required fields."""
+    content = """---
+provenance-history:
+  - type: absorbed-from
+    path: src/retry.py
+    hash: a3f8c2e9b7d1
+    timestamp: 2026-03-15T14:30:00Z
+---
+
+# spec
+"""
+    result = parse_provenance_history(content)
+    assert len(result) == 1
+    assert result[0]["type"] == "absorbed-from"
+    assert result[0]["path"] == "src/retry.py"
+    assert result[0]["hash"] == "a3f8c2e9b7d1"
+    assert result[0]["timestamp"] == "2026-03-15T14:30:00Z"
+
+
+def test_parse_provenance_history_multiple():
+    """Two entries -- one absorbed-from, one exuded-from."""
+    content = """---
+provenance-history:
+  - type: absorbed-from
+    path: src/retry.py
+    hash: a3f8c2e9b7d1
+    timestamp: 2026-03-15T14:30:00Z
+  - type: exuded-from
+    path: src/network.unit.spec.md
+    hash: b4e7d1f2c8a3
+    timestamp: 2026-03-16T09:00:00Z
+---
+
+# spec
+"""
+    result = parse_provenance_history(content)
+    assert len(result) == 2
+    assert result[0]["type"] == "absorbed-from"
+    assert result[0]["path"] == "src/retry.py"
+    assert result[1]["type"] == "exuded-from"
+    assert result[1]["path"] == "src/network.unit.spec.md"
+
+
+def test_parse_provenance_history_missing():
+    """Field not present returns empty list."""
+    content = """---
+intent: Handles retry logic
+---
+
+# spec
+"""
+    result = parse_provenance_history(content)
+    assert result == []
+
+
+def test_parse_provenance_history_no_frontmatter():
+    """No frontmatter at all returns empty list."""
+    content = """# spec
+
+Some content here.
+"""
+    result = parse_provenance_history(content)
+    assert result == []
+
+
+def test_parse_provenance_history_missing_required_field(capsys):
+    """Entry missing timestamp is skipped with a warning."""
+    content = """---
+provenance-history:
+  - type: absorbed-from
+    path: src/retry.py
+    hash: a3f8c2e9b7d1
+---
+
+# spec
+"""
+    result = parse_provenance_history(content)
+    assert result == []
+    captured = capsys.readouterr()
+    assert "provenance-history entry missing field" in captured.err
+    assert "timestamp" in captured.err
+
+
+def test_parse_provenance_history_malformed_indentation(capsys):
+    """Wrong indentation triggers a warning."""
+    content = """---
+provenance-history:
+   - type: absorbed-from
+     path: src/retry.py
+     hash: a3f8c2e9b7d1
+     timestamp: 2026-03-15T14:30:00Z
+---
+
+# spec
+"""
+    result = parse_provenance_history(content)
+    assert result == []
+    captured = capsys.readouterr()
+    assert "malformed provenance-history entry" in captured.err
+
+
+def test_parse_provenance_history_with_other_fields():
+    """Parser works when provenance-history appears between other frontmatter fields."""
+    content = """---
+intent: Handles retry logic
+provenance-history:
+  - type: absorbed-from
+    path: src/retry.py
+    hash: a3f8c2e9b7d1
+    timestamp: 2026-03-15T14:30:00Z
+non_goals:
+  - Circuit breaker
+---
+
+# spec
+"""
+    result = parse_provenance_history(content)
+    assert len(result) == 1
+    assert result[0]["type"] == "absorbed-from"
+    assert result[0]["path"] == "src/retry.py"
+
+
+def test_parse_provenance_history_preserves_order():
+    """Three entries preserve input order."""
+    content = """---
+provenance-history:
+  - type: absorbed-from
+    path: src/alpha.py
+    hash: aaa111
+    timestamp: 2026-03-01T00:00:00Z
+  - type: exuded-from
+    path: src/beta.spec.md
+    hash: bbb222
+    timestamp: 2026-03-02T00:00:00Z
+  - type: absorbed-from
+    path: src/gamma.py
+    hash: ccc333
+    timestamp: 2026-03-03T00:00:00Z
+---
+
+# spec
+"""
+    result = parse_provenance_history(content)
+    assert len(result) == 3
+    assert result[0]["path"] == "src/alpha.py"
+    assert result[1]["path"] == "src/beta.spec.md"
+    assert result[2]["path"] == "src/gamma.py"
+    assert result[0]["timestamp"] == "2026-03-01T00:00:00Z"
+    assert result[1]["timestamp"] == "2026-03-02T00:00:00Z"
+    assert result[2]["timestamp"] == "2026-03-03T00:00:00Z"
+
+
+def test_freshness_target_driven_pending(tmp_path):
+    """Target-driven spec with no target file and no provenance -> pending."""
+    (tmp_path / ".unslop").mkdir()
+    src = tmp_path / "src"
+    src.mkdir()
+    spec = src / "retry.py.spec.md"
+    spec.write_text("""---
+intent: Retry with backoff
+---
+
+# retry.py spec
+""")
+    impl = src / "retry.py.impl.md"
+    impl.write_text("""---
+source-spec: retry.py.spec.md
+targets:
+  - path: src/retry.py
+---
+
+# impl
+""")
+    result = check_freshness(str(tmp_path))
+    # The per-file path may also pick this up. Find any entry with managed=src/retry.py
+    target_files = [f for f in result["files"] if f.get("managed") == "src/retry.py"]
+    assert len(target_files) >= 1
+    # At least one should be pending
+    assert any(f["state"] == "pending" for f in target_files)
+
+
+def test_freshness_target_driven_structural(tmp_path):
+    """Target-driven spec with no target file and provenance -> structural."""
+    (tmp_path / ".unslop").mkdir()
+    src = tmp_path / "src"
+    src.mkdir()
+    spec = src / "retry.py.spec.md"
+    spec.write_text("""---
+intent: Retry with backoff
+absorbed-from:
+  - path: src/old_retry.py
+    hash: abc123
+---
+
+# retry.py spec
+""")
+    impl = src / "retry.py.impl.md"
+    impl.write_text("""---
+source-spec: retry.py.spec.md
+targets:
+  - path: src/retry.py
+---
+
+# impl
+""")
+    result = check_freshness(str(tmp_path))
+    target_files = [f for f in result["files"] if f.get("managed") == "src/retry.py"]
+    assert len(target_files) >= 1
+    assert any(f["state"] == "structural" for f in target_files)

@@ -281,6 +281,16 @@ For each flagged spec, present:
 
 **HARD RULE:** Do not silently skip `needs-review` flags.
 
+**Structural mismatch handling:** When selecting targets for regeneration, skip specs in `structural` state (managed file missing with active provenance). Report them separately:
+
+```
+Skipping structural mismatches (manual resolution required):
+  src/retry.py.spec.md -> src/retry.py (file missing)
+  See /unslop:absorb and /unslop:exude.
+```
+
+Continue with valid targets. Do not fail the entire sync because of structural mismatches in unrelated specs.
+
 **Stage B (Builder -- worktree isolation):**
 Dispatch a Builder Agent using the generation skill's two-stage execution model:
 - test_policy: `"Do NOT create or modify spec-backed test files. Use existing tests for validation only. Tests marked @unslop-incidental may be updated or removed if they fail against regenerated code that correctly follows the spec."` See the generation skill's `@unslop-incidental Test Lifecycle` section for details.

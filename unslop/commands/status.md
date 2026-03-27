@@ -21,7 +21,18 @@ For each per-file spec, derive the managed file path by stripping the trailing `
 Classify each per-file spec as follows:
 
 **If the managed file does not exist:**
-- List under "Unmanaged specs".
+- Check the spec's frontmatter for provenance fields (`distilled-from:`, `absorbed-from:`, `exuded-from:`).
+- **If no provenance fields present:** Classify as `pending`. Display under "Managed files" with neutral formatting:
+  ```
+    pending    src/retry.py           <- src/retry.py.spec.md
+               No implementation -- run /unslop:generate
+  ```
+- **If any provenance field is present:** Classify as `structural`. Display under "Managed files" as a warning:
+  ```
+    ⚠ structural  src/retry.py.spec.md
+                  Managed file does not exist. Absorb, exude, or remove spec.
+  ```
+- **Note:** `provenance-history:` is an audit log and does NOT count as active provenance. Only `distilled-from:`, `absorbed-from:`, and `exuded-from:` trigger the `structural` classification.
 
 **If the managed file exists:**
 - Read the `@unslop-managed` header near the top of the managed file. It is a two-line header:
@@ -150,6 +161,8 @@ Rules for the display:
 - For **review-acknowledged** entries, include `(review-acknowledged)` to show the flag was consciously dismissed.
 - For **verification** entries, display the result on an indented line using the appropriate icon (✓/⚠/⏳).
 - For **test-drifted** entries, include the note `(test-drifted)` and show the spec that changed.
+- For **pending** entries, display neutrally (no warning icon). Include hint: `No implementation -- run /unslop:generate`.
+- For **structural** entries, display with `⚠` warning icon. Include hint about absorb/exude/remove.
 - If a spec has `depends-on` frontmatter, show the dependencies on an indented line below the entry.
 - For unit specs (`*.unit.spec.md`): display under a `Unit specs:` section showing the directory path, spec name, and file count rather than listing each managed file individually.
 - If there are no entries in a section, omit that section header entirely.
@@ -173,6 +186,20 @@ After classifying each managed file, check for `blocked_constraints` in the fres
 ```
 
 The ⊘ indicator is a new annotation type parallel to Δ (pending changes). It appears regardless of the file's staleness state. A file can show both ⊘ and Δ simultaneously. Blocked constraints do NOT change the file's staleness classification -- they are informational only.
+
+After all file entries, check for staged originals in `.unslop/absorbed/` and `.unslop/exuded/`. If any exist, display:
+
+```
+Staged originals:
+  .unslop/absorbed/retry.py.spec.md (safe to clean -- successor ratified)
+  .unslop/exuded/network.unit.spec.md (pending ratification)
+
+Run /unslop:absorb --cleanup or /unslop:exude --cleanup to remove ratified originals.
+```
+
+To determine cleanup eligibility:
+- For absorbed: find the unit spec that absorbed it (by checking unit specs for `absorbed-from:` entries matching the staged file path). If the unit spec has `intent-approved` set to a timestamp, it's safe to clean.
+- For exuded: find the child specs with `exuded-from:` matching the staged file. If ALL children have `intent-approved` timestamps, it's safe to clean.
 
 ---
 
