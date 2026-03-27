@@ -8,7 +8,14 @@ import sys
 from collections import Counter
 from pathlib import Path
 
-from ..core.frontmatter import parse_concrete_frontmatter, parse_managed_file, parse_needs_review
+from ..core.frontmatter import (
+    parse_absorbed_from,
+    parse_concrete_frontmatter,
+    parse_distilled_from,
+    parse_exuded_from,
+    parse_managed_file,
+    parse_needs_review,
+)
 from ..core.hashing import compute_hash, get_body_below_header, parse_header
 from ..core.spec_discovery import get_registry_key_for_spec, parse_unit_spec_files
 from ..dependencies.concrete_graph import (
@@ -462,7 +469,12 @@ def check_freshness(directory: str, exclude_dirs: list[str] | None = None) -> di
             managed_name = re.sub(r"\.spec\.md$", "", spec_path.name)
             managed_path = spec_path.parent / managed_name
         if not managed_path.exists():
-            entry = {"managed": str(managed_path.relative_to(root)), "spec": rel_spec, "state": "stale"}
+            # Classify missing managed file as pending or structural based on provenance
+            has_provenance = bool(
+                parse_distilled_from(spec_content) or parse_absorbed_from(spec_content) or parse_exuded_from(spec_content)
+            )
+            state = "structural" if has_provenance else "pending"
+            entry = {"managed": str(managed_path.relative_to(root)), "spec": rel_spec, "state": state}
             needs_review = parse_needs_review(spec_content)
             if needs_review:
                 entry["needs_review"] = needs_review

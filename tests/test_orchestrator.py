@@ -6096,14 +6096,130 @@ def test_check_freshness_surfaces_needs_review_unit_spec(tmp_path):
 
 
 def test_check_freshness_needs_review_on_missing_managed_file(tmp_path):
-    """Stale entry for missing managed file should still surface needs-review."""
+    """Pending entry for missing managed file should still surface needs-review."""
     spec = tmp_path / "missing.py.spec.md"
     spec.write_text("---\nneeds-review: d4e5f6a1b2c3\n---\n\n# missing spec\n## Purpose\nGone.\n")
     # Do NOT create the managed file -- it's missing
     result = check_freshness(str(tmp_path))
     assert len(result["files"]) == 1
-    assert result["files"][0]["state"] == "stale"
+    assert result["files"][0]["state"] == "pending"
     assert result["files"][0].get("needs_review") == "d4e5f6a1b2c3"
+
+
+def test_freshness_pending_state(tmp_path):
+    """Spec with no managed file AND no provenance -> pending."""
+    spec = tmp_path / "src" / "retry.py.spec.md"
+    spec.parent.mkdir(parents=True)
+    spec.write_text("""---
+intent: Retry with backoff
+intent-approved: false
+---
+
+# retry.py spec
+""")
+    (tmp_path / ".unslop").mkdir()
+    result = check_freshness(str(tmp_path))
+    pending_files = [f for f in result["files"] if f.get("state") == "pending"]
+    assert len(pending_files) == 1
+    assert pending_files[0]["managed"] == "src/retry.py"
+
+
+def test_freshness_structural_with_distilled_from(tmp_path):
+    """Spec with distilled-from and no managed file -> structural, not pending."""
+    spec = tmp_path / "src" / "retry.py.spec.md"
+    spec.parent.mkdir(parents=True)
+    spec.write_text("""---
+intent: Retry with backoff
+distilled-from:
+  - path: src/retry.py
+    hash: abc123
+---
+
+# retry.py spec
+""")
+    (tmp_path / ".unslop").mkdir()
+    result = check_freshness(str(tmp_path))
+    structural_files = [f for f in result["files"] if f.get("state") == "structural"]
+    assert len(structural_files) == 1
+    assert structural_files[0]["managed"] == "src/retry.py"
+
+
+def test_freshness_structural_with_absorbed_from(tmp_path):
+    """Spec with absorbed-from and no managed file -> structural, not pending."""
+    spec = tmp_path / "src" / "retry.py.spec.md"
+    spec.parent.mkdir(parents=True)
+    spec.write_text("""---
+intent: Retry with backoff
+absorbed-from:
+  - path: src/old.py.spec.md
+    hash: abc123
+---
+
+# retry.py spec
+""")
+    (tmp_path / ".unslop").mkdir()
+    result = check_freshness(str(tmp_path))
+    structural_files = [f for f in result["files"] if f.get("state") == "structural"]
+    assert len(structural_files) == 1
+
+
+def test_freshness_structural_with_exuded_from(tmp_path):
+    """Spec with exuded-from and no managed file -> structural, not pending."""
+    spec = tmp_path / "src" / "retry.py.spec.md"
+    spec.parent.mkdir(parents=True)
+    spec.write_text("""---
+intent: Retry with backoff
+exuded-from:
+  - path: src/network.unit.spec.md
+    hash: abc123
+---
+
+# retry.py spec
+""")
+    (tmp_path / ".unslop").mkdir()
+    result = check_freshness(str(tmp_path))
+    structural_files = [f for f in result["files"] if f.get("state") == "structural"]
+    assert len(structural_files) == 1
+
+
+def test_freshness_pending_with_needs_review(tmp_path):
+    """pending state is orthogonal to needs-review."""
+    spec = tmp_path / "src" / "retry.py.spec.md"
+    spec.parent.mkdir(parents=True)
+    spec.write_text("""---
+intent: Retry with backoff
+needs-review: abc123def456
+---
+
+# retry.py spec
+""")
+    (tmp_path / ".unslop").mkdir()
+    result = check_freshness(str(tmp_path))
+    pending_files = [f for f in result["files"] if f.get("state") == "pending"]
+    assert len(pending_files) == 1
+    assert pending_files[0].get("needs_review") == "abc123def456"
+
+
+def test_freshness_provenance_history_ignored(tmp_path):
+    """provenance-history does NOT affect state classification -- it's audit-only."""
+    spec = tmp_path / "src" / "retry.py.spec.md"
+    spec.parent.mkdir(parents=True)
+    spec.write_text("""---
+intent: Retry with backoff
+provenance-history:
+  - type: absorbed-from
+    path: src/old.py.spec.md
+    hash: abc123
+    timestamp: 2026-03-15T14:30:00Z
+---
+
+# retry.py spec
+""")
+    (tmp_path / ".unslop").mkdir()
+    result = check_freshness(str(tmp_path))
+    # provenance-history is audit-only, should NOT prevent pending classification
+    pending_files = [f for f in result["files"] if f.get("state") == "pending"]
+    assert len(pending_files) == 1
 
 
 def test_parse_uncertain_basic():
