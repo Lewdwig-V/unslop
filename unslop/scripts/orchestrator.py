@@ -89,7 +89,6 @@ from .freshness.manifest import (
 )
 
 # validation
-from .validation.lsp_queries import SymbolInfo, SymbolManifest, get_symbol_manifest
 from .validation.symbol_audit import audit_symbols, check_drift, compute_spec_diff
 
 # planning
@@ -153,12 +152,9 @@ __all__ = [
     "render_dependency_graph",
     "ripple_check",
     # validation
-    "SymbolInfo",
-    "SymbolManifest",
     "audit_symbols",
     "check_drift",
     "compute_spec_diff",
-    "get_symbol_manifest",
 ]
 
 
