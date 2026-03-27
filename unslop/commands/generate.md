@@ -201,24 +201,28 @@ After the Builder succeeds and the worktree merges, dispatch the Saboteur in the
 
 - **Input:** abstract spec + source file (post-merge) + test file
 - **Timeout:** `config.verification_timeout` (default: 300s)
-- **Output:** Write result to `.unslop/verification/<managed-file-hash>.json`:
+- **Output:** Write result to `.unslop/verification/<managed-file-hash>.json`. The schema is shared with `/unslop:verify`:
   ```json
   {
-    "managed": "<managed-file-path>",
-    "spec": "<spec-file-path>",
+    "managed_path": "<managed-file-path>",
+    "spec_path": "<spec-file-path>",
     "timestamp": "<ISO8601>",
-    "status": "pass|fail|error|timeout|pending",
+    "status": "pass|fail|error|timeout",
+    "mutants_total": 0,
     "mutants_killed": 0,
     "mutants_survived": 0,
-    "mutants_total": 0,
+    "mutants_equivalent": 0,
+    "mutants_errored": 0,
     "source_hash": "<12-hex>",
-    "spec_hash": "<12-hex>"
+    "spec_hash": "<12-hex>",
+    "surviving_mutants": [],
+    "error_message": null
   }
   ```
 - **Failure modes:**
-  - Saboteur crashes -> `{"status": "error", ...}` with error message
-  - Saboteur exceeds timeout -> `{"status": "timeout", ...}`
-  - Source or spec changed during run (hash mismatch on completion) -> `{"status": "stale", ...}` (result is discarded as unreliable)
+  - Saboteur crashes -> `{"status": "error", "error_message": "...", ...}`
+  - Saboteur exceeds timeout -> `{"status": "timeout", "error_message": "exceeded verification_timeout", ...}`
+  - Source or spec changed during run: detectable by comparing `source_hash`/`spec_hash` in the result against current file hashes. Status shows `(stale)` annotation but the result file itself uses the terminal status (pass/fail/error/timeout).
 - The Saboteur uses the adversarial pipeline (Archaeologist -> Mason -> Saboteur from the adversarial skill) to run mutation testing against the generated code.
 
 **6. Update the alignment summary**

@@ -156,7 +156,7 @@ The `intent` field records the human-approved summary of what the spec governs -
 **Lifecycle:**
 - Written during `/unslop:takeover` Step 1b (Intent Lock) after user approval
 - Checked during `/unslop:sync` and `/unslop:generate` -- if the spec change alters the module's stated intent, the Architect flags it for re-lock
-- The intent is metadata about the spec, not part of the spec body. The Architect/Builder/Strategist never touches anything between the `---` fences during regeneration. Frontmatter is a protected region.
+- The intent is metadata about the spec, not part of the spec body. The Architect/Builder/Archaeologist never touches anything between the `---` fences during regeneration. Frontmatter is a protected region.
 
 **Tamper detection:** The tooling computes `intent-hash` from the `intent` text. If the hash doesn't match (someone edited the intent without re-running the intent lock), the pipeline stops with a hard error before any semantic analysis runs.
 

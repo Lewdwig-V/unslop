@@ -282,19 +282,19 @@ This archive is a safety net. The user can manually recover the original from it
 
 ---
 
-## Step 4: Lower & Generate (Strategist subagent -> Builder subagent)
+## Step 4: Lower & Generate (Archaeologist subagent -> Builder subagent)
 
 Use the **unslop/generation** skill's multi-stage execution model.
 
 **CRITICAL: Takeover always uses full regeneration mode (Mode A). The Builder does NOT read the archived original.**
 
-**Strategist (subagent) -- MANDATORY:** Dispatch a Strategist subagent (`model` from config, `strategist` key) to derive a fresh Concrete Spec from the approved Abstract Spec. The Strategist receives the abstract spec, principles, file tree, and domain skills. It returns a concrete spec documenting implementation strategy: algorithms, patterns, type structure, and any decisions not dictated by the abstract spec. This is the auditable reasoning step -- reviewers can verify the implementation plan before seeing generated code. Use the **unslop/concrete-spec** skill for format guidance.
+**Archaeologist (subagent) -- MANDATORY:** Dispatch an Archaeologist subagent (`model` from config, `archaeologist` key) to derive a fresh Concrete Spec from the approved Abstract Spec. The Archaeologist receives the abstract spec, principles, file tree, and domain skills. It returns a concrete spec documenting implementation strategy: algorithms, patterns, type structure, and any decisions not dictated by the abstract spec. This is the auditable reasoning step -- reviewers can verify the implementation plan before seeing generated code. Use the **unslop/concrete-spec** skill for format guidance.
 
-During takeover, the previously raised Concrete Spec (from Step 2) is available as reference -- the Strategist may reuse algorithmic choices that the user confirmed as intentional, but is free to choose a different strategy if the Abstract Spec permits it.
+During takeover, the previously raised Concrete Spec (from Step 2) is available as reference -- the Archaeologist may reuse algorithmic choices that the user confirmed as intentional, but is free to choose a different strategy if the Abstract Spec permits it.
 
-Stage A.2 runs for ALL files regardless of perceived complexity. Even a single-function file gets a Strategist subagent that produces an ephemeral Concrete Spec. The Strategist's context hygiene benefit applies equally to simple and complex files -- the Architect's context stays clean for orchestration. Skipping Stage A.2 means the Builder generates with no strategic constraints, producing unpredictable output.
+Stage A.2 runs for ALL files regardless of perceived complexity. Even a single-function file gets a Archaeologist subagent that produces an ephemeral Concrete Spec. The Archaeologist's context hygiene benefit applies equally to simple and complex files -- the Architect's context stays clean for orchestration. Skipping Stage A.2 means the Builder generates with no strategic constraints, producing unpredictable output.
 
-**Builder (subagent, worktree) -- MANDATORY:** Dispatch a Builder Agent with `isolation="worktree"` and `model` from config (`builder` key). The Builder receives ONLY the spec file(s), the Strategist's concrete spec, and `.unslop/config.json` -- never the archived originals or the Architect's conversation context. This isolation is the integrity guarantee: if the Builder can reproduce the code from the spec alone, the spec is proven sufficient. Generating inline (in the Architect session) violates this because the Architect has already seen the original source code during Stage A discovery. **Do NOT write code directly -- ALL code generation goes through a worktree-isolated Builder Agent.**
+**Builder (subagent, worktree) -- MANDATORY:** Dispatch a Builder Agent with `isolation="worktree"` and `model` from config (`builder` key). The Builder receives ONLY the spec file(s), the Archaeologist's concrete spec, and `.unslop/config.json` -- never the archived originals or the Architect's conversation context. This isolation is the integrity guarantee: if the Builder can reproduce the code from the spec alone, the spec is proven sufficient. Generating inline (in the Architect session) violates this because the Architect has already seen the original source code during Stage A discovery. **Do NOT write code directly -- ALL code generation goes through a worktree-isolated Builder Agent.**
 
 Dispatch with:
 - test_policy (path-dependent):
@@ -366,7 +366,7 @@ d. **Get user approval** -- Present the enriched spec to the user. Wait for appr
 
 e. **Stage the spec update** -- `git add <spec_path>`. Do NOT commit.
 
-f. **Re-lower (Stage A.2)** -- The Strategist derives a fresh Concrete Spec from the enriched Abstract Spec.
+f. **Re-lower (Stage A.2)** -- The Archaeologist derives a fresh Concrete Spec from the enriched Abstract Spec.
 
 g. **Dispatch a new Builder (Stage B.1 + B.2)** -- Re-lower through a fresh Concrete Spec (B.1), then dispatch a fresh Builder Agent in a new worktree (B.2). The Builder never knows why the spec changed. test_policy: `"Write or extend tests as needed for newly explicit constraints"`.
 

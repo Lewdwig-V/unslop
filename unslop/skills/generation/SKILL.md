@@ -112,7 +112,6 @@ After the Archaeologist delivers its dual output, the Architect dispatches the M
 
 **Conditional execution:**
 - **Skipped** if existing tests are present for the managed file (test file already exists and is not `@unslop-managed`)
-- **Skipped** if `--no-mason` flag is passed
 - **Runs with `--regenerate-tests`** even when existing tests are present (overwrites `@unslop-managed` test files; refuses to overwrite non-managed test files)
 
 **Failure handling:** If Mason reports BLOCKED, the Architect does NOT proceed to Builder dispatch. Surface the failure to the user and halt the pipeline. The `behaviour.yaml` fragment and Concrete Spec are retained in the worktree for inspection.
@@ -483,7 +482,6 @@ These files are excluded from version control (`.unslop/.gitignore`).
 
 **Skipped when:**
 - `adversarial: "mason-only"` was set during testless takeover
-- `--no-saboteur` flag is passed
 - No test file exists for the managed file after Mason
 
 ### Optional Drift Check (Diagnostic Tool)

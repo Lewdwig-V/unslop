@@ -291,6 +291,15 @@ def parse_uncertain(content: str) -> list[dict]:
                 if key.strip() and val.strip():
                     current_entry[key.strip()] = val.strip().strip('"').strip("'")
                 continue
+            elif re.match(r"^\s+- ", line) or (current_entry is not None and re.match(r"^\s+\w", line)):
+                print(
+                    json.dumps({"warning": f"possible malformed uncertain entry (wrong indentation): {line!r}"}),
+                    file=sys.stderr,
+                )
+                if current_entry is not None:
+                    entries.append(current_entry)
+                    current_entry = None
+                in_uncertain = False
             else:
                 if current_entry is not None:
                     entries.append(current_entry)
@@ -366,6 +375,15 @@ def parse_distilled_from(content: str) -> list[dict]:
                 if key.strip() and val.strip():
                     current_entry[key.strip()] = val.strip().strip('"').strip("'")
                 continue
+            elif re.match(r"^\s+- ", line) or (current_entry is not None and re.match(r"^\s+\w", line)):
+                print(
+                    json.dumps({"warning": f"possible malformed distilled-from entry (wrong indentation): {line!r}"}),
+                    file=sys.stderr,
+                )
+                if current_entry is not None:
+                    entries.append(current_entry)
+                    current_entry = None
+                in_distilled = False
             else:
                 if current_entry is not None:
                     entries.append(current_entry)

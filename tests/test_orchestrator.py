@@ -6335,3 +6335,58 @@ non_goals:
     goals2 = parse_non_goals(ratified_content)
     assert len(goals2) == 2
     assert "(inferred)" not in goals2[0]
+
+
+def test_parse_uncertain_colons_in_values():
+    """Values containing colons should be preserved (split on first colon only)."""
+    content = """---
+uncertain:
+  - title: "Error: connection refused"
+    observation: "Caught at line 42: socket.error swallowed."
+    question: "Should errors propagate: yes or no?"
+---
+
+# spec
+"""
+    result = parse_uncertain(content)
+    assert len(result) == 1
+    assert result[0]["title"] == "Error: connection refused"
+    assert "socket.error" in result[0]["observation"]
+    assert "yes or no?" in result[0]["question"]
+
+
+def test_parse_uncertain_malformed_indentation(capsys):
+    """Wrong indentation emits a warning and stops collecting."""
+    content = """---
+uncertain:
+  - title: "First"
+    observation: "Good"
+   question: "Wrong indent (3 spaces)"
+  - title: "Second entry lost"
+    observation: "Never parsed"
+    question: "Why?"
+---
+
+# spec
+"""
+    result = parse_uncertain(content)
+    # First entry flushed (missing question), second lost due to parse exit
+    assert len(result) == 0
+    captured = capsys.readouterr()
+    assert "malformed uncertain entry" in captured.err
+
+
+def test_parse_distilled_from_malformed_indentation(capsys):
+    """Wrong indentation emits a warning and stops collecting."""
+    content = """---
+distilled-from:
+  - path: src/retry.py
+   hash: a3f8c2e9b7d1
+---
+
+# spec
+"""
+    result = parse_distilled_from(content)
+    assert len(result) == 0
+    captured = capsys.readouterr()
+    assert "malformed distilled-from entry" in captured.err
