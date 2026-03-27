@@ -4,7 +4,7 @@
 
 `unslop` is a Claude Code plugin for **intent-first development** -- a workflow where you maintain spec files describing *what* code should do, and the system maintains the code. Edit the spec, regenerate, run tests. The generated code is overwritten on every cycle; the only way to change a managed file's behaviour is to change its spec.
 
-The name started as a joke about rescuing vibe-coded prototypes. It stuck because the workflow works just as well for greenfield projects.
+The name started as a joke about rescuing vibe-coded prototypes. It stuck because the workflow works just as well for greenfield projects -- and because "unslop your codebase" is a satisfying thing to say.
 
 ## Prerequisites
 
@@ -25,15 +25,15 @@ The name started as a joke about rescuing vibe-coded prototypes. It stuck becaus
 
 ## Quick Start
 
-### 1. Initialise
+### Greenfield: write a spec from scratch
 
 ```
 /unslop:init
+/unslop:elicit src/retry.py       # Socratic dialogue to build the spec
+/unslop:generate                   # tests-then-implementation from spec
 ```
 
-Detects your test runner, sets up `.unslop/`, and optionally creates project principles and a CI workflow.
-
-### 2. Bring existing code under management
+### Takeover: bring existing code under management
 
 ```
 /unslop:takeover src/retry.py          # single file
@@ -41,27 +41,39 @@ Detects your test runner, sets up `.unslop/`, and optionally creates project pri
 /unslop:takeover src/**/*.py           # glob pattern
 ```
 
-Reads the code, drafts specs capturing intent (not implementation), archives the originals, and regenerates fresh code from specs alone. If tests fail, it surfaces the missing constraint, enriches the spec, and retries. Files without tests are handled automatically via a quality pipeline that generates and validates tests independently.
+Reads the code, infers a spec via `distill`, refines it via `elicit`, archives the originals, and regenerates fresh code from specs alone. For directories and globs, unslop discovers files, resolves their dependency order, and offers per-file or per-unit spec granularity.
 
-For directories and globs, unslop discovers files, resolves their dependency order, and offers per-file or per-unit spec granularity. The same workflow scales from a single utility function to an entire service layer.
-
-### 3. Make changes through the spec
+### Change: modify a managed file's behaviour
 
 ```
 /unslop:change src/retry.py "add circuit breaker with 5-failure threshold"
 ```
 
-Records the intent. On the next `/unslop:generate`, the spec absorbs the change and code is regenerated. For immediate execution:
+Records the intent, opens a Socratic dialogue to amend the spec, then regenerates. For quick fixes:
 
 ```
 /unslop:change src/retry.py "fix null check on empty response" --tactical
 ```
 
-### 4. Check what's stale
+---
 
-```
-/unslop:status
-```
+## The Five-Phase Model
+
+unslop decomposes development into five independent phases. Each can be run standalone or composed by orchestrators.
+
+| Phase | Command | What it does |
+|---|---|---|
+| **Distill** | `/unslop:distill` | Infer spec from existing code |
+| **Elicit** | `/unslop:elicit` | Create/amend spec via Socratic dialogue |
+| **Generate** | `/unslop:generate` | Tests-then-implementation from spec |
+| **Cover** | `/unslop:cover` | Find and fill gaps in test coverage |
+| **Weed** | `/unslop:weed` | Detect intent drift between spec and code |
+
+Three orchestrators compose these phases into workflows:
+
+- **takeover** -- distill, then elicit, then generate. Brings existing code under management.
+- **change** -- elicit, then generate. Records a change and regenerates.
+- **sync** -- generate with dependency resolution. Regenerates one file, a blast radius, or everything stale.
 
 ---
 
@@ -103,17 +115,40 @@ Specs describe intent, not implementation. If your spec reads like commented-out
 
 **Dependencies** between specs are declared in frontmatter (`depends-on:`) and resolved transitively. Generation respects dependency order automatically. The coherence checker validates that dependent specs don't contradict each other.
 
+**Provenance tracking** -- specs carry `absorbed-from:`, `exuded-from:`, and `provenance-history:` frontmatter that records how specs were created, merged, and split. The `.unslop/absorbed/` and `.unslop/exuded/` staging areas hold intermediate artifacts during absorb and exude operations.
+
 ---
 
-## Three Kinds of Stale
+## Agent Model
+
+unslop uses five specialised agents, each with a fixed role and model assignment.
+
+| Agent | Model | Role |
+|---|---|---|
+| **Architect** | opus | Socratic elicitation, spec reconciliation, absorb/exude |
+| **Archaeologist** | opus (distill/exude), sonnet (generate) | Spec inference, spec projection, spec partitioning |
+| **Mason** | sonnet | Test derivation from behaviour.yaml only (Chinese Wall -- no access to implementation) |
+| **Builder** | sonnet | Implementation from spec + tests in worktree isolation |
+| **Saboteur** | haiku | Mutation testing, async post-generate verification |
+
+The agent boundaries are structural. The Mason never sees implementation code. The Builder never sees conversation history. These walls prevent the generated code from encoding anything not captured in the spec.
+
+---
+
+## Staleness States
 
 Every managed file tracks hashes that detect exactly *why* it needs regeneration:
 
 | State | Meaning | Action |
 |---|---|---|
-| **Spec stale** | The requirements changed | `/unslop:sync <file>` |
-| **Ghost stale** | An upstream strategy changed | `/unslop:sync <file> --deep` to include the blast radius |
-| **Principles stale** | The project's "constitution" changed | `/unslop:generate` to re-check everything |
+| **fresh** | Everything in sync | Nothing |
+| **stale** | Spec changed since last generation | `/unslop:sync <file>` |
+| **modified** | Someone edited the managed file directly | `/unslop:sync <file>` to overwrite, or update the spec |
+| **ghost-stale** | An upstream dependency's spec changed | `/unslop:sync <file> --deep` |
+| **conflict** | Spec and code both changed | Resolve manually, then sync |
+| **pending** | Spec written but never generated | `/unslop:generate` |
+| **structural** | File structure changed (renames, splits) | `/unslop:sync <file>` |
+| **test-drifted** | Tests changed but spec hasn't | `/unslop:weed` to check for drift |
 
 `/unslop:status` reports all of these. `/unslop:graph --stale-only` renders the causal chain so you can trace ghost staleness from root cause to symptom.
 
@@ -126,12 +161,19 @@ When `unslop` detects a `.unslop/` directory in your project, it auto-routes you
 | You say | unslop does |
 |---|---|
 | "Let's refactor the auth module" | `/unslop:takeover` |
-| "Add retry logic to the API client" | `/unslop:change` |
+| "I need a spec for X" | `/unslop:elicit` |
+| "Add retry logic" | `/unslop:change` |
 | "Just fix this null check" | `/unslop:change --tactical` |
+| "What does this code do?" | `/unslop:distill` |
 | "Is this implementation solid?" | `/unslop:harden` |
 | "What's out of date?" | `/unslop:status` |
-| "Sync everything that's stale" | `/unslop:sync --stale-only` |
+| "Sync everything stale" | `/unslop:sync --stale-only` |
 | "Do these specs agree?" | `/unslop:coherence` |
+| "Find weak tests" | `/unslop:cover` |
+| "Has the code drifted from spec?" | `/unslop:weed` |
+| "Check fidelity right now" | `/unslop:verify` |
+| "Merge these file specs" | `/unslop:absorb` |
+| "Split this module spec" | `/unslop:exude` |
 
 If you explicitly ask to edit a managed file directly, unslop warns once (the file will show as `modified` in status) and steps aside. It's a tool, not a gatekeeper.
 
@@ -139,18 +181,44 @@ If you explicitly ask to edit a managed file directly, unslop warns once (the fi
 
 ## Commands
 
+### Phases
+
+| Command | Description |
+|---|---|
+| `/unslop:distill` | Infer spec from existing code |
+| `/unslop:elicit` | Create/amend spec via Socratic dialogue |
+| `/unslop:generate` | Regenerate all stale managed files |
+| `/unslop:cover` | Grow test coverage via mutation testing |
+| `/unslop:weed` | Detect spec-code drift |
+
+### Orchestrators
+
+| Command | Description |
+|---|---|
+| `/unslop:takeover` | Bring code under management (distill, elicit, generate) |
+| `/unslop:change` | Record or execute a spec change |
+| `/unslop:sync` | Regenerate one file, a blast radius, or everything stale |
+
+### Inspection
+
+| Command | Description |
+|---|---|
+| `/unslop:status` | Show managed files and staleness |
+| `/unslop:verify` | Run synchronous fidelity check on a file |
+| `/unslop:graph` | Render dependency graph |
+| `/unslop:coherence` | Check cross-spec consistency |
+
+### Maintenance
+
 | Command | Description |
 |---|---|
 | `/unslop:init` | Initialise the project |
-| `/unslop:spec <file>` | Create or edit a spec |
-| `/unslop:takeover <file\|dir>` | Bring existing code under spec management |
-| `/unslop:generate` | Regenerate all stale managed files |
-| `/unslop:sync <file> [--deep] [--stale-only]` | Regenerate one file, a blast radius, or everything stale |
-| `/unslop:status` | Show managed files and staleness |
-| `/unslop:change <file> "desc" [--tactical]` | Record or immediately execute a change |
-| `/unslop:harden <spec>` | Stress-test a spec for completeness |
-| `/unslop:coherence [spec]` | Check cross-spec consistency |
-| `/unslop:graph [--stale-only]` | Render dependency graph |
+| `/unslop:spec` | Create or edit a spec |
+| `/unslop:harden` | Stress-test a spec for completeness |
+| `/unslop:adversarial` | Full adversarial quality pipeline |
+| `/unslop:promote` | Promote ephemeral concrete spec to permanent |
+| `/unslop:absorb` | Merge file specs into unit spec |
+| `/unslop:exude` | Partition unit spec into file specs |
 
 ---
 
@@ -185,7 +253,7 @@ Code where the implementation *is* the semantics -- performance-critical algorit
 
 ## Under the Hood
 
-For a deep dive into the generation pipeline, quality gates, and architectural constraints, read the skill files in `unslop/skills/`. They define the non-negotiable rules for how code is lowered from intent to implementation. The `unslop/scripts/` directory contains the deterministic infrastructure (dependency resolution, staleness detection, mutation testing) that enforces these rules mechanically.
+For a deep dive into the generation pipeline, quality gates, and architectural constraints, read the skill files in `unslop/skills/`. The agent model -- roles, boundaries, and model assignments -- is defined in `AGENTS.md`. The `unslop/scripts/` directory contains the deterministic infrastructure (dependency resolution, staleness detection, mutation testing) that enforces these rules mechanically.
 
 ---
 
