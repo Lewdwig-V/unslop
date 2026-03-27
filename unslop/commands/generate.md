@@ -176,8 +176,9 @@ For each file classified as new, stale, modified (confirmed), or conflict (confi
 
 Dispatch an Archaeologist subagent to produce the concrete spec and behaviour specification in a single pass. The Archaeologist replaces the former Strategist role.
 
-- **Input:** abstract spec (including any `non_goals:` frontmatter), `.unslop/principles.md` (if present), file tree context
+- **Input:** abstract spec (including any `non_goals:` and `rejected:` frontmatter), `.unslop/principles.md` (if present), file tree context
 - **Output:** concrete spec + `behaviour.yaml` (written as sidecar next to the spec, e.g. `src/retry.py.behaviour.yaml`)
+- **Rejected alternatives:** If the abstract spec contains `rejected:`, the Archaeologist reads each entry before choosing an implementation strategy. If the Archaeologist's preferred strategy aligns with a rejected entry, it must surface this as a `discovered:` item: "The most natural implementation strategy aligns with a previously rejected approach: [title]. Rationale for rejection was: [rationale]. Should I proceed differently?"
 - **Non-goals projection:** If the abstract spec contains `non_goals:`, the Archaeologist:
   1. Projects each non-goal into `behaviour.yaml` as a negative constraint (invariant asserting the behaviour is NOT present, prefixed `MUST NOT`)
   2. Projects each non-goal into the concrete spec as an explicit exclusion under a `## Exclusions` section
