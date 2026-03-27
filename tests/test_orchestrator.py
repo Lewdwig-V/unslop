@@ -28,7 +28,9 @@ from unslop.scripts.orchestrator import (
     get_all_strategy_providers,
     get_registry_key_for_spec,
     parse_managed_file,
+    parse_needs_review,
     parse_non_goals,
+    parse_review_acknowledged,
     parse_intent,
     compute_intent_hash,
     validate_intent_hash,
@@ -5832,3 +5834,57 @@ intent-approved: 2026-03-27T14:00:00Z
 """
     result = parse_non_goals(content)
     assert result == ["Circuit breaker", "Rate limiting"]
+
+
+def test_parse_needs_review_present():
+    content = """---
+depends-on:
+  - auth.spec.md
+needs-review: a1b2c3d4e5f6
+---
+
+# spec
+"""
+    result = parse_needs_review(content)
+    assert result == "a1b2c3d4e5f6"
+
+
+def test_parse_needs_review_absent():
+    content = """---
+depends-on:
+  - auth.spec.md
+---
+
+# spec
+"""
+    result = parse_needs_review(content)
+    assert result is None
+
+
+def test_parse_needs_review_no_frontmatter():
+    content = "# Just a spec"
+    result = parse_needs_review(content)
+    assert result is None
+
+
+def test_parse_review_acknowledged_present():
+    content = """---
+review-acknowledged: a1b2c3d4e5f6
+---
+
+# spec
+"""
+    result = parse_review_acknowledged(content)
+    assert result == "a1b2c3d4e5f6"
+
+
+def test_parse_review_acknowledged_absent():
+    content = """---
+depends-on:
+  - auth.spec.md
+---
+
+# spec
+"""
+    result = parse_review_acknowledged(content)
+    assert result is None

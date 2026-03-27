@@ -199,6 +199,44 @@ def parse_non_goals(content: str) -> list[str]:
     return items
 
 
+def parse_needs_review(content: str) -> str | None:
+    """Extract needs-review field from spec frontmatter.
+
+    Returns the intent-hash string if present, or None.
+    """
+    lines = content.split("\n")
+    if not lines or lines[0].strip() != "---":
+        return None
+
+    for i in range(1, len(lines)):
+        stripped = lines[i].strip()
+        if stripped == "---":
+            break
+        if stripped.startswith("needs-review:"):
+            return stripped.split(":", 1)[1].strip()
+
+    return None
+
+
+def parse_review_acknowledged(content: str) -> str | None:
+    """Extract review-acknowledged field from spec frontmatter.
+
+    Returns the intent-hash string if present, or None.
+    """
+    lines = content.split("\n")
+    if not lines or lines[0].strip() != "---":
+        return None
+
+    for i in range(1, len(lines)):
+        stripped = lines[i].strip()
+        if stripped == "---":
+            break
+        if stripped.startswith("review-acknowledged:"):
+            return stripped.split(":", 1)[1].strip()
+
+    return None
+
+
 def parse_concrete_frontmatter(content: str) -> dict:
     """Parse frontmatter from a concrete spec (.impl.md) file.
 
