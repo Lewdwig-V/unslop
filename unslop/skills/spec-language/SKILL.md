@@ -337,6 +337,30 @@ A spec is in the `pending` freshness state when it describes intent with no curr
 - **Orthogonal to:** `intent-approved`, `needs-review`, `uncertain:` -- pending is about implementation existence, not spec quality.
 - **Invalid transitions:** Never transitions to `stale` or `drifted`. Never triggers weed.
 
+## Rejected Alternatives
+
+The `rejected` field records design decisions that were explicitly considered and dismissed, with the reasoning that led to the rejection.
+
+```yaml
+---
+rejected:
+  - title: "Database-backed storage"
+    rationale: "Zero runtime dependencies required. SQLite adds a binary dependency and complicates deployment to Lambda."
+  - title: "Global retry counter"
+    rationale: "Per-request isolation is a hard requirement. A shared counter creates contention under concurrent load."
+---
+```
+
+Each entry has two required fields: `title` and `rationale`.
+
+- **Written by:** `/unslop:elicit` when the user explicitly rejects a proposed approach with a reason. The Architect prompts once for a rationale; if the user declines, no entry is recorded ("no rationale, no record").
+- **Consumed by:** `/unslop:elicit` in amendment mode -- the Architect reads `rejected:` before proposing changes to avoid re-proposing rejected approaches.
+- **Consumed by:** `/unslop:generate` Stage 0 -- the Archaeologist reads `rejected:` and avoids strategies that align with rejected approaches.
+- **Persists after ratification.** The reasoning behind a rejection is permanent context that prevents re-litigation across sessions.
+- **Can be removed explicitly** during an elicit amendment pass if circumstances change.
+
+**Distinction from `non_goals:`:** Non-goals are intent assertions ("we are not doing X"). Rejected alternatives are reasoning records ("we considered X and decided against it because Y"). The model needs both -- non-goals to know what's out of scope, rejected alternatives to know *why* so it doesn't argue back.
+
 ## Dependencies Between Specs
 
 When a managed file imports from or relies on another managed file, declare the dependency in YAML frontmatter:
