@@ -31,6 +31,7 @@ from unslop.scripts.orchestrator import (
     parse_needs_review,
     parse_non_goals,
     parse_review_acknowledged,
+    parse_uncertain,
     parse_intent,
     compute_intent_hash,
     validate_intent_hash,
@@ -6098,3 +6099,86 @@ def test_check_freshness_needs_review_on_missing_managed_file(tmp_path):
     assert len(result["files"]) == 1
     assert result["files"][0]["state"] == "stale"
     assert result["files"][0].get("needs_review") == "d4e5f6a1b2c3"
+
+
+def test_parse_uncertain_basic():
+    content = """---
+uncertain:
+  - title: "Unbounded retry loop"
+    observation: "Code retries indefinitely with no cap."
+    question: "Is the missing cap intentional?"
+  - title: "Silent exception swallowing"
+    observation: "ConnectionError caught and returns None."
+    question: "Should errors propagate?"
+---
+
+# spec
+"""
+    result = parse_uncertain(content)
+    assert len(result) == 2
+    assert result[0]["title"] == "Unbounded retry loop"
+    assert result[0]["observation"] == "Code retries indefinitely with no cap."
+    assert result[0]["question"] == "Is the missing cap intentional?"
+    assert result[1]["title"] == "Silent exception swallowing"
+
+
+def test_parse_uncertain_empty():
+    content = """---
+uncertain:
+---
+
+# spec
+"""
+    result = parse_uncertain(content)
+    assert result == []
+
+
+def test_parse_uncertain_missing():
+    content = """---
+depends-on:
+  - foo.spec.md
+---
+
+# spec
+"""
+    result = parse_uncertain(content)
+    assert result == []
+
+
+def test_parse_uncertain_no_frontmatter():
+    content = "# Just a spec"
+    result = parse_uncertain(content)
+    assert result == []
+
+
+def test_parse_uncertain_missing_required_field(capsys):
+    content = """---
+uncertain:
+  - title: "Missing question"
+    observation: "Something observed."
+---
+
+# spec
+"""
+    result = parse_uncertain(content)
+    assert result == []
+    captured = capsys.readouterr()
+    assert "missing required field" in captured.err
+
+
+def test_parse_uncertain_with_other_fields():
+    content = """---
+intent: Handles retry logic
+uncertain:
+  - title: "No cap"
+    observation: "Retries forever."
+    question: "Intentional?"
+non_goals:
+  - Circuit breaker
+---
+
+# spec
+"""
+    result = parse_uncertain(content)
+    assert len(result) == 1
+    assert result[0]["title"] == "No cap"

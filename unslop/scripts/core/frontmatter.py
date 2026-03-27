@@ -243,6 +243,82 @@ def parse_review_acknowledged(content: str) -> str | None:
     return None
 
 
+def parse_uncertain(content: str) -> list[dict]:
+    """Parse uncertain list from abstract spec frontmatter.
+
+    Each entry has three required fields: title, observation, question.
+    Entries missing required fields are skipped with a stderr warning.
+
+    Supported format (strict string matching, not YAML):
+        ---
+        uncertain:
+          - title: "Unbounded retry loop"
+            observation: "Code retries indefinitely with no cap."
+            question: "Is the missing cap intentional?"
+        ---
+
+    Returns list of dicts, or empty list if absent or no frontmatter.
+    """
+    lines = content.split("\n")
+    if not lines or lines[0].strip() != "---":
+        return []
+
+    end = -1
+    for i in range(1, len(lines)):
+        if lines[i].strip() == "---":
+            end = i
+            break
+    if end == -1:
+        return []
+
+    frontmatter_lines = lines[1:end]
+
+    entries = []
+    in_uncertain = False
+    current_entry: dict | None = None
+
+    for line in frontmatter_lines:
+        stripped = line.strip()
+
+        if in_uncertain:
+            if re.match(r"^  - title:", line):
+                if current_entry is not None:
+                    entries.append(current_entry)
+                current_entry = {"title": line.split(":", 1)[1].strip().strip('"').strip("'")}
+                continue
+            elif current_entry is not None and re.match(r"^    \w", line):
+                key, _, val = stripped.partition(":")
+                if key.strip() and val.strip():
+                    current_entry[key.strip()] = val.strip().strip('"').strip("'")
+                continue
+            else:
+                if current_entry is not None:
+                    entries.append(current_entry)
+                    current_entry = None
+                in_uncertain = False
+
+        if stripped == "uncertain:":
+            in_uncertain = True
+
+    # Flush final entry
+    if current_entry is not None:
+        entries.append(current_entry)
+
+    _required_fields = {"title", "observation", "question"}
+    validated = []
+    for entry in entries:
+        missing = _required_fields - set(entry.keys())
+        if missing:
+            print(
+                json.dumps({"warning": f"uncertain entry missing required field(s) {sorted(missing)}, skipping: {entry}"}),
+                file=sys.stderr,
+            )
+        else:
+            validated.append(entry)
+
+    return validated
+
+
 def parse_concrete_frontmatter(content: str) -> dict:
     """Parse frontmatter from a concrete spec (.impl.md) file.
 
