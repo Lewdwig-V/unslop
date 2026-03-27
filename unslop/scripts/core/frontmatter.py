@@ -319,6 +319,82 @@ def parse_uncertain(content: str) -> list[dict]:
     return validated
 
 
+def parse_distilled_from(content: str) -> list[dict]:
+    """Parse distilled-from list from abstract spec frontmatter.
+
+    Each entry has two required fields: path and hash.
+    Entries missing required fields are skipped with a stderr warning.
+
+    Supported format (strict string matching, not YAML):
+        ---
+        distilled-from:
+          - path: src/retry.py
+            hash: a3f8c2e9b7d1
+        ---
+
+    Returns list of dicts, or empty list if absent or no frontmatter.
+    """
+    lines = content.split("\n")
+    if not lines or lines[0].strip() != "---":
+        return []
+
+    end = -1
+    for i in range(1, len(lines)):
+        if lines[i].strip() == "---":
+            end = i
+            break
+    if end == -1:
+        return []
+
+    frontmatter_lines = lines[1:end]
+
+    entries = []
+    in_distilled = False
+    current_entry: dict | None = None
+
+    for line in frontmatter_lines:
+        stripped = line.strip()
+
+        if in_distilled:
+            if re.match(r"^  - path:", line):
+                if current_entry is not None:
+                    entries.append(current_entry)
+                current_entry = {"path": line.split(":", 1)[1].strip().strip('"').strip("'")}
+                continue
+            elif current_entry is not None and re.match(r"^    \w", line):
+                key, _, val = stripped.partition(":")
+                if key.strip() and val.strip():
+                    current_entry[key.strip()] = val.strip().strip('"').strip("'")
+                continue
+            else:
+                if current_entry is not None:
+                    entries.append(current_entry)
+                    current_entry = None
+                in_distilled = False
+
+        if stripped == "distilled-from:":
+            in_distilled = True
+
+    # Flush final entry
+    if current_entry is not None:
+        entries.append(current_entry)
+
+    _required_fields = {"path", "hash"}
+    validated = []
+    for entry in entries:
+        missing = _required_fields - set(entry.keys())
+        if missing:
+            msg = f"distilled-from entry missing required field(s) {sorted(missing)}, skipping: {entry}"
+            print(
+                json.dumps({"warning": msg}),
+                file=sys.stderr,
+            )
+        else:
+            validated.append(entry)
+
+    return validated
+
+
 def parse_concrete_frontmatter(content: str) -> dict:
     """Parse frontmatter from a concrete spec (.impl.md) file.
 

@@ -32,6 +32,7 @@ from unslop.scripts.orchestrator import (
     parse_non_goals,
     parse_review_acknowledged,
     parse_uncertain,
+    parse_distilled_from,
     parse_intent,
     compute_intent_hash,
     validate_intent_hash,
@@ -6182,3 +6183,82 @@ non_goals:
     result = parse_uncertain(content)
     assert len(result) == 1
     assert result[0]["title"] == "No cap"
+
+
+def test_parse_distilled_from_basic():
+    content = """---
+distilled-from:
+  - path: src/retry.py
+    hash: a3f8c2e9b7d1
+---
+
+# spec
+"""
+    result = parse_distilled_from(content)
+    assert len(result) == 1
+    assert result[0]["path"] == "src/retry.py"
+    assert result[0]["hash"] == "a3f8c2e9b7d1"
+
+
+def test_parse_distilled_from_multiple():
+    content = """---
+distilled-from:
+  - path: src/retry.py
+    hash: a3f8c2e9b7d1
+  - path: src/backoff.py
+    hash: b4c5d6e7f8a9
+---
+
+# spec
+"""
+    result = parse_distilled_from(content)
+    assert len(result) == 2
+    assert result[1]["path"] == "src/backoff.py"
+
+
+def test_parse_distilled_from_missing():
+    content = """---
+depends-on:
+  - foo.spec.md
+---
+
+# spec
+"""
+    result = parse_distilled_from(content)
+    assert result == []
+
+
+def test_parse_distilled_from_no_frontmatter():
+    content = "# Just a spec"
+    result = parse_distilled_from(content)
+    assert result == []
+
+
+def test_parse_distilled_from_missing_required_field(capsys):
+    content = """---
+distilled-from:
+  - path: src/retry.py
+---
+
+# spec
+"""
+    result = parse_distilled_from(content)
+    assert result == []
+    captured = capsys.readouterr()
+    assert "missing required field" in captured.err
+
+
+def test_parse_distilled_from_with_other_fields():
+    content = """---
+intent: Handles retry logic
+distilled-from:
+  - path: src/retry.py
+    hash: a3f8c2e9b7d1
+intent-approved: false
+---
+
+# spec
+"""
+    result = parse_distilled_from(content)
+    assert len(result) == 1
+    assert result[0]["path"] == "src/retry.py"
