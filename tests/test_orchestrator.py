@@ -5927,3 +5927,87 @@ def test_check_freshness_no_needs_review(tmp_path):
     result = check_freshness(str(tmp_path))
     assert len(result["files"]) == 1
     assert "needs_review" not in result["files"][0]
+
+
+def test_elicit_roundtrip_frontmatter():
+    """Verify the full frontmatter lifecycle: non_goals + needs_review + acknowledged."""
+    # 1. Spec with non_goals and needs-review
+    spec_content = """---
+depends-on:
+  - auth.spec.md
+intent: >
+  Handles HTTP retry logic with backoff and jitter.
+intent-approved: 2026-03-27T14:00:00Z
+intent-hash: eaf392b58b29
+non_goals:
+  - Circuit breaker or load shedding
+  - Request deduplication
+needs-review: b2c3d4e5f6a1
+---
+
+# retry spec
+"""
+    # Parse non_goals
+    goals = parse_non_goals(spec_content)
+    assert goals == ["Circuit breaker or load shedding", "Request deduplication"]
+
+    # Parse needs-review
+    nr = parse_needs_review(spec_content)
+    assert nr == "b2c3d4e5f6a1"
+
+    # Parse review-acknowledged (not present)
+    ra = parse_review_acknowledged(spec_content)
+    assert ra is None
+
+    # Parse intent
+    intent = parse_intent(spec_content)
+    assert intent["intent"] == "Handles HTTP retry logic with backoff and jitter."
+    assert intent["intent_hash"] == "eaf392b58b29"
+
+    # Validate intent hash
+    assert validate_intent_hash(intent["intent"], intent["intent_hash"])
+
+    # 2. After acknowledgment, review-acknowledged replaces needs-review
+    acked_content = """---
+depends-on:
+  - auth.spec.md
+intent: >
+  Handles HTTP retry logic with backoff and jitter.
+intent-approved: 2026-03-27T14:00:00Z
+intent-hash: eaf392b58b29
+non_goals:
+  - Circuit breaker or load shedding
+  - Request deduplication
+review-acknowledged: b2c3d4e5f6a1
+---
+
+# retry spec
+"""
+    nr2 = parse_needs_review(acked_content)
+    assert nr2 is None
+    ra2 = parse_review_acknowledged(acked_content)
+    assert ra2 == "b2c3d4e5f6a1"
+
+
+def test_proposed_sidecar_hash_precomputation():
+    """Verify that intent-hash computed at draft time matches validation."""
+    intent_text = "Handles HTTP retry logic with backoff and jitter."
+    precomputed = compute_intent_hash(intent_text)
+
+    # Simulate what the .proposed file would contain
+    proposed_content = f"""---
+intent: >
+  {intent_text}
+intent-approved: false
+intent-hash: {precomputed}
+non_goals:
+  - Circuit breaker
+---
+
+# retry spec
+"""
+    # Parse and validate
+    parsed = parse_intent(proposed_content)
+    assert parsed["intent"] == intent_text
+    assert parsed["intent_hash"] == precomputed
+    assert validate_intent_hash(parsed["intent"], parsed["intent_hash"])
