@@ -263,6 +263,79 @@ Each entry has two required fields: `path` and `hash`.
 - **Used by elicit:** Triggers distillation review mode (aggressive interrogation of inferred content).
 - **Used by weed:** If the source file's current hash doesn't match the `distilled-from` hash, the spec may be out of date relative to the code it was inferred from.
 
+## Absorb Provenance
+
+The `absorbed-from` field records which file specs were merged to produce this spec via `/unslop:absorb`.
+
+```yaml
+---
+absorbed-from:
+  - path: src/retry.py.spec.md
+    hash: a3f8c2e9b7d1
+  - path: src/backoff.py.spec.md
+    hash: 7e2b4f1c8a93
+---
+```
+
+Each entry has two required fields: `path` and `hash`.
+
+- **Written by:** `/unslop:absorb`.
+- **Cleared on ratification.** Moved to `provenance-history:` when the merged spec receives its first `intent-approved` timestamp after the absorb.
+- **Blocks `pending` classification:** A spec with `absorbed-from:` and missing managed files is classified as `structural` (not `pending`), because the provenance indicates an in-progress granularity change.
+
+## Exude Provenance
+
+The `exuded-from` field records which unit spec was partitioned to produce this spec via `/unslop:exude`.
+
+```yaml
+---
+exuded-from:
+  - path: src/network.unit.spec.md
+    hash: b4c7d2e1f8a3
+---
+```
+
+Each entry has two required fields: `path` and `hash`. Symmetric with `absorbed-from:` -- a spec may be exuded from multiple unit specs across composition cycles.
+
+- **Written by:** `/unslop:exude`.
+- **Cleared on ratification.** Moved to `provenance-history:` on first `intent-approved` cycle after the exude.
+- **Blocks `pending` classification:** Same as `absorbed-from:`.
+
+## Provenance History
+
+The `provenance-history` field is an **append-only audit log** recording structural lineage through absorb/exude cycles.
+
+```yaml
+---
+provenance-history:
+  - type: absorbed-from
+    path: src/retry.py.spec.md
+    hash: a3f8c2e9b7d1
+    timestamp: 2026-03-15T14:30:00Z
+  - type: exuded-from
+    path: src/network.unit.spec.md
+    hash: b4c7d2e1f8a3
+    timestamp: 2026-03-20T09:15:00Z
+---
+```
+
+Each entry has four required fields: `type`, `path`, `hash`, `timestamp`.
+
+- **Append-only.** Entries are never removed, modified, or reordered.
+- **Not an analysis signal.** The freshness checker, weed, generate, and all analysis layers MUST filter out `provenance-history:` before analysis. It is consumed only by display (status) and audit tooling.
+- **Populated from:** `absorbed-from:` and `exuded-from:` entries are moved here when the spec is ratified.
+- **Growth:** Monotonically increasing. Long-lived specs accumulate entries. Manual trimming is permissible but never automated.
+
+## Pending State
+
+A spec is in the `pending` freshness state when it describes intent with no current implementation -- not because something went wrong, but because generate hasn't run yet.
+
+- **Display:** `pending` (neutral, not a warning)
+- **Trigger:** Spec exists, managed file doesn't, no active provenance (`distilled-from:`, `absorbed-from:`, `exuded-from:`)
+- **Note:** `provenance-history:` does NOT count as active provenance.
+- **Orthogonal to:** `intent-approved`, `needs-review`, `uncertain:` -- pending is about implementation existence, not spec quality.
+- **Invalid transitions:** Never transitions to `stale` or `drifted`. Never triggers weed.
+
 ## Dependencies Between Specs
 
 When a managed file imports from or relies on another managed file, declare the dependency in YAML frontmatter:
