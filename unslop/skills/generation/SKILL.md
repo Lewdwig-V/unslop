@@ -418,13 +418,7 @@ This uses the same cache path and lifecycle as normal Builder failure reports.
 
 ### Optional Drift Check (Diagnostic Tool)
 
-The `check-drift` CLI command is available as a diagnostic tool for users who want to verify the Builder respected its Affected Symbols boundary. It is NOT run automatically during the pipeline -- the Surgical Context prompt blocks are the primary enforcement mechanism, and they work for all languages.
-
-```
-python ${CLAUDE_PLUGIN_ROOT}/scripts/orchestrator.py check-drift <old-file> <new-file> --affected s1,s2,s3
-```
-
-For intent drift detection after generation, use `/unslop:weed` to compare spec intent against generated code.
+For intent drift detection after generation, use `/unslop:weed` to compare spec intent against generated code. The Surgical Context prompt blocks (Existing Code, Spec Diff, Affected Symbols) are the primary enforcement mechanism during generation -- they work for all languages without external tooling.
 
 ### Triage Summary Templates
 
