@@ -46,6 +46,8 @@ from .core.frontmatter import (
     parse_absorbed_from,
     parse_exuded_from,
     parse_provenance_history,
+    parse_rejected,
+    parse_spec_changelog,
     validate_intent_hash,
 )
 from .core.hashing import (
@@ -134,6 +136,8 @@ __all__ = [
     "parse_absorbed_from",
     "parse_exuded_from",
     "parse_provenance_history",
+    "parse_rejected",
+    "parse_spec_changelog",
     "parse_intent",
     "compute_intent_hash",
     "validate_intent_hash",
