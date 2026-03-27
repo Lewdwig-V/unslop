@@ -2,6 +2,9 @@
 
 These tests call the tool functions directly (not via MCP protocol)
 to verify they correctly wrap the orchestrator functions.
+
+Error responses now include structured context:
+  {"error": str, "error_type": str, "tool": str}
 """
 
 import json
@@ -21,6 +24,13 @@ from unslop.scripts.mcp_server import (
 from unslop.scripts.orchestrator import compute_hash
 
 
+def _assert_structured_error(result, tool_name):
+    """Assert the result is a structured error with context."""
+    assert "error" in result, f"Expected error key in {result}"
+    assert "error_type" in result, f"Expected error_type in {result}"
+    assert result["tool"] == tool_name, f"Expected tool={tool_name}, got {result.get('tool')}"
+
+
 def test_check_freshness_empty_dir(tmp_path):
     """check_freshness on a dir with no specs returns pass."""
     (tmp_path / ".unslop").mkdir()
@@ -30,9 +40,9 @@ def test_check_freshness_empty_dir(tmp_path):
 
 
 def test_check_freshness_error_on_missing_dir():
-    """check_freshness on a nonexistent dir returns error."""
+    """check_freshness on a nonexistent dir returns structured error."""
     result = json.loads(unslop_check_freshness(directory="/nonexistent/path"))
-    assert "error" in result
+    _assert_structured_error(result, "unslop_check_freshness")
 
 
 def test_classify_file_fresh(tmp_path):
@@ -62,13 +72,14 @@ def test_classify_file_fresh(tmp_path):
 
 
 def test_classify_file_missing_managed():
-    """classify_file returns error for missing managed file."""
+    """classify_file returns error state for missing managed file."""
     result = json.loads(
         unslop_classify_file(
             managed_path="/nonexistent",
             spec_path="/also/nonexistent",
         )
     )
+    # classify_file returns {"state": "error"} for missing files (domain-level)
     assert result["state"] == "error"
 
 
@@ -79,8 +90,9 @@ def test_build_order_empty_dir(tmp_path):
 
 
 def test_build_order_error_on_missing_dir():
+    """build_order on nonexistent dir returns structured error."""
     result = json.loads(unslop_build_order(directory="/nonexistent"))
-    assert "error" in result
+    _assert_structured_error(result, "unslop_build_order")
 
 
 def test_resolve_deps_no_deps(tmp_path):
@@ -97,7 +109,7 @@ def test_resolve_deps_no_deps(tmp_path):
 
 
 def test_ripple_check_single_spec(tmp_path):
-    """ripple_check on a single spec with no deps."""
+    """ripple_check on a single spec with no deps returns valid structure."""
     spec = tmp_path / "foo.py.spec.md"
     spec.write_text("# foo spec\n")
     result = json.loads(
@@ -108,36 +120,41 @@ def test_ripple_check_single_spec(tmp_path):
     )
     assert "error" not in result
     assert isinstance(result, dict)
+    assert "input_specs" in result or "layers" in result
 
 
 def test_deep_sync_plan_error_on_missing():
+    """deep_sync_plan on nonexistent file returns structured error."""
     result = json.loads(
         unslop_deep_sync_plan(
             file_path="nonexistent.spec.md",
             project_root="/nonexistent",
         )
     )
-    assert "error" in result
+    _assert_structured_error(result, "unslop_deep_sync_plan")
 
 
 def test_bulk_sync_plan_empty_project(tmp_path):
+    """bulk_sync_plan on empty project returns valid result."""
     (tmp_path / ".unslop").mkdir()
     result = json.loads(unslop_bulk_sync_plan(project_root=str(tmp_path)))
     assert "error" not in result
 
 
 def test_symbol_audit_error_on_missing():
+    """symbol_audit on missing files returns structured error."""
     result = json.loads(
         unslop_symbol_audit(
             original_path="/nonexistent/a.py",
             generated_path="/nonexistent/b.py",
         )
     )
-    # On missing files, symbol_audit returns a hint indicating the error
+    # audit_symbols may return {"hint": ...} or the wrapper catches the exception
     assert "hint" in result or "error" in result
 
 
 def test_check_drift_error_on_missing():
+    """check_drift on missing files returns error."""
     result = json.loads(
         unslop_check_drift(
             old_path="/nonexistent/a.py",
@@ -145,7 +162,7 @@ def test_check_drift_error_on_missing():
             affected_symbols=["foo"],
         )
     )
-    # On missing files, check_drift returns status: "error"
+    # check_drift returns {"status": "error"} or wrapper catches exception
     assert result.get("status") == "error" or "error" in result
 
 
@@ -158,5 +175,6 @@ def test_discover_finds_files(tmp_path):
 
 
 def test_discover_error_on_missing():
+    """discover on nonexistent dir returns structured error."""
     result = json.loads(unslop_discover(directory="/nonexistent"))
-    assert "error" in result
+    _assert_structured_error(result, "unslop_discover")
