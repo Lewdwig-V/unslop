@@ -75,6 +75,34 @@ A file can be both `fresh` and `needs-review` simultaneously. The `needs-review`
 - If the file is `stale` and `needs-review`, show as `stale (needs-review)` (both require action).
 - If the file has `review-acknowledged` in frontmatter, show as `fresh (review-acknowledged)` to indicate the flag was consciously dismissed.
 
+**Verification results.** After `/unslop:generate` runs, the Saboteur verifies code fidelity asynchronously. Results are stored in `.unslop/verification/`. For each managed file, check if a verification result JSON exists:
+
+- **No result:** Do not display anything (file has never been verified).
+- **Pending (file exists with `"status": "pending"`):** Display: `⏳ Verification pending (Saboteur running)`
+- **Pass:** Display: `✓ Verified (N/M mutants killed, K equivalent)`
+- **Fail:** Display: `⚠ Verification failed: N surviving mutants. Run /unslop:cover to investigate.`
+- **Error:** Display: `⚠ Verification error: Saboteur failed internally. Run /unslop:verify to retry.`
+- **Timeout:** Display: `⚠ Verification timed out. Run /unslop:verify to retry.`
+- **Stale:** If the result's `source_hash` or `spec_hash` doesn't match the current file/spec hashes, append `(stale -- source changed since verification)` to the status line.
+
+Display verification results as an indented line below the file entry, similar to pending changes and blocked constraints:
+
+```
+  fresh      src/retry.py           <- src/retry.py.spec.md
+             ✓ Verified (18/20 mutants killed, 2 equivalent)
+```
+
+The key invariant: "Verification pending" is a transient state that always resolves. Either the Saboteur completes (pass/fail), crashes (error), or times out. All terminal states are distinguishable.
+
+**Test file drift.** If a test file has an `@unslop-managed` header with a `spec-hash`, compare it against the current spec content hash. If they don't match, the tests encode an older version of the spec's constraints:
+
+```
+  test-drifted  tests/test_retry.py    <- src/retry.py.spec.md
+                Spec changed since tests were generated. Run /unslop:generate --regenerate-tests or /unslop:cover.
+```
+
+Test drift is distinct from code drift. It means the spec evolved but the tests still encode the old spec's constraints. This is a new class of finding that the unified generate model makes detectable.
+
 ---
 
 **Unit spec classification.** For each `*.unit.spec.md` file:
@@ -120,6 +148,8 @@ Rules for the display:
 - For **ghost-stale** entries, include the note `(upstream concrete spec changed: <path>)`.
 - For **needs-review** entries, include the note `(needs-review)` and show which upstream spec changed on an indented line.
 - For **review-acknowledged** entries, include `(review-acknowledged)` to show the flag was consciously dismissed.
+- For **verification** entries, display the result on an indented line using the appropriate icon (✓/⚠/⏳).
+- For **test-drifted** entries, include the note `(test-drifted)` and show the spec that changed.
 - If a spec has `depends-on` frontmatter, show the dependencies on an indented line below the entry.
 - For unit specs (`*.unit.spec.md`): display under a `Unit specs:` section showing the directory path, spec name, and file count rather than listing each managed file individually.
 - If there are no entries in a section, omit that section header entirely.
