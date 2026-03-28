@@ -29,7 +29,11 @@ Read `.unslop/config.json` to obtain the test command. If `config.json` does not
 
 **Check for `--regenerate-tests` flag:** If `$ARGUMENTS` contains `--regenerate-tests`, note this -- it forces Mason (Stage 1) to regenerate tests even when existing tests are present for a managed file.
 
-**Check for `--dry-run` flag:** If `$ARGUMENTS` contains `--dry-run`, perform a ripple-effect analysis instead of generating code. This shows the user exactly what would happen — which specs, concrete specs, and managed files would be affected — without spawning any worktrees or modifying any files. See Step 4b below.
+**Check for `--dry-run` flag:** If `$ARGUMENTS` contains `--dry-run`, perform a ripple-effect analysis instead of generating code. This shows the user exactly what would happen -- which specs, concrete specs, and managed files would be affected -- without spawning any worktrees or modifying any files. See Step 4b below.
+
+**Check for unrecognised positional arguments:** After extracting all recognised flags, check for remaining non-flag tokens in `$ARGUMENTS` (tokens not starting with `--`). If any remain, stop:
+
+> "`/unslop:generate` operates project-wide and does not accept file paths. To regenerate a single file, use `/unslop:sync <file-path>`. To regenerate only stale files, use `/unslop:generate` with no path argument."
 
 **2b. Check diagnostic cache**
 
