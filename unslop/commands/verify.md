@@ -61,7 +61,7 @@ The Saboteur receives:
 - The test command from config
 - The mutation budget from config (default 20)
 
-The Saboteur does NOT receive the spec -- mutation selection must be unbiased.
+The Saboteur does NOT receive the spec during mutation testing -- mutation selection must be unbiased. However, the spec IS provided for the constitutional compliance and edge case probing phases (which run after mutation testing), since those phases need spec context to assess `spec_gap` and principle-spec alignment.
 
 **Baseline check:** The Saboteur runs the existing test suite against the unmodified source file first. If any tests fail, do not proceed with mutation testing. Report:
 
@@ -83,13 +83,13 @@ After mutation testing, the Saboteur also runs:
 
 Compute the kill rate: `killed / (total - errored)`. Treat equivalent mutants as killed for the purpose of this ratio. A result is a **pass** if all non-equivalent mutants are killed.
 
-**Pass** (no surviving non-equivalent mutants):
+**Pass** (no surviving non-equivalent mutants AND no constitutional violations):
 
-> "Verified: N/M mutants killed, K equivalent. Code satisfies spec."
+> "Verified: N/M mutants killed, K equivalent. Code satisfies spec and principles."
 
-**Fail** (one or more surviving mutants):
+**Fail** (one or more surviving mutants OR one or more constitutional violations):
 
-> "Verification failed: N surviving mutants (spec gaps). Run /unslop:cover to investigate."
+> "Verification failed: N surviving mutants, M constitutional violation(s). Run /unslop:cover to investigate."
 >
 > Surviving mutants:
 > 1. Line <N>: `<original>` -> `<mutated>` -- <one-line semantic description>

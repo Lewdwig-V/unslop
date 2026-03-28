@@ -216,7 +216,7 @@ After presenting the candidate:
 
 **(a) Approve:**
 
-**Constitutional violation check:** Before finalizing the spec, check if a verification result exists at `.unslop/verification/<managed-file-hash>.json` (hash the managed file path, SHA-256 truncated to 12 hex). If it exists and contains non-empty `constitutional_violations`:
+**Constitutional violation check:** Before finalizing the spec, check if a verification result exists at `.unslop/verification/<managed-file-hash>.json` (hash the managed file path, SHA-256 truncated to 12 hex). If it exists, first check freshness: compare the result's `source_hash` and `spec_hash` against the current file/spec hashes. If either hash doesn't match, the result is stale -- skip the constitutional gate (the violations may no longer apply after the spec/code changed). If the result is fresh and contains non-empty `constitutional_violations`:
 
 ⚠ Generated code violates N principle(s):
   - [principle]: [violation] at [location]
@@ -227,7 +227,7 @@ Options:
   (o) Override -- requires rationale for each violation
   (s) Skip -- leave intent-approved as false
 
-**Option (f):** Do not rename the proposed file. Tell the user to re-run `/unslop:generate`.
+**Option (f):** Rename the proposed file to the canonical spec path (so generate has the updated spec to work from), but leave `intent-approved: false`. Tell the user to re-run `/unslop:generate` to produce compliant code, then re-run `/unslop:elicit` to ratify.
 
 **Option (o):** Prompt for a rationale. **HARD RULE:** Rationale is required -- empty rationale is rejected. Write a `constitutional-overrides:` frontmatter entry (principle, rationale, current timestamp) into the proposed spec. Write a `## Changelog` prose entry. Then proceed with the rename.
 
