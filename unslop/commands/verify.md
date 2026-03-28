@@ -13,19 +13,13 @@ Check that `.unslop/` exists in the current working directory. If it does not ex
 
 > "unslop is not initialized. Run `/unslop:init` first."
 
-Check that the file at the given path exists. If it does not exist, stop and tell the user:
+Check that the target path exists (file or directory). If it does not exist, stop and tell the user:
 
-> "File not found: `<file-path>`"
-
-If the target is a file, read the first 10 lines and check for an `@unslop-managed` header. If the header is absent, stop and tell the user:
-
-> "This file is not under spec management. Use `/unslop:takeover` first."
-
-If the target is a directory, skip this check -- it runs per-file inside the unit loop.
+> "Path not found: `<target-path>`"
 
 Resolve the spec path:
-- If the target is a file: check for `<file-path>.spec.md`.
-- If the target is a directory: check for `<dirname>.unit.spec.md` inside the directory. Skip the `@unslop-managed` header check and file-existence check at this level -- these run per-file inside the unit loop.
+- If the target is a file: read the first 10 lines and check for an `@unslop-managed` header. If the header is absent, stop: "This file is not under spec management. Use `/unslop:takeover` first." Then check for `<file-path>.spec.md`.
+- If the target is a directory: check for `<dirname>.unit.spec.md` inside the directory. Skip the `@unslop-managed` header check and file-existence check -- these run per-file inside the unit loop.
 
 If no spec is found, stop and tell the user:
 

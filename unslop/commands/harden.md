@@ -16,6 +16,8 @@ argument-hint: "<spec-or-directory-path> [--promote]"
 
   > "No spec found at `<path>.spec.md`."
 
+**Note:** Harden reviews the spec holistically, not per-file. For unit specs, Steps 3-5 run once against the entire unit spec and all its managed files together. There is no per-file loop -- the completeness review covers cross-file interfaces as a single pass.
+
 **Check for `--promote` flag:** If `$ARGUMENTS` contains `--promote`, run the Concrete Spec Promotion flow (Step 6) instead of the standard hardening review.
 
 **1. Verify prerequisites**

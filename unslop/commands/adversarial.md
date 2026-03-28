@@ -29,21 +29,20 @@ Check that the resolved spec file exists. Derive managed file path(s):
 - For per-file specs (`*.spec.md` but not `*.unit.spec.md`): strip `.spec.md` to get the managed file path (e.g., `src/retry.py.spec.md` --> `src/retry.py`).
 - For unit specs (`*.unit.spec.md`): read the `## Files` section and resolve all listed file paths relative to the spec's directory.
 
-Check that all derived managed file paths exist. If not:
+Check that all derived managed file paths exist:
 
-> "No generated file found for this spec. Run `/unslop:generate` first."
+- If none exist, stop: "No generated files found for this spec. Run `/unslop:generate` first."
+- If some but not all exist (unit spec case), list the missing ones as a warning and proceed with the files that do exist.
 
-**Unit spec dispatch:** If the resolved spec is a unit spec, run Steps 2-5 independently for each managed file (using the file's per-file spec if it exists, otherwise using the unit spec). After all files complete, present an aggregated summary in Step 5:
+**Unit spec dispatch:** If the resolved spec is a unit spec, run Steps 2-6 independently for each managed file (using the file's per-file spec if it exists, otherwise using the unit spec). Auto-convergence (Step 6) runs per-file after each file's Step 5 completes, not as a unit-level pass. After all files complete, present an aggregated summary:
 
 > "Adversarial quality report for unit `<unit-spec-path>`:
 >
-> `<file-1>`: P mutations, Q killed (X%) -- PASS/NEEDS WORK
-> `<file-2>`: P mutations, Q killed (X%) -- PASS/NEEDS WORK
+> `<file-1>`: P mutations, Q killed, E equivalent (X% adjusted) -- PASS/NEEDS WORK
+> `<file-2>`: P mutations, Q killed, E equivalent (X% adjusted) -- PASS/NEEDS WORK
 > ...
 >
 > Unit verdict: [PASS if all files pass | NEEDS WORK otherwise]"
-
-Auto-convergence (Step 6) runs per-file, not across the unit.
 
 Check that `.unslop/boundaries.json` exists. If not, create it with an empty array `[]` and warn:
 

@@ -29,7 +29,7 @@ After all files complete, present an aggregated triage summary:
 >
 > Total: X gaps found across Y files, Z promoted to spec."
 
-Atomic commit (Step 7) covers all files in the unit together.
+Atomic commit (Step 7) covers all files in the unit together. For unit runs, use the unit spec name in the commit message: `cover: harden tests for <unit-name> (N files, M gaps found, K promoted to spec)`.
 
 **Load and follow** the **unslop/adversarial** skill step-by-step for Steps 2-4. Do not summarize or abbreviate the pipeline. Each step must execute via subagent dispatch with the prescribed inputs.
 
