@@ -1,10 +1,10 @@
 ---
 description: Bring existing code under spec-driven management
-argument-hint: <file-path> [--spec-only]
+argument-hint: <file-or-directory-path> [--spec-only]
 ---
 
-**Parse arguments:** `$ARGUMENTS` contains the file path and an optional `--spec-only` flag. Extract:
-- The file path: first token that does not start with `--`.
+**Parse arguments:** `$ARGUMENTS` contains the target path (file or directory) and an optional `--spec-only` flag. Extract:
+- The target path: first token that does not start with `--`. May be a file (produces a file spec) or a directory (produces a unit spec).
 - The `--spec-only` flag, if present (stops after distill + elicit, skips generate).
 
 **1. Verify prerequisites**
@@ -12,23 +12,27 @@ argument-hint: <file-path> [--spec-only]
 Check that `.unslop/` exists. If not, stop:
 > "unslop is not initialized. Run `/unslop:init` first."
 
-Check that the target file exists. If not, stop:
-> "File not found: `<file-path>`."
+Check that the target path exists (file or directory). If not, stop:
+> "Target not found: `<target-path>`."
 
-Check that the target file is NOT already managed (no `@unslop-managed` header in the first 5 lines). If it is:
-> "File is already managed by unslop. Use `/unslop:change` to modify it, or `/unslop:sync` to regenerate."
+Check that the target is NOT already managed:
+- For files: check for `@unslop-managed` header in the first 5 lines.
+- For directories: check whether `<dirname>.unit.spec.md` already exists.
+
+If already managed:
+> "Target is already managed by unslop. Use `/unslop:change` to modify it, or `/unslop:sync` to regenerate."
 
 **2. Phase 1: Distill**
 
-Run `/unslop:distill <file-path>`.
+Run `/unslop:distill <target-path>`.
 
-Distill reads the existing code and produces a candidate spec as `<spec-path>.proposed`. The user reviews and approves the distilled spec. If rejected, stop.
+Distill reads the existing code and produces a candidate spec as `<spec-path>.proposed`. For files this produces a file spec; for directories this produces a unit spec. The user reviews and approves the distilled spec. If rejected, stop.
 
 After approval, the spec exists as `<spec-path>` with `distilled-from:` provenance, `uncertain:` entries, and `intent-approved: false`.
 
 **3. Phase 2: Elicit (distillation review)**
 
-Run `/unslop:elicit <file-path>`.
+Run `/unslop:elicit <target-path>`.
 
 Elicit detects `distilled-from:` in the spec frontmatter and enters distillation review mode. The user resolves uncertainties, ratifies non-goals, and validates the intent statement.
 
@@ -43,7 +47,7 @@ After elicit completes:
 If `--spec-only` was passed, stop and report:
 > "Spec written and reviewed: `<spec-path>`. Run `/unslop:generate <file-path>` when ready to generate code."
 
-Otherwise, run `/unslop:generate <file-path>`.
+Otherwise, run `/unslop:generate <target-path>`.
 
 Generate runs the unified pipeline: Archaeologist Stage 0 (concrete spec + behaviour.yaml), Mason Stage 1 (test derivation), Builder Stage 2 (implementation in worktree), Saboteur Stage 3 (async verification).
 

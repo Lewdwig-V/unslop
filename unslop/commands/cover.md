@@ -1,6 +1,6 @@
 ---
-description: Grow test coverage on a managed file using mutation-driven discovery
-argument-hint: <managed-file-or-spec> [--budget N] [--exhaustive]
+description: Grow test coverage on a managed file or unit using mutation-driven discovery
+argument-hint: <managed-file-or-spec-or-directory> [--budget N] [--exhaustive]
 ---
 
 **Parse arguments:** `$ARGUMENTS` contains the target path and optional flags. Extract the target (first non-flag argument) and flags:
@@ -10,7 +10,12 @@ argument-hint: <managed-file-or-spec> [--budget N] [--exhaustive]
 
 Strip flags before using the path in subsequent steps.
 
-If the target path ends in `.spec.md`, derive the managed file path by stripping `.spec.md`. Otherwise, treat the target as the managed file and derive the spec path by appending `.spec.md`.
+Resolve the target:
+- If the target path ends in `.spec.md`: derive the managed file path by stripping `.spec.md`.
+- If the target is a directory: look for `<dirname>.unit.spec.md` inside it.
+- Otherwise: treat the target as the managed file and derive the spec path by appending `.spec.md`.
+
+> **Limitation:** Unit spec targets (directories) are not yet fully supported. Cover operates on each file within the unit independently -- it does not yet have a unit-aware mutation or test discovery model. The per-file pipeline (Saboteur -> Archaeologist -> Mason -> Validator) runs for each file in the unit, but cross-file mutation strategies and shared test suites are not yet handled.
 
 **Load and follow** the **unslop/adversarial** skill step-by-step for Steps 2-4. Do not summarize or abbreviate the pipeline. Each step must execute via subagent dispatch with the prescribed inputs.
 
@@ -28,7 +33,7 @@ If you find yourself writing mutations, analysing constraint gaps, or writing te
 Saboteur -> Archaeologist -> Mason -> Validator (Architect)
 ```
 
-Each step's output is the next step's input. The Archaeologist classifies each surviving mutant (equivalent/weak_test/spec_gap) and produces new behaviour.yaml constraints for spec_gap mutants. The Mason receives the Archaeologist's classifications and constraints. No parallelism within a single file's cover run.
+Each step's output is the next step's input. The Archaeologist classifies each surviving mutant (equivalent/weak_test/spec_gap) and produces new behaviour.yaml constraints for spec_gap mutants. The Mason receives the Archaeologist's classifications and constraints. No parallelism within a single target's cover run.
 
 **Multi-file parallelism:** When running `/unslop:cover` on multiple files sequentially, each file's pipeline is independent. The Architect MAY dispatch the next file's Saboteur while the current file's Mason is running, as long as it can track both pipelines. The Architect SHOULD maximize parallelism across independent files to reduce wall-clock time.
 

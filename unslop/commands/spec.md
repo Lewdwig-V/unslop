@@ -1,15 +1,17 @@
 ---
-description: Create or edit a spec for a source file
-argument-hint: <file-path>
+description: Create or edit a spec for a source file or directory
+argument-hint: <file-or-directory-path>
 ---
 
-The argument `$ARGUMENTS` is the path to the source file (e.g., `src/retry.py`).
+The argument `$ARGUMENTS` is the path to the source file or directory (e.g., `src/retry.py` for a file spec, `src/widgets/` for a unit spec).
 
 Use the `unslop/spec-language` skill for guidance on spec writing voice throughout this command.
 
 **Check initialization:** Check that `.unslop/` exists. If not, warn the user that unslop is not initialized and suggest running `/unslop:init` first. You may still proceed with creating the spec file (spec creation works without init), but note that `/unslop:generate` will require initialization.
 
-**Derive the spec path:** append `.spec.md` to the filename (e.g., `src/retry.py` → `src/retry.py.spec.md`).
+**Derive the spec path:**
+- For files: append `.spec.md` to the filename (e.g., `src/retry.py` -> `src/retry.py.spec.md`).
+- For directories: use `<dirname>.unit.spec.md` inside the directory (e.g., `src/widgets/` -> `src/widgets/widgets.unit.spec.md`).
 
 ---
 
