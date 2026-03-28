@@ -1,9 +1,20 @@
 ---
 description: Review a spec for completeness and suggest tightening. Use --promote to promote a concrete spec to permanent.
-argument-hint: "<spec-path> [--promote]"
+argument-hint: "<spec-or-directory-path> [--promote]"
 ---
 
-**Parse arguments:** `$ARGUMENTS` is the path to the spec file (e.g., `src/retry.py.spec.md`). Strip any flags before using the path.
+**Parse arguments:** Extract the first non-flag token from `$ARGUMENTS` as the target path. Strip flags (`--promote`) before using the path.
+
+**Resolve target:**
+
+- If the target ends in `.spec.md`: use as-is (spec path). Example: `src/retry.py.spec.md`
+- If the target is a directory: look for `<dirname>.unit.spec.md` inside it. Example: `src/auth/` resolves to `src/auth/auth.unit.spec.md`. If the unit spec does not exist, stop:
+
+  > "No unit spec found at `<dir>/<dirname>.unit.spec.md`. If you meant to run on individual file specs, pass them explicitly."
+
+- Otherwise: treat as a managed file path and append `.spec.md`. Example: `src/retry.py` resolves to `src/retry.py.spec.md`. If the spec does not exist, stop:
+
+  > "No spec found at `<path>.spec.md`."
 
 **Check for `--promote` flag:** If `$ARGUMENTS` contains `--promote`, run the Concrete Spec Promotion flow (Step 6) instead of the standard hardening review.
 
