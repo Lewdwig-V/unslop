@@ -27,8 +27,8 @@ If already managed:
 **1b. Testless routing decision**
 
 Check whether tests exist for the target:
-- For files: search for `tests/test_<name>.py`, `<name>_test.py`, or test files that import the target module.
-- For directories: search for a parallel `tests/` directory or test files within the directory.
+- For files: search for test files following common language conventions -- `tests/test_<name>.*`, `<name>_test.*`, `<name>.test.*`, `<name>.spec.*`, `<name>_spec.*`, or test files that import the target module.
+- For directories: search for a parallel `tests/`, `test/`, `__tests__/`, or `spec/` directory, or test files within the directory matching the patterns above.
 
 Route based on test presence and flags:
 - **Tests exist, no flags:** Normal path -- existing tests serve as quality gate during generation.
@@ -63,7 +63,11 @@ If `--spec-only` was passed, stop and report:
 
 Otherwise, run `/unslop:generate <target-path>`.
 
-Generate runs the unified pipeline: Archaeologist Stage 0 (concrete spec + behaviour.yaml), Mason Stage 1 (test derivation), Builder Stage 2 (implementation in worktree), Saboteur Stage 3 (async verification).
+If `--skip-adversarial` was passed, set `testless_mode = false` regardless of test discovery results. This bypasses adversarial validation -- Mason and Saboteur will not run for testless files.
+
+If `--full-adversarial` was passed, set `testless_mode = true` regardless of test discovery results. This forces adversarial validation -- Mason generates tests from behaviour.yaml and Saboteur runs mutation testing even when existing tests are present.
+
+Generate runs the unified pipeline: Archaeologist Stage 0 (concrete spec + behaviour.yaml), Mason Stage 1 (test derivation -- conditional on testless_mode), Builder Stage 2 (implementation in worktree), Saboteur Stage 3 (async verification).
 
 **5. Post-takeover summary**
 
