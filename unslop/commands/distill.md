@@ -77,6 +77,18 @@ List things that look like bugs, shortcuts, or accidental behaviour. Each uncert
 
 Examples of uncertainty triggers: unreachable branches, swallowed exceptions, hardcoded magic values, TODOs, asymmetric error handling, undocumented side effects, behaviour that contradicts the function name.
 
+**Step 1.6: Detect protected regions**
+
+Scan the source file for tail blocks that serve a different purpose than the implementation above. A tail block is a region from a recognized marker pattern to the end of the file, where the marker signals a semantic boundary (test infrastructure, entry-point guard, example code). Common marker patterns:
+- Test suites: `#[cfg(test)]` (Rust), `if __name__ == "__main__"` followed by tests (Python), `describe`/`it` blocks at EOF (JS/Ruby), `func Test*` at file tail (Go), `[TestClass]`/`[Fact]` (C#), bare `def test_*` or `class Test*` functions at EOF (pytest)
+- Main entry guards: `if __name__ == "__main__"`, `public static void main` (Java/Kotlin)
+- Example code blocks
+- Benchmark blocks
+
+For each detected tail block, record: start line, end line (EOF), semantic category (`test-suite`, `entry-point`, `examples`, `benchmarks`), and the marker pattern used to identify it.
+
+If no tail blocks are detected, skip to Phase 2.
+
 **Phase 2: Produce Candidate Spec**
 
 Compute the `intent-hash`: take the inferred intent text (the folded scalar value), compute its SHA-256, and use the first 12 hex characters. Embed this in the frontmatter before writing the file.
@@ -147,6 +159,21 @@ If there are uncertainties, call them out explicitly:
 > "The following uncertainties were found during analysis. Review and resolve them before approving the spec:"
 >
 > [list each uncertainty with title, observation, and question]
+
+If the Archaeologist detected tail blocks in Step 1.6, present them explicitly:
+
+> "Protected regions detected:
+>
+> `<file>`: lines <N>-EOF (`<semantics>` -- `<marker>`)
+>
+> When a concrete spec is generated for this file (during `/unslop:generate`
+> or `/unslop:sync`), the Archaeologist will record these blocks as
+> `protected-regions` in the concrete spec frontmatter. The Builder then
+> preserves them verbatim during regeneration -- your handwritten code stays
+> untouched. To adjust protection boundaries after generation, edit the
+> `protected-regions` frontmatter in the concrete spec."
+
+If no tail blocks were detected in Step 1.6, skip this message.
 
 Then offer the approval flow:
 

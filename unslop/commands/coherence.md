@@ -1,5 +1,5 @@
 ---
-description: Check cross-spec coherence across related specs
+description: Check cross-spec coherence across related specs, including blocked-by constraint tracking
 argument-hint: "[spec-path]"
 ---
 

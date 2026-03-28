@@ -90,6 +90,7 @@ Probe specifically for:
 - Concurrency guarantees (thread-safe? reentrant?)
 - Performance bounds (if any)
 - Input validation rules
+- Regeneration protection (are there handwritten regions -- tests, entry points, examples -- that must survive regeneration verbatim? If yes, note for `protected-regions` declaration in the concrete spec). This probe is most relevant when existing code is being brought under management (post-distill or takeover). In pure creation mode, defer unless the user volunteers that handwritten regions will be added later.
 
 **Phase 3: Dependencies**
 
