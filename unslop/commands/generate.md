@@ -182,7 +182,7 @@ Dispatch an Archaeologist subagent to produce the concrete spec and behaviour sp
 - **Non-goals projection:** If the abstract spec contains `non_goals:`, the Archaeologist:
   1. Projects each non-goal into `behaviour.yaml` as a negative constraint (invariant asserting the behaviour is NOT present, prefixed `MUST NOT`)
   2. Projects each non-goal into the concrete spec as an explicit exclusion under a `## Exclusions` section
-- **Model:** `config.models.archaeologist` (default: `sonnet`)
+- **Model:** `config.models.archaeologist`
 - **Note:** The Archaeologist reads the abstract spec, NOT source code. Source reading is for distill mode only.
 - **Pending specs:** When processing a spec in `pending` state (no existing implementation), the Archaeologist skips the existing-code read entirely and projects from the abstract spec alone. The discovery gate (Stage 0b) is especially important for pending specs -- it catches correctness requirements the spec didn't anticipate, without the safety net of existing code.
 
@@ -220,7 +220,7 @@ Derive the expected test file path from project conventions (e.g. `src/retry.py`
   - **Input:** `behaviour.yaml` ONLY.
   - **HARD RULE:** Mason NEVER sees the abstract spec, concrete spec, or source code. Chinese Wall -- behaviour.yaml is the sole input. This ensures tests are derived purely from observable behaviour, not implementation details.
   - **Output:** test file with `@unslop-managed` header containing `spec-hash` (hash of the **abstract spec**, not behaviour.yaml -- this ensures status/weed drift checks compare tests against the same spec hash used for code files) and `generated` timestamp
-  - **Model:** `config.models.mason` (default: `sonnet`)
+  - **Model:** `config.models.mason`
   - **Isolation:** worktree (merge test file on success)
 
 **5d. Stage 2: Code Implementation (Builder)**
@@ -265,6 +265,8 @@ After the Builder succeeds and the worktree merges, dispatch the Saboteur in the
     "source_hash": "<12-hex>",
     "spec_hash": "<12-hex>",
     "surviving_mutants": [],
+    "constitutional_violations": [],
+    "edge_case_findings": [],
     "error_message": null
   }
   ```
@@ -273,6 +275,8 @@ After the Builder succeeds and the worktree merges, dispatch the Saboteur in the
   - Saboteur exceeds timeout -> `{"status": "timeout", "error_message": "exceeded verification_timeout", ...}`
   - Source or spec changed during run: detectable by comparing `source_hash`/`spec_hash` in the result against current file hashes. Status shows `(stale)` annotation but the result file itself uses the terminal status (pass/fail/error/timeout).
 - The Saboteur uses the adversarial pipeline (Archaeologist -> Mason -> Saboteur from the adversarial skill) to run mutation testing against the generated code.
+- **Constitutional compliance.** After mutation testing, if `.unslop/principles.md` exists, the Saboteur checks whether the generated code violates any principle. This is LLM-native analysis -- principles are natural language, violations require judgment. Each violation is recorded as `{"principle": "<text>", "location": "<file:lines>", "violation": "<what code does>", "required": "<what principle requires>"}` in the `constitutional_violations` array. Constitutional violations cause `status: "fail"` even if all mutants were killed.
+- **Edge case probing.** After constitutional checking, the Saboteur probes the code's attack surface for edge cases the spec didn't anticipate. Generates adversarial inputs (boundary values, malformed data, null/empty/oversized inputs) and assesses graceful handling vs silent failure. Budget: `config.edge_case_budget` findings (default: 10), severity-ranked (silent data corruption > unhandled exception > resource leak > unexpected behaviour). Each finding: `{"input": "<desc>", "expected": "<expected>", "actual": "<actual>", "severity": "<level>", "spec_gap": true|false}` in the `edge_case_findings` array. Edge case findings are **informational only** -- they do NOT affect `status` and do NOT block anything.
 
 **6. Update the alignment summary**
 

@@ -133,6 +133,6 @@ When `--cleanup` is passed:
 
 ---
 
-**Model:** `config.models.archaeologist` (default: `opus` for exude -- partitioning is analytical judgment, similar to distill-mode cognitive load).
+**Model:** `config.models.archaeologist`. Exude is analytical judgment (partitioning intent), similar to distill-mode cognitive load.
 
 This command is NOT read-only. It writes child specs, moves the original to staging, and updates dependency references.

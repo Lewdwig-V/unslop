@@ -6,6 +6,10 @@
 
 unslop is a Claude Code plugin for spec-driven development. Specs (*.spec.md) are the source of truth. Generated code is a disposable artifact derived from specs. The plugin has 19 commands, 6 skills, and 1 domain skill (FastAPI).
 
+## Design Philosophy
+
+The spec is a communication protocol between two stateful agents with different memory architectures. The human has persistent memory, rich context, and ambiguous intent. The model has precise execution, no persistent memory, and needs structured state to reconstruct what the human meant. Everything in the frontmatter solves that mismatch -- not making English more precise, but making the human's mental state more legible to a context-free reader.
+
 ## Architecture
 
 ### Five-Phase Model
@@ -38,7 +42,7 @@ Stage 3: Saboteur verifies async (fire-and-forget)
 | Archaeologist | opus (distill/exude), sonnet (generate) | Spec inference from code, spec projection, spec partitioning |
 | Mason | sonnet | Test derivation from behaviour.yaml ONLY (Chinese Wall) |
 | Builder | sonnet | Implementation from abstract + concrete spec + tests (worktree isolation) |
-| Saboteur | haiku | Mutation testing, async post-generate verification, cover gap analysis |
+| Saboteur | sonnet | Mutation testing, constitutional compliance, edge case probing, cover gap analysis |
 
 ## Key Invariants
 
@@ -90,6 +94,9 @@ The concrete spec (*.impl.md) is an internal artifact of the generate pipeline. 
 | absorbed-from | absorb | Ratification (-> provenance-history) | Structural provenance |
 | exuded-from | exude | Ratification (-> provenance-history) | Structural provenance |
 | provenance-history | ratification | Never (append-only) | Audit log |
+| rejected | elicit | Manual removal | Closed design decisions with rationale |
+| spec-changelog | elicit, change, distill, absorb, exude | Never (append-only) | Structured mutation history |
+| constitutional-overrides | elicit (--force-constitutional) | Manual removal | Audited principle override with rationale |
 
 ## File Layout
 
@@ -128,7 +135,7 @@ unslop/
     absorbed/                   # Staged originals from absorb
     exuded/                     # Staged originals from exude
 tests/
-  test_orchestrator.py          # 377 tests for all Python modules
+  test_orchestrator.py          # 405 tests for all Python modules
 ```
 
 ## Conventions

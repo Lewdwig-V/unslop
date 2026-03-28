@@ -129,7 +129,7 @@ unslop uses five specialised agents, each with a fixed role and model assignment
 | **Archaeologist** | opus (distill/exude), sonnet (generate) | Spec inference, spec projection, spec partitioning |
 | **Mason** | sonnet | Test derivation from behaviour.yaml only (Chinese Wall -- no access to implementation) |
 | **Builder** | sonnet | Implementation from spec + tests in worktree isolation |
-| **Saboteur** | haiku | Mutation testing, async post-generate verification |
+| **Saboteur** | sonnet | Mutation testing, constitutional compliance, edge case probing |
 
 The agent boundaries are structural. The Mason never sees implementation code. The Builder never sees conversation history. These walls prevent the generated code from encoding anything not captured in the spec.
 

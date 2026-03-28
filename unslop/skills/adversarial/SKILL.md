@@ -34,20 +34,13 @@ The pipeline has three independent agents with a **Chinese Wall** between them:
 
 ### Model Selection
 
-Before dispatching any adversarial agent, read `.unslop/config.json`. If a `models` block exists and contains a key matching the agent role, pass that value as the `model` parameter when dispatching via `Agent()`. If the `models` block is missing or the role key is absent, use the hardcoded default. Note: the adversarial agents are dispatched by the controlling session -- no `Agent()` code block exists in this skill. The controlling session must set the `model` parameter when creating each agent.
+Before dispatching any adversarial agent, read `.unslop/config.json`. If a `models` block exists and contains a key matching the agent role, pass that value as the `model` parameter when dispatching via `Agent()`. If the key is absent, use the default from the config template in `init.md`. See AGENTS.md for the canonical model/role mapping and rationale.
 
-| Role | Default | Notes |
-|---|---|---|
-| archaeologist (distill mode) | opus | Judgment: inferring intent from code under uncertainty |
-| archaeologist (generate mode) | sonnet | Mechanical: well-defined spec-to-spec projection |
-| mason | sonnet | Chinese Wall removes context, model must compensate with stronger reasoning |
-| saboteur | haiku | Mechanical mutation (swap operators, remove calls) |
-
-The `model` parameter controls which Claude model runs the subagent. Valid values: `sonnet`, `opus`, `haiku`, or a full model ID (e.g., `claude-sonnet-4-6`). In the dispatch annotations below, `config.models.<role>` refers to the value at `.unslop/config.json` -> `models` -> `<role>`.
+Valid model values: `sonnet`, `opus`, `haiku`, or a full model ID (e.g., `claude-sonnet-4-6`). In the dispatch annotations below, `config.models.<role>` refers to the value at `.unslop/config.json` -> `models` -> `<role>`.
 
 ### Phase 1: Archaeologist (Intent Extraction + Strategic Projection)
 
-**Dispatch model:** `config.models.archaeologist` -- default depends on mode: **opus** in distill mode (judgment under uncertainty), **sonnet** in generate mode (well-defined transformation). The calling command sets the model based on context.
+**Dispatch model:** `config.models.archaeologist`. The calling command sets the model based on context (see model defaults in `init.md` config template and AGENTS.md).
 
 The Archaeologist operates in two distinct modes depending on its invocation context:
 
@@ -67,7 +60,7 @@ The Strategist persona (v0.24.0-v0.34.0) has been subsumed by the Archaeologist 
 
 ### Phase 2: Mason (Spec-Blind Test Construction)
 
-**Dispatch model:** `config.models.mason` (default: sonnet)
+**Dispatch model:** `config.models.mason`
 
 The Mason receives ONLY the behaviour YAML. It is **denied access to source code**.
 This is the critical information asymmetry — the "firewall" — that forces black-box
@@ -83,7 +76,7 @@ to Phase 3. Tests that mock internal modules are Hard Rejected.
 
 ### Phase 3: Saboteur (Mutation Validation)
 
-**Dispatch model:** `config.models.saboteur` (default: haiku)
+**Dispatch model:** `config.models.saboteur`
 
 The Saboteur operates in two contexts:
 
@@ -97,6 +90,36 @@ In both modes, if a mutant survives (tests still pass despite a code change), it
 2. **Spec Failure** -- the Archaeologist failed to extract a constraint
 
 The Saboteur classifies each surviving mutant and routes feedback to the correct phase.
+
+### Constitutional Compliance (Post-Generate Verification)
+
+When the Saboteur runs as async post-generate verification (Stage 3 of the unified generate pipeline) or via `/unslop:verify`, it executes a constitutional compliance phase after mutation testing.
+
+**Input:** `.unslop/principles.md` + managed source file (full content)
+
+**Process:** For each principle in `principles.md`, the Saboteur assesses whether the generated code violates it. This is LLM-native analysis -- principles are natural language and violations require judgment about intent, not pattern matching.
+
+**Output:** `constitutional_violations` array in the verification JSON. Each entry: `principle`, `location`, `violation`, `required`.
+
+**Severity:** Constitutional violations cause verification `status: "fail"` even if all mutants were killed. They soft-block ratification in `/unslop:elicit` -- the user must fix, override (`--force-constitutional` with rationale), or defer.
+
+**Not applicable to:** The adversarial pipeline (Phase 1-2-3 in cover mode). Constitutional checking runs only in verification context, not during mutation-driven test generation.
+
+### Edge Case Probing (Post-Generate Verification)
+
+After constitutional checking, the Saboteur probes the code's attack surface for inputs the spec didn't anticipate.
+
+**Input:** Abstract spec + managed source file (full content)
+
+**Process:** Generate adversarial inputs derived from the code's attack surface (not from the spec): boundary values, malformed data, null/empty/oversized inputs, concurrent access patterns, resource exhaustion. For each, assess whether the code handles it gracefully or fails silently.
+
+**Budget:** Maximum `config.edge_case_budget` findings (default: 10). Ranked by severity: silent data corruption > unhandled exception > resource leak > unexpected behaviour.
+
+**Output:** `edge_case_findings` array in the verification JSON. Each entry: `input`, `expected`, `actual`, `severity`, `spec_gap`.
+
+**Severity:** Informational only. Edge case findings do NOT affect verification `status` and do NOT block ratification. They surface in `/unslop:status` as a count with a hint to investigate.
+
+**Relationship to cover:** Edge case probing is a lightweight, automatic version of cover's gap analysis. If findings exist, the user can run `/unslop:cover` for deep investigation. The probing phase never writes tests -- it only identifies gaps.
 
 ### Mutant Classification (Archaeologist)
 

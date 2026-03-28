@@ -45,7 +45,7 @@ Read the following into the current session:
 - The resolved test file path
 
 Read `.unslop/config.json` if it exists. Extract:
-- `models.saboteur` -- model to use for Saboteur dispatch (default: `haiku`)
+- `models.saboteur` -- model to use for Saboteur dispatch (see `init.md` config for default)
 - `test_command` -- command used to run tests (default: `pytest`)
 - `mutation_budget` -- default mutation budget for the Saboteur (default: `20`)
 
@@ -53,7 +53,7 @@ Load the **unslop/adversarial** skill. The Saboteur dispatch follows Phase 3 of 
 
 **3. Dispatch Saboteur subagent**
 
-Dispatch a Saboteur subagent synchronously using `model` from `config.models.saboteur` (default: `haiku`).
+Dispatch a Saboteur subagent synchronously using `model` from `config.models.saboteur` (see `init.md` config for default).
 
 The Saboteur receives:
 - The managed source file (full content)
@@ -61,7 +61,7 @@ The Saboteur receives:
 - The test command from config
 - The mutation budget from config (default 20)
 
-The Saboteur does NOT receive the spec -- mutation selection must be unbiased.
+The Saboteur does NOT receive the spec during mutation testing -- mutation selection must be unbiased. However, the spec IS provided for the constitutional compliance and edge case probing phases (which run after mutation testing), since those phases need spec context to assess `spec_gap` and principle-spec alignment.
 
 **Baseline check:** The Saboteur runs the existing test suite against the unmodified source file first. If any tests fail, do not proceed with mutation testing. Report:
 
@@ -71,24 +71,41 @@ Write an error result to `.unslop/verification/<managed-file-hash>.json` (see St
 
 If the baseline is green, the Saboteur generates and runs mutations per Phase 3 of the adversarial skill and returns a JSON summary of killed/survived/errored mutants.
 
+After mutation testing, the Saboteur also runs:
+
+**Constitutional compliance:** If `.unslop/principles.md` exists, check the source file against each principle. Record violations in the result JSON under `constitutional_violations`.
+
+**Edge case probing:** Probe the code's attack surface for edge cases the spec didn't anticipate. Budget: `config.edge_case_budget` (default: 10). Record findings in the result JSON under `edge_case_findings`.
+
 **Block until the Saboteur subagent completes before proceeding.**
 
 **4. Report result**
 
 Compute the kill rate: `killed / (total - errored)`. Treat equivalent mutants as killed for the purpose of this ratio. A result is a **pass** if all non-equivalent mutants are killed.
 
-**Pass** (no surviving non-equivalent mutants):
+**Pass** (no surviving non-equivalent mutants AND no constitutional violations):
 
-> "Verified: N/M mutants killed, K equivalent. Code satisfies spec."
+> "Verified: N/M mutants killed, K equivalent. Code satisfies spec and principles."
 
-**Fail** (one or more surviving mutants):
+**Fail** (one or more surviving mutants OR one or more constitutional violations):
 
-> "Verification failed: N surviving mutants (spec gaps). Run /unslop:cover to investigate."
+> "Verification failed: N surviving mutants, M constitutional violation(s). Run /unslop:cover to investigate."
 >
 > Surviving mutants:
 > 1. Line <N>: `<original>` -> `<mutated>` -- <one-line semantic description>
 > 2. Line <N>: `<original>` -> `<mutated>` -- <one-line semantic description>
 > ...
+
+**Constitutional violations** (if any, displayed after mutation results):
+
+> ⚠ Constitutional violation: "<principle>"
+>   <location> -- <violation>
+>   Required: <required>
+
+**Edge cases** (if any, displayed after constitutional violations):
+
+> ⚠ N edge case(s) found:
+> 1. <input> -- <actual> (severity: <level>, spec gap: yes/no)
 
 **Error** (baseline failure, test runner crash, or Saboteur error):
 
@@ -107,7 +124,7 @@ Write `.unslop/verification/<managed-file-hash>.json` with the following fields:
   "managed_path": "<file-path>",
   "spec_path": "<file-path>.spec.md",
   "timestamp": "<ISO 8601 UTC timestamp>",
-  "status": "pass" | "fail" | "error",
+  "status": "pass" | "fail" | "error" | "timeout",
   "mutants_total": N,
   "mutants_killed": N,
   "mutants_survived": N,
@@ -121,6 +138,23 @@ Write `.unslop/verification/<managed-file-hash>.json` with the following fields:
       "original": "<original code>",
       "mutated": "<mutated code>",
       "description": "<one-line semantic description>"
+    }
+  ],
+  "constitutional_violations": [
+    {
+      "principle": "<text>",
+      "location": "<file:lines>",
+      "violation": "<what code does>",
+      "required": "<what principle requires>"
+    }
+  ],
+  "edge_case_findings": [
+    {
+      "input": "<desc>",
+      "expected": "<expected>",
+      "actual": "<actual>",
+      "severity": "<level>",
+      "spec_gap": true|false
     }
   ],
   "error_message": "<error details, present only when status is error>"

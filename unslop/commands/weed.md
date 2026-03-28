@@ -65,6 +65,16 @@ Manual resolution required. See /unslop:absorb and /unslop:exude.
 
 Structural mismatches are reported alongside static drift candidates but are NOT passed to the Tier 2 LLM analysis (there is no code to compare against). They are diagnostic only -- weed cannot determine whether the correct action is absorb, exude, or spec removal.
 
+8. **Stale constitutional overrides:** For each spec with `constitutional-overrides:` frontmatter, cross-reference each override's `principle` field against the current content of `.unslop/principles.md`. If the principle text no longer appears in principles.md (removed or significantly reworded), flag as stale:
+
+```
+Stale constitutional overrides:
+  src/retry.py.spec.md -- override for "All error handling must use typed Result types"
+    Principle no longer found in .unslop/principles.md. Remove override during next elicit amendment.
+```
+
+Stale overrides are informational -- they do not block anything. They indicate the override may no longer be needed because the constraint it overrode was relaxed or removed.
+
 Specs in `pending` state (no managed file, no provenance) are NOT structural mismatches. They are planned specs awaiting generation. Weed skips them entirely -- there is nothing to compare the spec against.
 
 **Why Tier 1 first:** The static pass is cheap (hash comparison, no LLM) and catches the most common drift case (spec changed, code/tests not regenerated). This makes weed viable in CI where LLM calls are expensive or unavailable.

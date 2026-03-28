@@ -44,7 +44,7 @@ If multiple indicators are found, or none are found, ask the user which test com
     "builder": "sonnet",
     "archaeologist": "sonnet",
     "mason": "sonnet",
-    "saboteur": "haiku"
+    "saboteur": "sonnet"
   },
   "models_note": "Model selection per agent role. architect is not dispatched as a subagent -- it runs inline in the controlling session. This entry documents the intended model tier, not a dispatch parameter. Valid values: opus, sonnet, haiku, or a full model ID.",
   "exclude_patterns": [],

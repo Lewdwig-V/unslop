@@ -103,6 +103,19 @@ Display verification results as an indented line below the file entry, similar t
              ✓ Verified (18/20 mutants killed, 2 equivalent)
 ```
 
+- **Constitutional violations:** If the result JSON contains non-empty `constitutional_violations`, display each violation:
+  ```
+               ⚠ Constitutional violation: "<principle>"
+                 <location> -- <violation>
+  ```
+  Constitutional violations display alongside mutation results. A file can show both `✓ Verified` (all mutants killed) and `⚠ Constitutional violation` simultaneously.
+
+- **Edge case findings:** If the result JSON contains non-empty `edge_case_findings`, display a summary count:
+  ```
+               ⚠ N edge case(s) found (run /unslop:cover or enrich spec)
+  ```
+  Display only the count in status, not individual findings. Use `/unslop:verify` for the detailed list.
+
 The key invariant: "Verification pending" is a transient state that always resolves. Either the Saboteur completes (pass/fail), crashes (error), or times out. All terminal states are distinguishable.
 
 **Test file drift.** If a test file has an `@unslop-managed` header with a `spec-hash`, compare it against the current spec content hash. If they don't match, the tests encode an older version of the spec's constraints:
@@ -163,6 +176,8 @@ Rules for the display:
 - For **test-drifted** entries, include the note `(test-drifted)` and show the spec that changed.
 - For **pending** entries, display neutrally (no warning icon). Include hint: `No implementation -- run /unslop:generate`.
 - For **structural** entries, display with `⚠` warning icon. Include hint about absorb/exude/remove.
+- For **constitutional violation** entries, display with `⚠` icon and quote the violated principle.
+- For **edge case** entries, display only the count with `⚠` icon and a hint to run cover or enrich spec.
 - If a spec has `depends-on` frontmatter, show the dependencies on an indented line below the entry.
 - For unit specs (`*.unit.spec.md`): display under a `Unit specs:` section showing the directory path, spec name, and file count rather than listing each managed file individually.
 - If there are no entries in a section, omit that section header entirely.
