@@ -834,9 +834,10 @@ After change request consumption, discover and load applicable domain skills fro
 
 1. **User-local:** `~/.config/unslop/skills/<name>/SKILL.md`
 2. **Project-local:** `.unslop/skills/<name>/SKILL.md`
-3. **Plugin:** `${CLAUDE_PLUGIN_ROOT}/skills/<name>/SKILL.md`
 
-When a skill name exists at multiple tiers, the highest-priority tier wins. The lower-tier skill is completely suppressed -- not loaded, not merged, not consulted.
+Plugin workflow skills (`${CLAUDE_PLUGIN_ROOT}/skills/`) are NOT discovered by Phase 0d. Those are methodology skills (generation, triage, adversarial, etc.) loaded by the command framework via frontmatter `skills:` references. Phase 0d discovers only domain skills from the project-local and user-local tiers.
+
+When a skill name exists at both tiers, the higher-priority tier wins. The lower-tier skill is completely suppressed -- not loaded, not merged, not consulted.
 
 **Enforcement field:** Each project-local or user-local skill may declare `enforcement: advisory` (default) or `enforcement: constitutional` in its YAML frontmatter.
 - `advisory`: The skill describes preferred patterns. The Archaeologist reads it as context and surfaces a `discovered:` item if it deviates.
@@ -847,7 +848,7 @@ When a skill name exists at multiple tiers, the highest-priority tier wins. The 
 
 **Loading steps:**
 
-1. Scan all three tiers. Build a merged skill map keyed by name (highest-priority tier wins per name).
+1. Scan user-local and project-local tiers. Build a merged skill map keyed by name (user-local wins on name collision).
 2. For each skill in the map, check `applies-to` against the current target file path. Skip non-matching skills.
 3. Read matching skills as additional generation context.
 
