@@ -25,6 +25,16 @@ If no spec is found, stop and tell the user:
 
 > "No spec found for `<target-path>`. Use `/unslop:takeover` first."
 
+**Unit spec dispatch:** If the resolved spec is a unit spec (ends in `.unit.spec.md`), read the `## Files` section and resolve all listed file paths relative to the spec's directory. Skip the test file derivation below -- it runs per-file inside the unit loop.
+
+For each managed file:
+- Check for `@unslop-managed` header. If absent, warn and skip that file.
+- Derive its per-file spec path (`<file>.spec.md`). If no per-file spec exists but the file is listed in the unit spec's `## Files`, use the unit spec as the spec source for that file.
+- Derive test file path(s) using the standard conventions below.
+- Run Steps 2-5 (load context, dispatch Saboteur, report, write result) independently.
+
+**Test file derivation (single-file targets, or per-file inside unit loop):**
+
 Derive the test file path(s) using standard conventions (in order of priority):
 
 1. `tests/test_<basename>.<ext>` (e.g., `tests/test_retry.py`)
@@ -35,13 +45,6 @@ Derive the test file path(s) using standard conventions (in order of priority):
 If no test file is found at any of those paths, stop and tell the user:
 
 > "No test file found for `<target-path>`. Run `/unslop:cover` to generate tests first."
-
-**Unit spec dispatch:** If the resolved spec is a unit spec (ends in `.unit.spec.md`), read the `## Files` section and resolve all listed file paths relative to the spec's directory.
-
-For each managed file:
-- Derive its per-file spec path (`<file>.spec.md`). If no per-file spec exists but the file is listed in the unit spec's `## Files`, use the unit spec as the spec source for that file.
-- Derive test file path(s) using the standard conventions from Step 1.
-- Run Steps 2-5 (load context, dispatch Saboteur, report, write result) independently.
 
 After all files complete, present an aggregated report:
 

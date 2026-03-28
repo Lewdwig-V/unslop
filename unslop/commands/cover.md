@@ -17,7 +17,7 @@ Resolve the target:
 
 **Unit spec dispatch:** If the resolved target is a unit spec (ends in `.unit.spec.md`), read the `## Files` section and resolve all listed file paths relative to the spec's directory.
 
-For each managed file, run Steps 0-7 independently using the file's per-file spec if it exists, otherwise using the unit spec. The Architect SHOULD maximize parallelism across independent files -- dispatch the next file's Saboteur while the current file's Mason is running.
+For each managed file, run Steps 0-6 independently using the file's per-file spec if it exists, otherwise using the unit spec. The Architect SHOULD maximize parallelism across independent files -- dispatch the next file's Saboteur while the current file's Mason is running.
 
 After all files complete, present an aggregated triage summary:
 
