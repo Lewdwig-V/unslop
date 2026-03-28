@@ -1,11 +1,22 @@
 ---
 description: Run the adversarial quality pipeline on a managed file. Extracts behaviour, generates black-box tests, and validates via mutation.
-argument-hint: "<spec-path> [--phase archaeologist|mason|saboteur] [--dry-run]"
+argument-hint: "<spec-or-directory-path> [--phase archaeologist|mason|saboteur] [--dry-run]"
 ---
 
-**Parse arguments:** `$ARGUMENTS` is the path to the spec file (e.g., `src/retry.py.spec.md`). Optional flags:
+**Parse arguments:** Extract the first non-flag token from `$ARGUMENTS` as the target path. Optional flags:
 - `--phase <name>`: Run only a specific phase (archaeologist, mason, or saboteur)
 - `--dry-run`: Show what would happen without writing files
+
+**Resolve target:**
+
+- If the target ends in `.spec.md`: use as-is (spec path). Example: `src/retry.py.spec.md`
+- If the target is a directory: look for `<dirname>.unit.spec.md` inside it. Example: `src/auth/` resolves to `src/auth/auth.unit.spec.md`. If the unit spec does not exist, stop:
+
+  > "No unit spec found at `<dir>/<dirname>.unit.spec.md`. If you meant to run on individual file specs, pass them explicitly."
+
+- Otherwise: treat as a managed file path and append `.spec.md`. Example: `src/retry.py` resolves to `src/retry.py.spec.md`. If the spec does not exist, stop:
+
+  > "No spec found at `<path>.spec.md`."
 
 **1. Verify prerequisites**
 
@@ -13,10 +24,25 @@ Check that `.unslop/` exists. If not:
 
 > "unslop is not initialized. Run `/unslop:init` first."
 
-Check that the spec file exists. Derive the managed file path by stripping `.spec.md`.
-Check that the managed file exists. If not:
+Check that the resolved spec file exists. Derive managed file path(s):
 
-> "No generated file found for this spec. Run `/unslop:generate` first."
+- For per-file specs (`*.spec.md` but not `*.unit.spec.md`): strip `.spec.md` to get the managed file path (e.g., `src/retry.py.spec.md` --> `src/retry.py`).
+- For unit specs (`*.unit.spec.md`): read the `## Files` section and resolve all listed file paths relative to the spec's directory.
+
+Check that all derived managed file paths exist:
+
+- If none exist, stop: "No generated files found for this spec. Run `/unslop:generate` first."
+- If some but not all exist (unit spec case), list the missing ones as a warning and proceed with the files that do exist.
+
+**Unit spec dispatch:** If the resolved spec is a unit spec, run Steps 2-6 independently for each managed file (using the file's per-file spec if it exists, otherwise using the unit spec). Auto-convergence (Step 6) runs per-file after each file's Step 5 completes, not as a unit-level pass. After all files complete, present an aggregated summary:
+
+> "Adversarial quality report for unit `<unit-spec-path>`:
+>
+> `<file-1>`: P mutations, Q killed, E equivalent (X% adjusted) -- PASS/NEEDS WORK
+> `<file-2>`: P mutations, Q killed, E equivalent (X% adjusted) -- PASS/NEEDS WORK
+> ...
+>
+> Unit verdict: [PASS if all files pass | NEEDS WORK otherwise]"
 
 Check that `.unslop/boundaries.json` exists. If not, create it with an empty array `[]` and warn:
 

@@ -15,7 +15,21 @@ Resolve the target:
 - If the target is a directory: look for `<dirname>.unit.spec.md` inside it.
 - Otherwise: treat the target as the managed file and derive the spec path by appending `.spec.md`.
 
-> **Limitation:** Unit spec targets (directories) are not yet fully supported. Cover operates on each file within the unit independently -- it does not yet have a unit-aware mutation or test discovery model. The per-file pipeline (Saboteur -> Archaeologist -> Mason -> Validator) runs for each file in the unit, but cross-file mutation strategies and shared test suites are not yet handled.
+**Unit spec dispatch:** If the resolved target is a unit spec (ends in `.unit.spec.md`), read the `## Files` section and resolve all listed file paths relative to the spec's directory.
+
+For each managed file, run Steps 0-6 independently using the file's per-file spec if it exists, otherwise using the unit spec. The Architect SHOULD maximize parallelism across independent files -- dispatch the next file's Saboteur while the current file's Mason is running.
+
+After all files complete, present an aggregated triage summary:
+
+> "Cover results for unit `<unit-spec-path>`:
+>
+> `<file-1>`: N gaps found, M promoted to spec
+> `<file-2>`: N gaps found, M promoted to spec
+> ...
+>
+> Total: X gaps found across Y files, Z promoted to spec."
+
+Atomic commit (Step 7) covers all files in the unit together. For unit runs, use the unit spec name in the commit message: `cover: harden tests for <unit-name> (N files, M gaps found, K promoted to spec)`.
 
 **Load and follow** the **unslop/adversarial** skill step-by-step for Steps 2-4. Do not summarize or abbreviate the pipeline. Each step must execute via subagent dispatch with the prescribed inputs.
 

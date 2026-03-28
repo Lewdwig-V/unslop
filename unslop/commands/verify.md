@@ -13,21 +13,27 @@ Check that `.unslop/` exists in the current working directory. If it does not ex
 
 > "unslop is not initialized. Run `/unslop:init` first."
 
-Check that the file at the given path exists. If it does not exist, stop and tell the user:
+Check that the target path exists (file or directory). If it does not exist, stop and tell the user:
 
-> "File not found: `<file-path>`"
-
-Read the first 10 lines of the file and check for an `@unslop-managed` header. If the header is absent, stop and tell the user:
-
-> "This file is not under spec management. Use `/unslop:takeover` first."
+> "Path not found: `<target-path>`"
 
 Resolve the spec path:
-- If the target is a file: check for `<file-path>.spec.md`.
-- If the target is a directory: check for `<dirname>.unit.spec.md` inside the directory.
+- If the target is a file: read the first 10 lines and check for an `@unslop-managed` header. If the header is absent, stop: "This file is not under spec management. Use `/unslop:takeover` first." Then check for `<file-path>.spec.md`.
+- If the target is a directory: check for `<dirname>.unit.spec.md` inside the directory. Skip the `@unslop-managed` header check and file-existence check -- these run per-file inside the unit loop.
 
 If no spec is found, stop and tell the user:
 
 > "No spec found for `<target-path>`. Use `/unslop:takeover` first."
+
+**Unit spec dispatch:** If the resolved spec is a unit spec (ends in `.unit.spec.md`), read the `## Files` section and resolve all listed file paths relative to the spec's directory. Skip the test file derivation below -- it runs per-file inside the unit loop.
+
+For each managed file:
+- Check for `@unslop-managed` header. If absent, warn and skip that file.
+- Derive its per-file spec path (`<file>.spec.md`). If no per-file spec exists but the file is listed in the unit spec's `## Files`, use the unit spec as the spec source for that file.
+- Derive test file path(s) using the standard conventions below.
+- Run Steps 2-5 (load context, dispatch Saboteur, report, write result) independently.
+
+**Test file derivation (single-file targets, or per-file inside unit loop):**
 
 Derive the test file path(s) using standard conventions (in order of priority):
 
@@ -40,7 +46,17 @@ If no test file is found at any of those paths, stop and tell the user:
 
 > "No test file found for `<target-path>`. Run `/unslop:cover` to generate tests first."
 
-> **Limitation:** Unit spec targets (directories) are not yet fully supported. Verify operates on each file spec within the unit independently -- it does not yet have a unit-aware verification model. Spec resolution and test discovery work, but mutation testing, constitutional compliance, and edge case probing run per-file rather than across the unit boundary.
+After all files complete, present an aggregated report:
+
+> "Verification results for unit `<unit-spec-path>`:
+>
+> `<file-1>`: N/M mutants killed, K equivalent -- PASS/FAIL
+> `<file-2>`: N/M mutants killed, K equivalent -- PASS/FAIL
+> ...
+>
+> Unit verdict: [PASS if all files pass | FAIL otherwise]"
+
+Each file gets its own `.unslop/verification/<hash>.json` result file.
 
 **2. Load context**
 
