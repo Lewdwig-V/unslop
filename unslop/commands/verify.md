@@ -71,6 +71,12 @@ Write an error result to `.unslop/verification/<managed-file-hash>.json` (see St
 
 If the baseline is green, the Saboteur generates and runs mutations per Phase 3 of the adversarial skill and returns a JSON summary of killed/survived/errored mutants.
 
+After mutation testing, the Saboteur also runs:
+
+**Constitutional compliance:** If `.unslop/principles.md` exists, check the source file against each principle. Record violations in the result JSON under `constitutional_violations`.
+
+**Edge case probing:** Probe the code's attack surface for edge cases the spec didn't anticipate. Budget: `config.edge_case_budget` (default: 10). Record findings in the result JSON under `edge_case_findings`.
+
 **Block until the Saboteur subagent completes before proceeding.**
 
 **4. Report result**
@@ -89,6 +95,17 @@ Compute the kill rate: `killed / (total - errored)`. Treat equivalent mutants as
 > 1. Line <N>: `<original>` -> `<mutated>` -- <one-line semantic description>
 > 2. Line <N>: `<original>` -> `<mutated>` -- <one-line semantic description>
 > ...
+
+**Constitutional violations** (if any, displayed after mutation results):
+
+> ⚠ Constitutional violation: "<principle>"
+>   <location> -- <violation>
+>   Required: <required>
+
+**Edge cases** (if any, displayed after constitutional violations):
+
+> ⚠ N edge case(s) found:
+> 1. <input> -- <actual> (severity: <level>, spec gap: yes/no)
 
 **Error** (baseline failure, test runner crash, or Saboteur error):
 
@@ -121,6 +138,23 @@ Write `.unslop/verification/<managed-file-hash>.json` with the following fields:
       "original": "<original code>",
       "mutated": "<mutated code>",
       "description": "<one-line semantic description>"
+    }
+  ],
+  "constitutional_violations": [
+    {
+      "principle": "<text>",
+      "location": "<file:lines>",
+      "violation": "<what code does>",
+      "required": "<what principle requires>"
+    }
+  ],
+  "edge_case_findings": [
+    {
+      "input": "<desc>",
+      "expected": "<expected>",
+      "actual": "<actual>",
+      "severity": "<level>",
+      "spec_gap": true|false
     }
   ],
   "error_message": "<error details, present only when status is error>"

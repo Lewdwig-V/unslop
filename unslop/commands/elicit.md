@@ -1,11 +1,12 @@
 ---
 description: Structured spec elicitation -- Socratic dialogue for creating or amending specs
-argument-hint: <target-path> [--create]
+argument-hint: <target-path> [--create] [--force-constitutional]
 ---
 
 **Parse arguments:** `$ARGUMENTS` contains the target path and an optional `--create` flag. Extract:
 - The target path: first token that does not start with `--`. This may be a file path, a directory path (for unit specs), or a spec path directly.
 - The `--create` flag, if present (forces creation mode even if a spec exists).
+- The `--force-constitutional` flag, if present (skips the interactive constitutional violation prompt and goes directly to override mode).
 
 **1. Verify prerequisites**
 
@@ -214,6 +215,27 @@ Present the candidate to the user for review.
 After presenting the candidate:
 
 **(a) Approve:**
+
+**Constitutional violation check:** Before finalizing the spec, check if a verification result exists at `.unslop/verification/<managed-file-hash>.json` (hash the managed file path, SHA-256 truncated to 12 hex). If it exists and contains non-empty `constitutional_violations`:
+
+⚠ Generated code violates N principle(s):
+  - [principle]: [violation] at [location]
+
+Ratifying this spec would approve code that violates project principles.
+Options:
+  (f) Fix -- re-generate to produce compliant code
+  (o) Override -- requires rationale for each violation
+  (s) Skip -- leave intent-approved as false
+
+**Option (f):** Do not rename the proposed file. Tell the user to re-run `/unslop:generate`.
+
+**Option (o):** Prompt for a rationale. **HARD RULE:** Rationale is required -- empty rationale is rejected. Write a `constitutional-overrides:` frontmatter entry (principle, rationale, current timestamp) into the proposed spec. Write a `## Changelog` prose entry. Then proceed with the rename.
+
+**Option (s):** Do not rename. Spec remains as `.spec.md.proposed`.
+
+If `--force-constitutional` was passed as an argument, skip the interactive prompt and go directly to option (o) -- still requires rationale.
+
+If no verification result exists, or if `constitutional_violations` is empty, proceed normally.
 
 Rename `<spec-path>.proposed` to `<spec-path>`. The pre-computed `intent-hash` is already embedded. `intent-approved` is `false` -- the user promotes intent through the normal lock cycle.
 
