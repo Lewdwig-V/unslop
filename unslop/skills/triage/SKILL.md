@@ -116,6 +116,15 @@ If the user is unsure what's current, what's changed, or where things stand, rou
 **Pattern:** "Show me what's stale and why", "Why is X ghost-stale?", "What caused this staleness?"
 **Route:** `/unslop:graph --stale-only` -- renders the causal subgraph including upstream concrete providers that triggered the staleness, even if those providers have no managed output of their own. Context providers are styled distinctly so the user can trace the infection path from cause to symptom.
 
+## The Pattern Extraction Prompt
+
+If the user wants to discover cross-cutting patterns across their specs, extract shared conventions, or create project-local domain skills from recurring patterns in the spec corpus.
+
+**Pattern:** "What patterns do my specs share?", "Extract cross-cutting conventions", "Create a skill from these patterns", "What conventions does my project follow?"
+**Route:** `/unslop:crystallize` (all specs) or `/unslop:crystallize <directory>` (scoped to a subtree)
+
+**Key distinction from `/unslop:harden`:** Harden stress-tests a single spec for completeness. Crystallize looks across multiple specs for shared patterns and extracts them into reusable domain skills.
+
 ## The Drift Detection Prompt
 
 If the user suspects that code has drifted from spec intent, or wants to audit whether generated code still matches what the spec describes, route to weed.
