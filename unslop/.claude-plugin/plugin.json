@@ -1,11 +1,11 @@
 {
   "name": "unslop",
-  "version": "0.48.0",
+  "version": "0.49.0",
   "description": "Spec-driven development harness for Claude Code -- 20 commands, five-phase model, five agents, three-tier domain skills, crystallize, constitutional principles, 405 tests",
   "author": {
     "name": "lewdwig"
   },
   "repository": "https://github.com/Lewdwig-V/unslop",
   "license": "MPL-2.0",
-  "keywords": ["spec-driven", "codegen", "takeover", "vibe-coding", "code-management", "adversarial-testing", "mutation-testing"]
+  "keywords": ["spec-driven", "codegen", "takeover", "testless-takeover", "vibe-coding", "code-management", "adversarial-testing", "mutation-testing"]
 }
