@@ -53,6 +53,7 @@ Apply thorough mode analysis — the same depth used in the Section 7 post-takeo
 - Are there constraints that could be stated more precisely? (e.g., vague qualifiers like "reasonable", "appropriate", or "as needed" where a concrete rule is possible)
 - Does the spec leave behavioral choices open that should be pinned down for reproducibility? (e.g., ordering of results, error message text, default values, edge case handling)
 - For unit specs specifically: are cross-file internal interfaces constrained? Could one managed file change its internal structure without the spec catching the inconsistency?
+- Does the managed file have contiguous tail blocks (test suites, main guards, example code) that are NOT declared as `protected-regions` in the concrete spec? If a concrete spec exists without `protected-regions` but the code has obvious tail blocks, future regeneration may overwrite them. Frame as: "Consider adding: `protected-regions` for the <semantics> block (lines N-EOF). Without this declaration, future regeneration may overwrite this code. To declare, add `protected-regions` frontmatter to the concrete spec (`<impl-path>`)."
 
 If `.unslop/principles.md` exists, check whether the spec aligns with the project principles and flag any divergence as a suggestion.
 
