@@ -77,6 +77,18 @@ List things that look like bugs, shortcuts, or accidental behaviour. Each uncert
 
 Examples of uncertainty triggers: unreachable branches, swallowed exceptions, hardcoded magic values, TODOs, asymmetric error handling, undocumented side effects, behaviour that contradicts the function name.
 
+**Step 1.6: Detect protected regions**
+
+Scan the source file for contiguous tail blocks that serve a different purpose than the implementation above. Common patterns:
+- Test suites (e.g., `#[cfg(test)]`, `if __name__ == "__main__"` followed by tests, `describe`/`it` blocks at EOF)
+- Main entry guards (`if __name__ == "__main__"`)
+- Example code blocks
+- Benchmark blocks
+
+For each detected tail block, record: start line, end line (EOF), semantic category (`test-suite`, `entry-point`, `examples`, `benchmarks`), and the marker pattern used to identify it.
+
+If no tail blocks are detected, skip to Phase 2.
+
 **Phase 2: Produce Candidate Spec**
 
 Compute the `intent-hash`: take the inferred intent text (the folded scalar value), compute its SHA-256, and use the first 12 hex characters. Embed this in the frontmatter before writing the file.
