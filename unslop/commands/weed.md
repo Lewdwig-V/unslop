@@ -77,6 +77,27 @@ Stale overrides are informational -- they do not block anything. They indicate t
 
 Specs in `pending` state (no managed file, no provenance) are NOT structural mismatches. They are planned specs awaiting generation. Weed skips them entirely -- there is nothing to compare the spec against.
 
+9. **Source spec existence check (skill health):** For each project-local skill in `.unslop/skills/` with `crystallized-from:` provenance in its frontmatter, check whether the source specs still exist on disk. If ALL source specs listed in `crystallized-from:` have been deleted, flag:
+
+```
+Skill decay (static):
+  .unslop/skills/typed-error-handling/SKILL.md -- all source specs deleted
+    Skill may be obsolete. Review or remove.
+```
+
+If only some source specs are deleted, do not flag -- partial provenance is expected as projects evolve.
+
+10. **Shadow staleness check:** For each user-local skill (`~/.config/unslop/skills/<name>/SKILL.md`) that shadows a project-local or plugin skill (same name exists at a lower tier), compare file modification times. If the shadowed (lower-tier) skill was modified more recently than the shadowing (higher-tier) skill, flag:
+
+```
+Stale skill shadow:
+  user-local "error-handling" (modified 2026-03-15)
+    shadows project-local "error-handling" (modified 2026-03-25)
+    Project skill was updated after your local copy. Review for conflicts.
+```
+
+Similarly check project-local skills that shadow plugin skills.
+
 **Why Tier 1 first:** The static pass is cheap (hash comparison, no LLM) and catches the most common drift case (spec changed, code/tests not regenerated). This makes weed viable in CI where LLM calls are expensive or unavailable.
 
 **2. Analysis**
@@ -101,6 +122,34 @@ Each concern has:
 | **rationale** | Why this is a meaningful discrepancy |
 
 **Direction heuristic:** If the file is `modified` (code edited directly), lean toward `spec-behind` -- the human edit was probably intentional. If the file is `fresh` (generated), lean toward `code-drifted` -- the generator probably missed something. Override with your own judgment if the heuristic doesn't fit.
+
+**2b. Skill Adherence Check (Tier 2 -- LLM analysis)**
+
+After file drift analysis, check project-local skills for adherence:
+
+1. For each project-local skill in `.unslop/skills/` with `applies-to` patterns, find all specs matching the globs.
+2. For each matching spec, assess whether the pattern described by the skill is still followed in the spec and its managed file.
+3. Compute adherence rate: (specs following pattern) / (total applicable specs).
+4. If adherence drops below `config.skill_adherence_threshold` (default: 50%), flag the skill as potentially stale.
+
+Display skill health results before the drift report:
+
+```
+Skill health:
+  "typed-error-handling" -- 8/10 applicable specs follow pattern (80%)
+  "kafka-consumer-pattern" -- 2/7 applicable specs follow pattern (28%)
+    Pattern may be stale. Review with /unslop:elicit or remove skill.
+```
+
+For `constitutional` skills with adherence below the threshold, add a specific warning:
+
+```
+  "strict-validation" (constitutional) -- 3/12 applicable specs follow pattern (25%)
+    Constitutional skill with low adherence -- either the codebase is non-compliant
+    or the skill is too aggressive. Consider downgrading to advisory.
+```
+
+Skills with no `applies-to` patterns (applies to all files) are checked against the full spec corpus. Skills at or above the threshold are reported with a checkmark but only if `--verbose` is passed -- otherwise healthy skills are omitted from the output.
 
 **3. Report**
 
