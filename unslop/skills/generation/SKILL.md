@@ -1264,8 +1264,14 @@ Only flag clear contradictions or inconsistencies. Do NOT suggest additions or t
 
 ---
 
-## 8. Adversarial Quality Integration Point
+## 8. Adversarial Quality -- Auto-Dispatch
 
-When `adversarial: true` is set in `.unslop/config.json`, the adversarial quality pipeline (mutation testing, black-box test generation, test quality validation) can run after the Builder succeeds and before the commit.
+After the Builder succeeds and the worktree merges (Stage 2 complete), the generate command dispatches the Saboteur asynchronously in a separate worktree. This is non-blocking -- the user gets control back immediately.
 
-**Current status:** Integration point -- invoked by `/unslop:adversarial`, not auto-triggered during generation. The user must explicitly run `/unslop:adversarial <spec-path>` after a successful generation to validate test quality. Auto-trigger after Stage B is a planned future enhancement.
+The Saboteur runs the adversarial quality pipeline (mutation testing, constitutional compliance, edge case probing) and writes results to `.unslop/verification/<managed-file-hash>.json`. Findings surface in `/unslop:status`. No user action is required.
+
+**HARD RULE:** During `/unslop:generate` and `/unslop:sync`, the Saboteur auto-dispatches after every successful Builder merge. This is not conditional on `adversarial: true` in config. The async overhead is deliberately non-blocking -- it does not slow the user down, it just produces findings. (Note: the `adversarial: true` config flag is still relevant for `/unslop:takeover`'s testless routing decision -- see the takeover skill's Step 1 Discover.)
+
+**Escape hatch:** Set `disable_async_saboteur: true` in `.unslop/config.json` to suppress auto-dispatch. This is for projects where background compute is genuinely unaffordable, not a default-off design.
+
+**On-demand use:** `/unslop:adversarial <spec-path>` runs the same pipeline synchronously with full output. `/unslop:verify <spec-path>` runs Saboteur verification synchronously. These are for when the user wants to see results immediately rather than waiting for async findings.
