@@ -85,7 +85,7 @@ The concrete spec (*.impl.md) is an internal artifact of the generate pipeline. 
 | intent-approved | elicit (timestamp) | Any spec body change resets to false | Tamper-detected approval |
 | intent-hash | elicit | Recomputed on any body change | SHA-256 of spec body |
 | depends-on | elicit, change | Manual | Spec dependency list |
-| non_goals | elicit | Manual | Machine-readable exclusions |
+| non-goals | elicit | Manual | Machine-readable exclusions |
 | needs-review | change (downstream flagging) | elicit, review-acknowledged | Soft-block in generate/sync |
 | review-acknowledged | generate/sync (user dismissal) | Next elicit pass | Conscious dismissal of needs-review |
 | uncertain | distill | elicit resolves | "Was this accidental?" questions |

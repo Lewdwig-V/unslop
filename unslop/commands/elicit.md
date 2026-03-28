@@ -34,15 +34,15 @@ For each `uncertain:` entry in the spec frontmatter, present:
 
 The user resolves each item:
 - **Incorporate:** Add the observation as a constraint in the spec body. Remove from `uncertain:`.
-- **Non-goal:** Move to `non_goals:` (remove "(inferred)" suffix if present). Remove from `uncertain:`.
+- **Non-goal:** Move to `non-goals:` (remove "(inferred)" suffix if present). Remove from `uncertain:`.
 - **Dismiss:** Remove from `uncertain:` with no spec change.
 
 **Phase 2: Non-goal ratification**
-For each `non_goals:` entry with "(inferred)" suffix:
+For each `non-goals:` entry with "(inferred)" suffix:
 > "Distill inferred this as a non-goal: [text]. Confirm this is intentional?"
 
 - Confirmed: keep the text, remove "(inferred)" suffix.
-- Rejected: remove from `non_goals:`.
+- Rejected: remove from `non-goals:`.
 
 **Phase 3: Intent validation**
 > "Distill inferred the intent as: [intent text]. Is this what this code *should* do, or just what it happens to do?"
@@ -103,7 +103,7 @@ Based on the goals gathered in Phase 1, generate 2-5 candidate non-goals. Presen
 
 > "Based on [goal X], I'm inferring you're *not* trying to [Y]. Confirm or reject."
 
-Each confirmed non-goal enters the `non_goals:` frontmatter field. Each rejected inference is discarded silently.
+Each confirmed non-goal enters the `non-goals:` frontmatter field. Each rejected inference is discarded silently.
 
 If the user volunteers additional non-goals, accept them directly.
 
@@ -125,7 +125,7 @@ intent: >
   [drafted intent statement synthesized from dialogue]
 intent-approved: false
 intent-hash: [pre-computed SHA-256 of intent text, 12 hex chars]
-non_goals:
+non-goals:
   - [confirmed non-goal 1]
   - [confirmed non-goal 2]
 depends-on:
@@ -175,7 +175,7 @@ Probe for ripple effects using the downstream dependents from Step 3:
 
 **Phase 4: Non-goal audit**
 
-Read existing `non_goals:` from current spec.
+Read existing `non-goals:` from current spec.
 
 If the proposed change conflicts with an existing non-goal:
 
@@ -202,7 +202,7 @@ Update the frontmatter:
 - `intent`: revised if the change alters the module's purpose
 - `intent-approved: false` (always -- forces re-lock)
 - `intent-hash`: pre-computed from new intent text
-- `non_goals:`: updated if changed
+- `non-goals:`: updated if changed
 - `needs-review`: removed if it was present (this spec is being actively reviewed now)
 - `review-acknowledged`: removed if it was present
 

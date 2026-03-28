@@ -33,7 +33,7 @@ Check if `<target-directory>/<dirname>.unit.spec.md` exists:
 
 For each input spec:
 1. Read the full content.
-2. Parse frontmatter: `intent`, `intent-approved`, `non_goals`, `depends-on`, `needs-review`, `uncertain`, `discovered`, `distilled-from`, `absorbed-from`, `exuded-from`.
+2. Parse frontmatter: `intent`, `intent-approved`, `non-goals`, `depends-on`, `needs-review`, `uncertain`, `discovered`, `distilled-from`, `absorbed-from`, `exuded-from`.
 3. Parse the spec body (sections after frontmatter).
 
 If amendment mode, also read the existing unit spec with the same parsing.
