@@ -160,6 +160,19 @@ If there are uncertainties, call them out explicitly:
 >
 > [list each uncertainty with title, observation, and question]
 
+If the Archaeologist detected contiguous tail blocks in Step 1.6, present them explicitly:
+
+> "Protected regions detected:
+>
+> `<file>`: lines <N>-EOF (`<semantics>` -- `<marker>`)
+>
+> These blocks will be recorded as `protected-regions` in the concrete spec.
+> During future regeneration, the Builder preserves them verbatim -- your
+> handwritten code stays untouched. To adjust protection boundaries later,
+> edit the `protected-regions` frontmatter in the concrete spec (`<impl-path>`)."
+
+If no tail blocks were detected in Step 1.6, skip this message.
+
 Then offer the approval flow:
 
 > **(a) Approve** -- rename `.proposed` to `<spec-path>`, stage with `git add <spec-path>`
