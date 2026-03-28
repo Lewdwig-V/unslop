@@ -233,7 +233,7 @@ Options:
 
 **Option (s):** Do not rename. Spec remains as `.spec.md.proposed`.
 
-If `--force-constitutional` was passed as an argument, skip the interactive prompt and go directly to option (o) -- still requires rationale.
+If `--force-constitutional` was passed as an argument, skip the (f)/(o)/(s) selection menu and go directly to option (o). The rationale prompt still appears -- `--force-constitutional` skips only the menu, not the rationale requirement.
 
 If no verification result exists, or if `constitutional_violations` is empty, proceed normally.
 

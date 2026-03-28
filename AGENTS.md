@@ -135,7 +135,7 @@ unslop/
     absorbed/                   # Staged originals from absorb
     exuded/                     # Staged originals from exude
 tests/
-  test_orchestrator.py          # 377 tests for all Python modules
+  test_orchestrator.py          # 405 tests for all Python modules
 ```
 
 ## Conventions

@@ -124,7 +124,7 @@ Write `.unslop/verification/<managed-file-hash>.json` with the following fields:
   "managed_path": "<file-path>",
   "spec_path": "<file-path>.spec.md",
   "timestamp": "<ISO 8601 UTC timestamp>",
-  "status": "pass" | "fail" | "error",
+  "status": "pass" | "fail" | "error" | "timeout",
   "mutants_total": N,
   "mutants_killed": N,
   "mutants_survived": N,

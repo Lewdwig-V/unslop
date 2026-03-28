@@ -41,7 +41,7 @@ Before dispatching any adversarial agent, read `.unslop/config.json`. If a `mode
 | archaeologist (distill mode) | opus | Judgment: inferring intent from code under uncertainty |
 | archaeologist (generate mode) | sonnet | Mechanical: well-defined spec-to-spec projection |
 | mason | sonnet | Chinese Wall removes context, model must compensate with stronger reasoning |
-| saboteur | haiku | Mutation testing, constitutional compliance, edge case probing |
+| saboteur | haiku | Mechanical mutations + LLM-native principle/edge-case checking (judgment fits haiku budget) |
 
 The `model` parameter controls which Claude model runs the subagent. Valid values: `sonnet`, `opus`, `haiku`, or a full model ID (e.g., `claude-sonnet-4-6`). In the dispatch annotations below, `config.models.<role>` refers to the value at `.unslop/config.json` -> `models` -> `<role>`.
 
