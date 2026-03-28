@@ -77,7 +77,7 @@ Stale overrides are informational -- they do not block anything. They indicate t
 
 Specs in `pending` state (no managed file, no provenance) are NOT structural mismatches. They are planned specs awaiting generation. Weed skips them entirely -- there is nothing to compare the spec against.
 
-9. **Source spec existence check (skill health):** For each project-local skill in `.unslop/skills/` with `crystallized-from:` provenance in its frontmatter, check whether the source specs still exist on disk. If ALL source specs listed in `crystallized-from:` have been deleted, flag:
+9. **Source spec existence check (skill health):** For each project-local skill in `.unslop/skills/` with `crystallized-from:` provenance in its frontmatter, extract the `spec:` field from each entry and check whether those spec files still exist on disk. If ALL source specs have been deleted, flag:
 
 ```
 Skill decay (static):
@@ -125,7 +125,7 @@ Each concern has:
 
 **2b. Skill Adherence Check (Tier 2 -- LLM analysis)**
 
-After file drift analysis, check project-local skills for adherence:
+After file drift analysis, check project-local skills for adherence. User-local skills are excluded from adherence checks -- they are personal preferences, not project-wide contracts.
 
 1. For each project-local skill in `.unslop/skills/` with `applies-to` patterns, find all specs matching the globs.
 2. For each matching spec, assess whether the pattern described by the skill is still followed in the spec and its managed file.

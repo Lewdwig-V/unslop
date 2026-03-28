@@ -435,22 +435,26 @@ Domain skills are project-local or user-local patterns that augment the generati
 
 | Field | Required | Values | Description |
 |---|---|---|---|
+| `name` | Yes | String | Skill identifier. Must match the directory name (`.unslop/skills/<name>/SKILL.md`). |
+| `description` | Yes | String | One-line description of the pattern or convention. |
 | `enforcement` | No (default: `advisory`) | `advisory`, `constitutional` | Advisory skills describe preferred patterns. Constitutional skills describe invariants checked by the Saboteur alongside `principles.md`. |
 | `applies-to` | No (default: all files) | List of glob patterns | Limits the skill to files matching the globs. Empty list or absent field means the skill applies to all files. |
-| `crystallized-from` | No | List of spec paths | Provenance -- which specs exhibited the pattern that led to this skill being extracted via `/unslop:crystallize`. |
+| `crystallized-from` | No | List of `{spec, pattern}` objects | Provenance -- which specs exhibited the pattern and what expression was matched. Written by `/unslop:crystallize`. |
 
 ### Example
 
 ```yaml
 ---
 name: typed-error-handling
+description: All error handling uses typed Result patterns
 enforcement: advisory
 applies-to:
   - "src/**/*.py"
 crystallized-from:
-  - src/retry.py.spec.md
-  - src/pool.py.spec.md
-  - src/client.py.spec.md
+  - spec: src/retry.py.spec.md
+    pattern: "Result<Response, ConnectionError>"
+  - spec: src/pool.py.spec.md
+    pattern: "Result<Connection, PoolError>"
 ---
 ```
 

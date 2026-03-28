@@ -37,7 +37,7 @@ Output format:
 ```
 Crystallize findings:
 
-  Proposed skills (3+ occurrences):
+  Proposed skills (<threshold>+ occurrences):
     "typed-error-handling" -- Result<T, E> pattern in 8/12 specs
     "kafka-consumer-pattern" -- Consumer lifecycle in 4/5 consumer specs
 

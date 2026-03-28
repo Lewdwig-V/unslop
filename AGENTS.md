@@ -144,7 +144,7 @@ Three tiers, highest priority wins:
 
 1. **User-local:** `~/.config/unslop/skills/<name>/SKILL.md`
 2. **Project-local:** `.unslop/skills/<name>/SKILL.md`
-3. **Plugin:** `unslop/skills/<name>/SKILL.md`
+3. **Plugin:** `${CLAUDE_PLUGIN_ROOT}/skills/<name>/SKILL.md`
 
 When a skill name exists at multiple tiers, the highest-priority tier wins. The lower-tier skill is completely suppressed -- not loaded, not merged, not consulted.
 
