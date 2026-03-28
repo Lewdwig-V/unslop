@@ -39,6 +39,7 @@ from unslop.scripts.orchestrator import (
     parse_provenance_history,
     parse_rejected,
     parse_spec_changelog,
+    parse_constitutional_overrides,
     parse_intent,
     compute_intent_hash,
     validate_intent_hash,
@@ -7513,3 +7514,137 @@ spec-changelog:
     captured = capsys.readouterr()
     assert "empty value" in captured.err
     assert "operation" in captured.err
+
+
+# --- parse_constitutional_overrides tests ---
+
+
+def test_parse_constitutional_overrides_basic():
+    """Single entry with all 3 required fields."""
+    content = """---
+constitutional-overrides:
+  - principle: All error handling must use typed Result types
+    rationale: Legacy API requires exception-based flow for backward compat
+    timestamp: 2026-03-27T14:30:00Z
+---
+
+# spec
+"""
+    result = parse_constitutional_overrides(content)
+    assert len(result) == 1
+    assert result[0]["principle"] == "All error handling must use typed Result types"
+    assert result[0]["rationale"] == "Legacy API requires exception-based flow for backward compat"
+    assert result[0]["timestamp"] == "2026-03-27T14:30:00Z"
+
+
+def test_parse_constitutional_overrides_multiple():
+    """Two entries -- verify order preserved."""
+    content = """---
+constitutional-overrides:
+  - principle: All error handling must use typed Result types
+    rationale: Legacy API requires exception-based flow
+    timestamp: 2026-03-27T14:30:00Z
+  - principle: No dynamic allocation after init
+    rationale: Hot path requires vec growth for unbounded input
+    timestamp: 2026-03-27T15:00:00Z
+---
+
+# spec
+"""
+    result = parse_constitutional_overrides(content)
+    assert len(result) == 2
+    assert result[0]["principle"] == "All error handling must use typed Result types"
+    assert result[1]["principle"] == "No dynamic allocation after init"
+
+
+def test_parse_constitutional_overrides_missing():
+    """Field not present returns empty list."""
+    content = """---
+intent: Handles retry logic
+---
+
+# spec
+"""
+    result = parse_constitutional_overrides(content)
+    assert result == []
+
+
+def test_parse_constitutional_overrides_no_frontmatter():
+    """No frontmatter at all returns empty list."""
+    content = """# spec
+
+Some content here.
+"""
+    result = parse_constitutional_overrides(content)
+    assert result == []
+
+
+def test_parse_constitutional_overrides_missing_required_field(capsys):
+    """Entry missing timestamp is skipped with a warning."""
+    content = """---
+constitutional-overrides:
+  - principle: All error handling must use typed Result types
+    rationale: Legacy API requires exception-based flow
+---
+
+# spec
+"""
+    result = parse_constitutional_overrides(content)
+    assert result == []
+    captured = capsys.readouterr()
+    assert "missing field" in captured.err
+    assert "timestamp" in captured.err
+
+
+def test_parse_constitutional_overrides_malformed_indentation(capsys):
+    """Wrong indentation triggers a warning."""
+    content = """---
+constitutional-overrides:
+   - principle: All error handling must use typed Result types
+     rationale: Legacy API requires exception-based flow
+     timestamp: 2026-03-27T14:30:00Z
+---
+
+# spec
+"""
+    result = parse_constitutional_overrides(content)
+    assert result == []
+    captured = capsys.readouterr()
+    assert "malformed constitutional-overrides entry" in captured.err
+
+
+def test_parse_constitutional_overrides_with_other_fields():
+    """Parser works when constitutional-overrides appears between other frontmatter fields."""
+    content = """---
+intent: Handles retry logic
+constitutional-overrides:
+  - principle: All error handling must use typed Result types
+    rationale: Legacy API requires exception-based flow
+    timestamp: 2026-03-27T14:30:00Z
+non_goals:
+  - Circuit breaker
+---
+
+# spec
+"""
+    result = parse_constitutional_overrides(content)
+    assert len(result) == 1
+    assert result[0]["principle"] == "All error handling must use typed Result types"
+    assert result[0]["timestamp"] == "2026-03-27T14:30:00Z"
+
+
+def test_parse_constitutional_overrides_empty_first_key(capsys):
+    """Entry with empty principle (first key) is rejected with warning."""
+    content = """---
+constitutional-overrides:
+  - principle:
+    rationale: Legacy API requires exception-based flow
+    timestamp: 2026-03-27T14:30:00Z
+---
+
+# spec
+"""
+    result = parse_constitutional_overrides(content)
+    assert result == []
+    captured = capsys.readouterr()
+    assert "empty value" in captured.err or "missing field" in captured.err

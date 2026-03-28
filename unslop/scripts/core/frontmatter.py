@@ -428,6 +428,16 @@ def parse_rejected(content: str) -> list[dict]:
     return _parse_nested_list_field(content, "rejected", "title", {"title", "rationale"})
 
 
+def parse_constitutional_overrides(content: str) -> list[dict]:
+    """Parse constitutional-overrides from spec frontmatter.
+
+    Records explicit overrides of project principles with mandatory rationale.
+    Each entry has three required fields: principle, rationale, timestamp.
+    Returns list of dicts, or empty list if absent or no frontmatter.
+    """
+    return _parse_nested_list_field(content, "constitutional-overrides", "principle", {"principle", "rationale", "timestamp"})
+
+
 def parse_concrete_frontmatter(content: str) -> dict:
     """Parse frontmatter from a concrete spec (.impl.md) file.
 
