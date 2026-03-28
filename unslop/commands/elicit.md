@@ -91,18 +91,17 @@ Probe specifically for:
 - Performance bounds (if any)
 - Input validation rules
 - Regeneration protection (are there handwritten regions -- tests, entry points, examples -- that must survive regeneration verbatim? If yes, note for `protected-regions` declaration in the concrete spec). This probe is most relevant when existing code is being brought under management (post-distill or takeover). In pure creation mode, defer unless the user volunteers that handwritten regions will be added later.
+- Multi-target lowering (does this spec describe behavior that is plausibly language-agnostic -- a data structure, protocol, algorithm, or shared contract -- where multiple language implementations would derive from the same intent?). If the Architect judges the spec's domain to be language-agnostic, probe:
+
+  > "Does this spec need to target multiple languages or runtimes? If so, the concrete spec can declare `targets` instead of `target-language`, and generation will dispatch parallel Builders -- one per target -- from the same strategy. The decision test: if you change a constraint in the abstract spec, must all language implementations update atomically? If yes, multi-target is appropriate."
+
+  If the user confirms, note for `targets` declaration in the concrete spec. If the user declines or the domain is inherently language-specific (a framework-bound endpoint, a UI component, a platform-specific integration), skip the probe silently.
 
 **Phase 3: Dependencies**
 
 > "What does this [file/unit/subsystem] depend on? What will depend on it?"
 
 Cross-reference against existing specs in the project. Use `python ${CLAUDE_PLUGIN_ROOT}/scripts/orchestrator.py discover .` (or MCP `unslop_discover`) to show existing managed files. Surface potential `depends-on` relationships.
-
-- Multi-target lowering (does this spec describe behavior that is plausibly language-agnostic -- a data structure, protocol, algorithm, or shared contract -- where multiple language implementations would derive from the same intent?). If the Architect judges the spec's domain to be language-agnostic, probe:
-
-  > "Does this spec need to target multiple languages or runtimes? If so, the concrete spec can declare `targets` instead of `target-language`, and generation will dispatch parallel Builders -- one per target -- from the same strategy."
-
-  If the user confirms, note for `targets` declaration in the concrete spec. If the user declines or the domain is inherently language-specific (a framework-bound endpoint, a UI component, a platform-specific integration), skip the probe silently.
 
 **Phase 4: Non-goals (inferred)**
 
