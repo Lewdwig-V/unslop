@@ -45,7 +45,7 @@ Read the following into the current session:
 - The resolved test file path
 
 Read `.unslop/config.json` if it exists. Extract:
-- `models.saboteur` -- model to use for Saboteur dispatch (default: `haiku`)
+- `models.saboteur` -- model to use for Saboteur dispatch (default: `sonnet`)
 - `test_command` -- command used to run tests (default: `pytest`)
 - `mutation_budget` -- default mutation budget for the Saboteur (default: `20`)
 
@@ -53,7 +53,7 @@ Load the **unslop/adversarial** skill. The Saboteur dispatch follows Phase 3 of 
 
 **3. Dispatch Saboteur subagent**
 
-Dispatch a Saboteur subagent synchronously using `model` from `config.models.saboteur` (default: `haiku`).
+Dispatch a Saboteur subagent synchronously using `model` from `config.models.saboteur` (default: `sonnet`).
 
 The Saboteur receives:
 - The managed source file (full content)

@@ -131,7 +131,7 @@ Before dispatching subagents, read `.unslop/config.json`. If a `models` block ex
 | Archaeologist (generate mode) | `archaeologist` | sonnet | Mechanical: spec-to-spec projection (concrete spec + behaviour.yaml) |
 | Mason | `mason` | sonnet | Chinese Wall removes context, model must compensate with stronger reasoning |
 | Builder | `builder` | sonnet | Code generation from detailed specs |
-| Saboteur | `saboteur` | haiku | Mechanical mutation (swap operators, remove calls) |
+| Saboteur | `saboteur` | sonnet | Mutation testing + constitutional compliance + edge case probing |
 
 The `model` parameter controls which Claude model runs the subagent. Valid values: `sonnet`, `opus`, `haiku`, or a full model ID (e.g., `claude-sonnet-4-6`).
 
@@ -458,7 +458,7 @@ After the Builder reports DONE with green tests and the Architect has authorized
 - Path to the newly committed managed file
 - Path to its `*.spec.md`
 - Path to the Mason-generated test file (if present)
-- Model: `config.models.saboteur` (default: `haiku`)
+- Model: `config.models.saboteur` (default: `sonnet`)
 
 **Saboteur outputs:** Results are written as JSON to `.unslop/verification/<managed-file-hash>.json`. The JSON contract matches what `/unslop:status` and `/unslop:verify` consume:
 

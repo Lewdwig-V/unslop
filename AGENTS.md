@@ -42,7 +42,7 @@ Stage 3: Saboteur verifies async (fire-and-forget)
 | Archaeologist | opus (distill/exude), sonnet (generate) | Spec inference from code, spec projection, spec partitioning |
 | Mason | sonnet | Test derivation from behaviour.yaml ONLY (Chinese Wall) |
 | Builder | sonnet | Implementation from abstract + concrete spec + tests (worktree isolation) |
-| Saboteur | haiku | Mutation testing, constitutional compliance, edge case probing, cover gap analysis |
+| Saboteur | sonnet | Mutation testing, constitutional compliance, edge case probing, cover gap analysis |
 
 ## Key Invariants
 

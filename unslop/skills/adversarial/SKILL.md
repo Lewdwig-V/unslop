@@ -41,7 +41,7 @@ Before dispatching any adversarial agent, read `.unslop/config.json`. If a `mode
 | archaeologist (distill mode) | opus | Judgment: inferring intent from code under uncertainty |
 | archaeologist (generate mode) | sonnet | Mechanical: well-defined spec-to-spec projection |
 | mason | sonnet | Chinese Wall removes context, model must compensate with stronger reasoning |
-| saboteur | haiku | Mechanical mutations + LLM-native principle/edge-case checking (judgment fits haiku budget) |
+| saboteur | sonnet | Mutation testing is mechanical, but constitutional compliance and edge case probing require judgment |
 
 The `model` parameter controls which Claude model runs the subagent. Valid values: `sonnet`, `opus`, `haiku`, or a full model ID (e.g., `claude-sonnet-4-6`). In the dispatch annotations below, `config.models.<role>` refers to the value at `.unslop/config.json` -> `models` -> `<role>`.
 
@@ -83,7 +83,7 @@ to Phase 3. Tests that mock internal modules are Hard Rejected.
 
 ### Phase 3: Saboteur (Mutation Validation)
 
-**Dispatch model:** `config.models.saboteur` (default: haiku)
+**Dispatch model:** `config.models.saboteur` (default: sonnet)
 
 The Saboteur operates in two contexts:
 
