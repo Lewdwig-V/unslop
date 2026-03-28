@@ -90,6 +90,7 @@ Probe specifically for:
 - Concurrency guarantees (thread-safe? reentrant?)
 - Performance bounds (if any)
 - Input validation rules
+- Regeneration protection (are there handwritten regions -- tests, entry points, examples -- that must survive regeneration verbatim? If yes, note for `protected-regions` declaration in the concrete spec)
 
 **Phase 3: Dependencies**
 
