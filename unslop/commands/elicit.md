@@ -98,6 +98,12 @@ Probe specifically for:
 
 Cross-reference against existing specs in the project. Use `python ${CLAUDE_PLUGIN_ROOT}/scripts/orchestrator.py discover .` (or MCP `unslop_discover`) to show existing managed files. Surface potential `depends-on` relationships.
 
+- Multi-target lowering (does this spec describe behavior that is plausibly language-agnostic -- a data structure, protocol, algorithm, or shared contract -- where multiple language implementations would derive from the same intent?). If the Architect judges the spec's domain to be language-agnostic, probe:
+
+  > "Does this spec need to target multiple languages or runtimes? If so, the concrete spec can declare `targets` instead of `target-language`, and generation will dispatch parallel Builders -- one per target -- from the same strategy."
+
+  If the user confirms, note for `targets` declaration in the concrete spec. If the user declines or the domain is inherently language-specific (a framework-bound endpoint, a UI component, a platform-specific integration), skip the probe silently.
+
 **Phase 4: Non-goals (inferred)**
 
 Based on the goals gathered in Phase 1, generate 2-5 candidate non-goals. Present each as a yes/no confirmation:
