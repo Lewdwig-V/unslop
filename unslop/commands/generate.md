@@ -248,7 +248,7 @@ If cascading regeneration of a dependent causes Builder failure, stop and report
 
 **5e. Stage 3: Async Verification (Saboteur)**
 
-After the Builder succeeds and the worktree merges, dispatch the Saboteur in the background. **HARD RULE:** Generate returns immediately after Builder success. The Saboteur does NOT block.
+After the Builder succeeds and the worktree merges, dispatch the Saboteur in the background with `isolation: "worktree"`. **HARD RULE:** Generate returns immediately after Builder success. The Saboteur does NOT block. **HARD RULE:** The Saboteur MUST run in a worktree. Mutations are applied in the worktree copy, never in the main working tree. The worktree is discarded after verification.
 
 - **Input:** abstract spec + source file (post-merge) + test file
 - **Timeout:** `config.verification_timeout` (default: 300s)

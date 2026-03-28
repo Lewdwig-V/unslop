@@ -78,6 +78,8 @@ to Phase 3. Tests that mock internal modules are Hard Rejected.
 
 **Dispatch model:** `config.models.saboteur`
 
+**HARD RULE: The Saboteur MUST run in a worktree (`isolation: "worktree"`).** Mutations are applied to source files in the worktree copy, never to the main working tree. The worktree is discarded after verification -- the Saboteur's output is a JSON report, not code changes. This eliminates the mutation leak failure mode where an unrevetted mutation corrupts the source file.
+
 The Saboteur operates in two contexts:
 
 **Verify mode (post-generate):** Runs async mutation testing as a fidelity check after the generate pipeline completes. Results are stored in `.unslop/verification/`. This mode is triggered automatically by `/unslop:generate` and on-demand by `/unslop:verify`. It validates that the generated code matches the behavioural contract defined in the behaviour.yaml.

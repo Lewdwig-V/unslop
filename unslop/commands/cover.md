@@ -108,7 +108,9 @@ The Archaeologist subagent receives the source file, spec, and test files in its
 
 **2. Saboteur (subagent)**
 
-Dispatch a Saboteur subagent with `model` from config (`saboteur` key). The Saboteur receives:
+Dispatch a Saboteur subagent with `model` from config (`saboteur` key) and `isolation: "worktree"`. **HARD RULE: The Saboteur MUST run in a worktree.** Mutations are applied in the worktree copy, never in the main working tree. The worktree is discarded after the Saboteur returns its mutation report.
+
+The Saboteur receives:
 - The managed source file
 - The test file(s)
 - The test command from config

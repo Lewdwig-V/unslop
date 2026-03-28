@@ -59,7 +59,9 @@ Load the **unslop/adversarial** skill. The Saboteur dispatch follows Phase 3 of 
 
 **3. Dispatch Saboteur subagent**
 
-Dispatch a Saboteur subagent synchronously using `model` from `config.models.saboteur` (see `init.md` config for default).
+Dispatch a Saboteur subagent synchronously using `model` from `config.models.saboteur` (see `init.md` config for default) with `isolation: "worktree"`.
+
+**HARD RULE: The Saboteur MUST run in a worktree.** Mutations are applied in the worktree copy, never in the main working tree. The worktree is discarded after verification -- the Saboteur returns a JSON report, not code changes.
 
 The Saboteur receives:
 - The managed source file (full content)
@@ -171,4 +173,4 @@ The `surviving_mutants` array is empty on pass or error. The `error_message` fie
 
 ---
 
-**HARD RULE:** verify is read-only. It does not modify the managed source file, test files, or spec files. The only file writes permitted are to `.unslop/verification/<hash>.json`. Any mutation applied during Saboteur execution must be reverted before the Saboteur subagent completes.
+**HARD RULE:** verify is read-only with respect to the main working tree. It does not modify the managed source file, test files, or spec files. The only file writes permitted are to `.unslop/verification/<hash>.json`. Mutations are applied in the Saboteur's worktree, which is discarded after verification.
