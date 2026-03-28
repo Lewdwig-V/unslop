@@ -407,6 +407,26 @@ Initial spec created via absorb from retry.py.spec.md and backoff.py.spec.md.
 
 Written by the agent that produced the change, at the moment of mutation while reasoning is still in context.
 
+## Constitutional Overrides
+
+The `constitutional-overrides` field records explicit, audited overrides of project principles.
+
+```yaml
+---
+constitutional-overrides:
+  - principle: "All error handling must use typed Result types"
+    rationale: "Legacy API requires exception-based error handling for backward compatibility"
+    timestamp: 2026-03-27T14:30:00Z
+---
+```
+
+Each entry has three required fields: `principle`, `rationale`, `timestamp`.
+
+- **Written by:** `/unslop:elicit` when the user passes `--force-constitutional` to override a constitutional violation during ratification. Rationale is mandatory -- empty rationale is rejected.
+- **Persists after ratification.** Permanent record that this spec knowingly deviates from a project principle.
+- **Consumed by:** `/unslop:weed` for stale override detection (principle removed or changed since override was recorded).
+- **Removable:** During elicit amendment pass if the override is no longer needed (principle changed, code updated to comply).
+
 ## Dependencies Between Specs
 
 When a managed file imports from or relies on another managed file, declare the dependency in YAML frontmatter:
