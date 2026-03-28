@@ -5,7 +5,7 @@ argument-hint: "[file-path] [--all]"
 
 **Parse arguments:** `$ARGUMENTS` may contain a file path and optional flags.
 
-- If a file path is provided: target that single file
+- If a file or directory path is provided: target that single file or unit
 - If `--all` is provided: target all managed files regardless of classification
 - If no arguments: target files classified as `modified` (code edited directly, spec unchanged)
 

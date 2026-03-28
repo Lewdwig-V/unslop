@@ -1,11 +1,11 @@
 ---
-description: Run Saboteur verification synchronously on a managed file
-argument-hint: <file-path>
+description: Run Saboteur verification synchronously on a managed file or unit
+argument-hint: <file-or-directory-path>
 ---
 
-**Parse arguments:** `$ARGUMENTS` is the path to the managed source file (required). If no argument is provided, stop and tell the user:
+**Parse arguments:** `$ARGUMENTS` is the path to the managed source file or directory (required). If no argument is provided, stop and tell the user:
 
-> "Usage: /unslop:verify <file-path>"
+> "Usage: /unslop:verify <file-or-directory-path>"
 
 **1. Verify prerequisites**
 
@@ -21,11 +21,15 @@ Read the first 10 lines of the file and check for an `@unslop-managed` header. I
 
 > "This file is not under spec management. Use `/unslop:takeover` first."
 
-Check that a corresponding spec file exists at `<file-path>.spec.md`. If it does not exist, stop and tell the user:
+Resolve the spec path:
+- If the target is a file: check for `<file-path>.spec.md`.
+- If the target is a directory: check for `<dirname>.unit.spec.md` inside the directory.
 
-> "No spec found at `<file-path>.spec.md`. Use `/unslop:takeover` first."
+If no spec is found, stop and tell the user:
 
-Derive the test file path using standard conventions (in order of priority):
+> "No spec found for `<target-path>`. Use `/unslop:takeover` first."
+
+Derive the test file path(s) using standard conventions (in order of priority):
 
 1. `tests/test_<basename>.<ext>` (e.g., `tests/test_retry.py`)
 2. `test_<basename>.<ext>` (same directory as source)
@@ -34,7 +38,9 @@ Derive the test file path using standard conventions (in order of priority):
 
 If no test file is found at any of those paths, stop and tell the user:
 
-> "No test file found for `<file-path>`. Run `/unslop:cover` to generate tests first."
+> "No test file found for `<target-path>`. Run `/unslop:cover` to generate tests first."
+
+> **Limitation:** Unit spec targets (directories) are not yet fully supported. Verify operates on each file spec within the unit independently -- it does not yet have a unit-aware verification model. Spec resolution and test discovery work, but mutation testing, constitutional compliance, and edge case probing run per-file rather than across the unit boundary.
 
 **2. Load context**
 
