@@ -1,11 +1,13 @@
 ---
 description: Bring existing code under spec-driven management
-argument-hint: <file-or-directory-path> [--spec-only]
+argument-hint: <file-or-directory-path> [--spec-only] [--skip-adversarial] [--full-adversarial]
 ---
 
-**Parse arguments:** `$ARGUMENTS` contains the target path (file or directory) and an optional `--spec-only` flag. Extract:
+**Parse arguments:** `$ARGUMENTS` contains the target path (file or directory) and optional flags. Extract:
 - The target path: first token that does not start with `--`. May be a file (produces a file spec) or a directory (produces a unit spec).
 - The `--spec-only` flag, if present (stops after distill + elicit, skips generate).
+- The `--skip-adversarial` flag, if present (bypasses adversarial validation even for testless files -- user accepts risk of unvalidated takeover).
+- The `--full-adversarial` flag, if present (forces adversarial validation even when tests exist -- runs adversarial pipeline in addition to existing test validation).
 
 **1. Verify prerequisites**
 
@@ -21,6 +23,18 @@ Check that the target is NOT already managed:
 
 If already managed:
 > "Target is already managed by unslop. Use `/unslop:change` to modify it, or `/unslop:sync` to regenerate."
+
+**1b. Testless routing decision**
+
+Check whether tests exist for the target:
+- For files: search for `tests/test_<name>.py`, `<name>_test.py`, or test files that import the target module.
+- For directories: search for a parallel `tests/` directory or test files within the directory.
+
+Route based on test presence and flags:
+- **Tests exist, no flags:** Normal path -- existing tests serve as quality gate during generation.
+- **No tests exist, no flags:** Adversarial path auto-activates -- Archaeologist extracts behaviour.yaml, Mason generates tests under Chinese Wall, Saboteur validates via mutation testing (kill rate >= 80% required).
+- **`--skip-adversarial`:** Bypass adversarial validation even for testless files. The takeover proceeds without a quality gate. Use when you trust the distilled spec and want to skip the compute cost.
+- **`--full-adversarial`:** Force adversarial validation even when tests exist. Runs the adversarial pipeline (behaviour extraction, Mason test generation, mutation testing) in addition to existing test validation. Use for belt-and-suspenders validation on critical code.
 
 **2. Phase 1: Distill**
 
