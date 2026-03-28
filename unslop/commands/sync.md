@@ -301,6 +301,10 @@ Dispatch a Builder Agent using the generation skill's two-stage execution model:
 - If `--incremental` was passed: emit deprecation warning `"--incremental is deprecated. Surgical mode is now the default. Use --refactor for full regeneration."` and proceed with Surgical mode.
 - Otherwise: **Surgical mode** (default). The Builder receives the existing file as Compilation Target with Spec Diff and Affected Symbols context. See the generation skill's Surgical Context section.
 
+**Concrete spec field handling:**
+- If the concrete spec has `protected-regions`: the Builder MUST preserve these regions verbatim. Extract the protected region before generation, append it unchanged after generation, and verify the hash matches. See the generation skill's protected-regions protocol.
+- If the concrete spec has `blocked-by` entries: the Builder treats each as an explicit deviation permit. Proceed normally with unblocked constraints. Add code comments at deviation sites: `// blocked-by: <symbol> -- <reason>`.
+
 **4. Verify result**
 
 - If DONE with green tests: worktree merges automatically. Compute `output-hash`, update `@unslop-managed` header. Delete `.unslop/last-failure/<cache-key>.md` if it exists.
