@@ -5785,7 +5785,7 @@ def test_validate_intent_hash_edited_intent():
 
 def test_parse_non_goals_basic():
     content = """---
-non_goals:
+non-goals:
   - Circuit breaker or load shedding
   - Request deduplication
 ---
@@ -5801,7 +5801,7 @@ non_goals:
 
 def test_parse_non_goals_empty():
     content = """---
-non_goals:
+non-goals:
 ---
 
 # spec
@@ -5833,7 +5833,7 @@ def test_parse_non_goals_with_other_fields():
 depends-on:
   - auth.spec.md
 intent: Handles retry logic
-non_goals:
+non-goals:
   - Circuit breaker
   - Rate limiting
 intent-approved: 2026-03-27T14:00:00Z
@@ -5939,8 +5939,8 @@ def test_check_freshness_no_needs_review(tmp_path):
 
 
 def test_elicit_roundtrip_frontmatter():
-    """Verify the full frontmatter lifecycle: non_goals + needs_review + acknowledged."""
-    # 1. Spec with non_goals and needs-review
+    """Verify the full frontmatter lifecycle: non-goals + needs_review + acknowledged."""
+    # 1. Spec with non-goals and needs-review
     spec_content = """---
 depends-on:
   - auth.spec.md
@@ -5948,7 +5948,7 @@ intent: >
   Handles HTTP retry logic with backoff and jitter.
 intent-approved: 2026-03-27T14:00:00Z
 intent-hash: eaf392b58b29
-non_goals:
+non-goals:
   - Circuit breaker or load shedding
   - Request deduplication
 needs-review: b2c3d4e5f6a1
@@ -5956,7 +5956,7 @@ needs-review: b2c3d4e5f6a1
 
 # retry spec
 """
-    # Parse non_goals
+    # Parse non-goals
     goals = parse_non_goals(spec_content)
     assert goals == ["Circuit breaker or load shedding", "Request deduplication"]
 
@@ -5984,7 +5984,7 @@ intent: >
   Handles HTTP retry logic with backoff and jitter.
 intent-approved: 2026-03-27T14:00:00Z
 intent-hash: eaf392b58b29
-non_goals:
+non-goals:
   - Circuit breaker or load shedding
   - Request deduplication
 review-acknowledged: b2c3d4e5f6a1
@@ -6009,7 +6009,7 @@ intent: >
   {intent_text}
 intent-approved: false
 intent-hash: {precomputed}
-non_goals:
+non-goals:
   - Circuit breaker
 ---
 
@@ -6022,10 +6022,10 @@ non_goals:
     assert validate_intent_hash(parsed["intent"], parsed["intent_hash"])
 
 
-def test_parse_non_goals_hyphenated_field_name():
-    """Parser accepts non-goals: (hyphenated) as well as non_goals: (underscore)."""
+def test_parse_non_goals_legacy_underscore_field_name():
+    """Parser accepts non_goals: (legacy underscore) as well as non-goals: (canonical)."""
     content = """---
-non-goals:
+non_goals:
   - Circuit breaker
   - Rate limiting
 ---
@@ -6039,7 +6039,7 @@ non-goals:
 def test_parse_non_goals_malformed_indentation(capsys):
     """Malformed indentation emits a warning and stops collecting."""
     content = """---
-non_goals:
+non-goals:
     - Wrong indent (4 spaces)
   - After malformed line
 ---
@@ -6047,10 +6047,10 @@ non_goals:
 # spec
 """
     result = parse_non_goals(content)
-    # 4-space indent exits non_goals state; subsequent 2-space item is not collected
+    # 4-space indent exits non-goals state; subsequent 2-space item is not collected
     assert result == []
     captured = capsys.readouterr()
-    assert "malformed non_goals entry" in captured.err
+    assert "malformed non-goals entry" in captured.err
 
 
 def test_parse_needs_review_empty_value():
@@ -6346,7 +6346,7 @@ uncertain:
   - title: "No cap"
     observation: "Retries forever."
     question: "Intentional?"
-non_goals:
+non-goals:
   - Circuit breaker
 ---
 
@@ -6437,7 +6437,7 @@ intent-approved: false
 
 
 def test_distill_roundtrip_frontmatter():
-    """Verify the full distill frontmatter lifecycle: uncertain + distilled-from + non_goals."""
+    """Verify the full distill frontmatter lifecycle: uncertain + distilled-from + non-goals."""
     spec_content = """---
 intent: >
   Handles HTTP retry logic with backoff and jitter.
@@ -6446,7 +6446,7 @@ intent-hash: eaf392b58b29
 distilled-from:
   - path: src/retry.py
     hash: a3f8c2e9b7d1
-non_goals:
+non-goals:
   - Circuit breaker or load shedding (inferred)
   - Request deduplication (inferred)
 uncertain:
@@ -6487,7 +6487,7 @@ intent-hash: f1a2b3c4d5e6
 distilled-from:
   - path: src/retry.py
     hash: a3f8c2e9b7d1
-non_goals:
+non-goals:
   - Circuit breaker or load shedding
   - Request deduplication
 ---
@@ -6669,7 +6669,7 @@ discovered:
   - title: "Hidden dep"
     observation: "Needs connection pool."
     question: "Add depends-on?"
-non_goals:
+non-goals:
   - Circuit breaker
 uncertain:
   - title: "Unbounded loop"
@@ -6784,7 +6784,7 @@ intent: Handles retry logic
 absorbed-from:
   - path: src/retry.py
     hash: a3f8c2e9b7d1
-non_goals:
+non-goals:
   - Circuit breaker
 ---
 
@@ -6929,7 +6929,7 @@ intent: Handles retry logic
 exuded-from:
   - path: src/network.unit.spec.md
     hash: a3f8c2e9b7d1
-non_goals:
+non-goals:
   - Circuit breaker
 ---
 
@@ -7071,7 +7071,7 @@ provenance-history:
     path: src/retry.py
     hash: a3f8c2e9b7d1
     timestamp: 2026-03-15T14:30:00Z
-non_goals:
+non-goals:
   - Circuit breaker
 ---
 
@@ -7272,7 +7272,7 @@ intent: Handles retry logic
 rejected:
   - title: "Database-backed storage"
     rationale: "Zero runtime dependencies required."
-non_goals:
+non-goals:
   - Circuit breaker
 ---
 
@@ -7465,7 +7465,7 @@ spec-changelog:
     timestamp: 2026-03-27T14:30:00Z
     operation: elicit-amend
     prior-hash: 9f8e7d6c5b4a
-non_goals:
+non-goals:
   - Circuit breaker
 ---
 
@@ -7621,7 +7621,7 @@ constitutional-overrides:
   - principle: All error handling must use typed Result types
     rationale: Legacy API requires exception-based flow
     timestamp: 2026-03-27T14:30:00Z
-non_goals:
+non-goals:
   - Circuit breaker
 ---
 

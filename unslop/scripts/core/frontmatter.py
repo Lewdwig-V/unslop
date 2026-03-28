@@ -163,9 +163,9 @@ def validate_intent_hash(intent_text: str, stored_hash: str) -> bool:
 
 
 def parse_non_goals(content: str) -> list[str]:
-    """Parse non_goals list from abstract spec frontmatter.
+    """Parse non-goals list from abstract spec frontmatter.
 
-    Accepts both ``non_goals:`` and ``non-goals:`` as the field name.
+    Accepts both ``non-goals:`` and ``non_goals:`` as the field name.
     Returns list of strings, or empty list if absent or no frontmatter.
     """
     lines = content.split("\n")
@@ -195,7 +195,7 @@ def parse_non_goals(content: str) -> list[str]:
                 items.append(match.group(1).strip())
             elif re.match(r"^\s+- ", line):
                 print(
-                    f"Warning: possible malformed non_goals entry (wrong indentation): {line!r}",
+                    f"Warning: possible malformed non-goals entry (wrong indentation): {line!r}",
                     file=sys.stderr,
                 )
                 in_non_goals = False
