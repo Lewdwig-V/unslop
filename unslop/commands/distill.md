@@ -79,9 +79,9 @@ Examples of uncertainty triggers: unreachable branches, swallowed exceptions, ha
 
 **Step 1.6: Detect protected regions**
 
-Scan the source file for contiguous tail blocks that serve a different purpose than the implementation above. Common patterns:
-- Test suites (e.g., `#[cfg(test)]`, `if __name__ == "__main__"` followed by tests, `describe`/`it` blocks at EOF)
-- Main entry guards (`if __name__ == "__main__"`)
+Scan the source file for tail blocks that serve a different purpose than the implementation above. A tail block is a region from a recognized marker pattern to the end of the file, where the marker signals a semantic boundary (test infrastructure, entry-point guard, example code). Common marker patterns:
+- Test suites: `#[cfg(test)]` (Rust), `if __name__ == "__main__"` followed by tests (Python), `describe`/`it` blocks at EOF (JS/Ruby), `func Test*` at file tail (Go), `[TestClass]`/`[Fact]` (C#), bare `def test_*` or `class Test*` functions at EOF (pytest)
+- Main entry guards: `if __name__ == "__main__"`, `public static void main` (Java/Kotlin)
 - Example code blocks
 - Benchmark blocks
 
@@ -160,16 +160,18 @@ If there are uncertainties, call them out explicitly:
 >
 > [list each uncertainty with title, observation, and question]
 
-If the Archaeologist detected contiguous tail blocks in Step 1.6, present them explicitly:
+If the Archaeologist detected tail blocks in Step 1.6, present them explicitly:
 
 > "Protected regions detected:
 >
 > `<file>`: lines <N>-EOF (`<semantics>` -- `<marker>`)
 >
-> These blocks will be recorded as `protected-regions` in the concrete spec.
-> During future regeneration, the Builder preserves them verbatim -- your
-> handwritten code stays untouched. To adjust protection boundaries later,
-> edit the `protected-regions` frontmatter in the concrete spec (`<impl-path>`)."
+> When a concrete spec is generated for this file (during `/unslop:generate`
+> or `/unslop:sync`), the Archaeologist will record these blocks as
+> `protected-regions` in the concrete spec frontmatter. The Builder then
+> preserves them verbatim during regeneration -- your handwritten code stays
+> untouched. To adjust protection boundaries after generation, edit the
+> `protected-regions` frontmatter in the concrete spec."
 
 If no tail blocks were detected in Step 1.6, skip this message.
 
