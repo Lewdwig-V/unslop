@@ -540,3 +540,21 @@ def test_parse_header_and_get_body_complementary():
     assert header["spec_path"] == "foo.spec.md"
     assert "def code():" in body
     assert "@unslop-managed" not in body
+
+
+def test_parse_header_managed_marker_without_edit_pattern_returns_none():
+    """@unslop-managed present but no 'Edit ... instead' pattern returns None."""
+    content = "# @unslop-managed -- Do not touch"
+    assert parse_header(content) is None
+
+
+def test_parse_header_manifest_all_entries_malformed_returns_none_manifest():
+    """When all manifest entries have invalid hashes, concrete_manifest is None."""
+    content = (
+        "# @unslop-managed -- Edit foo.spec.md instead\n"
+        "# spec-hash:aabbccddeeff\n"
+        "# concrete-manifest:bad.impl.md:ZZZZZZ,short.impl.md:abc"
+    )
+    result = parse_header(content)
+    assert result is not None
+    assert result["concrete_manifest"] is None

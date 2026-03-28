@@ -9,6 +9,9 @@ argument-hint: <file-or-directory-path> [--spec-only] [--skip-adversarial] [--fu
 - The `--skip-adversarial` flag, if present (bypasses adversarial validation even for testless files -- user accepts risk of unvalidated takeover).
 - The `--full-adversarial` flag, if present (forces adversarial validation even when tests exist -- runs adversarial pipeline in addition to existing test validation).
 
+If both `--skip-adversarial` and `--full-adversarial` are present, stop:
+> "Cannot use both --skip-adversarial and --full-adversarial. Choose one."
+
 **1. Verify prerequisites**
 
 Check that `.unslop/` exists. If not, stop:
@@ -27,7 +30,7 @@ If already managed:
 **1b. Testless routing decision**
 
 Check whether tests exist for the target:
-- For files: search for test files following common language conventions -- `tests/test_<name>.*`, `<name>_test.*`, `<name>.test.*`, `<name>.spec.*`, `<name>_spec.*`, or test files that import the target module.
+- For files: search for test files following common language conventions -- `tests/test_<name>.*`, `<name>_test.*`, `<name>.test.*`, `*.spec.ts`, `*.spec.js`, `spec/*_spec.rb`, or test files that import the target module. **HARD RULE:** Do not match `*.spec.md` files -- those are unslop specs, not test files.
 - For directories: search for a parallel `tests/`, `test/`, `__tests__/`, or `spec/` directory, or test files within the directory matching the patterns above.
 
 Route based on test presence and flags:
@@ -61,13 +64,12 @@ After elicit completes:
 If `--spec-only` was passed, stop and report:
 > "Spec written and reviewed: `<spec-path>`. Run `/unslop:generate <file-path>` when ready to generate code."
 
-Otherwise, run `/unslop:generate <target-path>`.
+Otherwise, run the generate pipeline for `<target-path>`. The takeover command orchestrates the pipeline directly (it does not delegate to `/unslop:generate` for the testless path, since the adversarial pipeline has distinct steps not present in the standard generate flow).
 
-If `--skip-adversarial` was passed, set `testless_mode = false` regardless of test discovery results. This bypasses adversarial validation -- Mason and Saboteur will not run for testless files.
-
-If `--full-adversarial` was passed, set `testless_mode = true` regardless of test discovery results. This forces adversarial validation -- Mason generates tests from behaviour.yaml and Saboteur runs mutation testing even when existing tests are present.
-
-Generate runs the unified pipeline: Archaeologist Stage 0 (concrete spec + behaviour.yaml), Mason Stage 1 (test derivation -- conditional on testless_mode), Builder Stage 2 (implementation in worktree), Saboteur Stage 3 (async verification).
+The adversarial routing decision from Step 1b controls which pipeline steps execute:
+- **Normal path (tests exist, no `--full-adversarial`):** Archaeologist Stage 0 (concrete spec + behaviour.yaml), Builder Stage 2 (implementation in worktree validated against existing tests), Saboteur Stage 3 (async verification).
+- **Adversarial path (no tests, or `--full-adversarial`):** Archaeologist Stage 0 (concrete spec + behaviour.yaml), Mason Stage 1 (test derivation from behaviour.yaml under Chinese Wall), Builder Stage 2 (implementation validated against Mason's tests), Saboteur Stage 3 (async mutation testing, kill rate >= 80% required).
+- **Skip path (`--skip-adversarial`):** Same as normal path but Mason Stage 1 is skipped even for testless files. The takeover proceeds without a test quality gate.
 
 **5. Post-takeover summary**
 

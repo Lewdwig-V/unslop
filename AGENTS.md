@@ -31,12 +31,13 @@ Three orchestrators compose phases: takeover (distill -> elicit -> generate), ch
 When `/unslop:takeover` discovers no existing tests for the target, the adversarial pipeline becomes the quality gate instead of existing tests:
 
 1. **Distill + Elicit** proceed normally (spec inference and review)
-2. **Generate Stage 0:** Archaeologist produces concrete spec + `behaviour.yaml` (behavioural contract)
-3. **Generate Stage 1:** Mason generates tests from `behaviour.yaml` ONLY (Chinese Wall -- never sees source code or spec)
-4. **Generate Stage 2:** Builder implements from concrete spec, validated against Mason's tests
-5. **Generate Stage 3:** Saboteur runs mutation testing (kill rate >= 80% required)
+2. **Step 2c:** Architect produces `behaviour.yaml` from the spec (testless-only pre-generation step)
+3. **Generate Stage 0:** Archaeologist produces concrete spec
+4. **Generate Stage 1:** Mason generates tests from `behaviour.yaml` ONLY (Chinese Wall -- never sees source code or spec)
+5. **Generate Stage 2:** Builder implements from concrete spec, validated against Mason's tests
+6. **Generate Stage 3:** Saboteur runs mutation testing (kill rate >= 80% required)
 
-If kill rate is below threshold, the convergence loop runs (up to 3 iterations + 1 radical spec hardening if entropy stalls). Each iteration classifies surviving mutants as `weak_test` (Mason strengthens), `spec_gap` (Architect enriches behaviour.yaml), or `equivalent` (no action).
+If kill rate is below threshold, the convergence loop runs (up to 3 normal iterations + 1 radical spec hardening iteration, 4 total, if entropy stalls). Each iteration classifies surviving mutants as `weak_test` (Mason strengthens), `spec_gap` (Architect enriches behaviour.yaml), or `equivalent` (no action).
 
 Override with `--skip-adversarial` (bypass) or `--full-adversarial` (force even when tests exist).
 

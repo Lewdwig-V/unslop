@@ -5,7 +5,7 @@ intent: >
   (truncated to 12 hex chars), multi-syntax comment-aware header
   extraction from managed file preambles, and body extraction with
   optional protected-region truncation.
-intent-approved: false
+intent-approved: 2026-03-28T00:01:00Z
 intent-hash: a6c4fdfc6106
 distilled-from:
   - path: stress-tests/adversarial-hashing/src/hashing.py

@@ -1270,7 +1270,7 @@ After the Builder succeeds and the worktree merges (Stage 2 complete), the gener
 
 The Saboteur runs the adversarial quality pipeline (mutation testing, constitutional compliance, edge case probing) and writes results to `.unslop/verification/<managed-file-hash>.json`. Findings surface in `/unslop:status`. No user action is required.
 
-**HARD RULE:** The Saboteur auto-dispatches after every successful Builder merge. This is not optional and not conditional on `adversarial: true` in config. The async overhead is deliberately non-blocking -- it does not slow the user down, it just produces findings.
+**HARD RULE:** During `/unslop:generate` and `/unslop:sync`, the Saboteur auto-dispatches after every successful Builder merge. This is not conditional on `adversarial: true` in config. The async overhead is deliberately non-blocking -- it does not slow the user down, it just produces findings. (Note: the `adversarial: true` config flag is still relevant for `/unslop:takeover`'s testless routing decision -- see the takeover skill's Step 1 Discover.)
 
 **Escape hatch:** Set `disable_async_saboteur: true` in `.unslop/config.json` to suppress auto-dispatch. This is for projects where background compute is genuinely unaffordable, not a default-off design.
 
