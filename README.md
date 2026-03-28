@@ -111,7 +111,11 @@ Specs describe intent, not implementation. If your spec reads like commented-out
 | Messages are stored in SQLite with a monotonic sequence ID | Use INSERT OR REPLACE with a rowid alias |
 | Validation rejects inputs over 1MB | `if len(data) > 1_048_576: raise ValueError` |
 
-**Project principles** (`.unslop/principles.md`) define non-negotiable constraints that apply to *all* generated code -- error handling style, architecture patterns, security requirements. Every generation cycle checks the spec against principles and stops on contradiction.
+**Project principles** (`.unslop/principles.md`) define non-negotiable constraints that apply to *all* generated code -- error handling style, architecture patterns, security requirements. Principles are enforced at two levels: the generation pipeline stops on spec-principle contradictions, and the post-generate Saboteur checks that the *code* complies with principles. Constitutional violations block spec ratification until fixed or explicitly overridden with a rationale.
+
+**Rejected alternatives** (`rejected:` frontmatter) record design decisions that were explicitly considered and dismissed, with the reasoning. When elicit explores an approach and you reject it, the reasoning is preserved so future sessions don't re-propose the same idea. Distinct from non-goals: non-goals say "we're not doing X," rejected says "we considered X and decided against it because Y."
+
+**Spec changelog** -- each spec accumulates a `## Changelog` section at the bottom recording what changed and why, keyed by intent-hash. This is the intent-layer equivalent of `git log` -- git tracks what code changed, the changelog tracks what *intent* changed.
 
 **Dependencies** between specs are declared in frontmatter (`depends-on:`) and resolved transitively. Generation respects dependency order automatically. The coherence checker validates that dependent specs don't contradict each other.
 
