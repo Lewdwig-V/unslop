@@ -2,7 +2,7 @@
 
 > The spec is the source of truth. Generated code is a disposable artifact.
 
-`unslop` is a Claude Code plugin for **intent-first development** -- a workflow where you maintain spec files describing *what* code should do, and the system maintains the code. Edit the spec, regenerate, run tests. The generated code is overwritten on every cycle; the only way to change a managed file's behaviour is to change its spec.
+`unslop` is a Claude Code plugin for **intent-first development** -- a workflow where you maintain spec files describing *what* code should do, and the system maintains the code. Edit the spec, regenerate, run tests. The generated code is updated by an agent on every cycle; the only way to change a managed file's behaviour is to change its spec.
 
 The name started as a joke about rescuing vibe-coded prototypes. It stuck because the workflow works just as well for greenfield projects -- and because "unslop your codebase" is a satisfying thing to say.
 
