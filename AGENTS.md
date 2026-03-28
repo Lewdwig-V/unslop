@@ -26,6 +26,20 @@ Five independent phases, each a user-invocable command:
 
 Three orchestrators compose phases: takeover (distill -> elicit -> generate), change (elicit -> generate with ripple check), sync (generate with dependency resolution).
 
+### Testless Takeover (Adversarial Path)
+
+When `/unslop:takeover` discovers no existing tests for the target, the adversarial pipeline becomes the quality gate instead of existing tests:
+
+1. **Distill + Elicit** proceed normally (spec inference and review)
+2. **Generate Stage 0:** Archaeologist produces concrete spec + `behaviour.yaml` (behavioural contract)
+3. **Generate Stage 1:** Mason generates tests from `behaviour.yaml` ONLY (Chinese Wall -- never sees source code or spec)
+4. **Generate Stage 2:** Builder implements from concrete spec, validated against Mason's tests
+5. **Generate Stage 3:** Saboteur runs mutation testing (kill rate >= 80% required)
+
+If kill rate is below threshold, the convergence loop runs (up to 3 iterations + 1 radical spec hardening if entropy stalls). Each iteration classifies surviving mutants as `weak_test` (Mason strengthens), `spec_gap` (Architect enriches behaviour.yaml), or `equivalent` (no action).
+
+Override with `--skip-adversarial` (bypass) or `--full-adversarial` (force even when tests exist).
+
 ### Unified Generate Pipeline
 
 Stage 0: Archaeologist produces concrete spec + behaviour.yaml + discovered constraints
@@ -165,3 +179,12 @@ Tests are in tests/test_orchestrator.py. Flat functions (not classes). Naming: `
 
 ### Version Bumps
 Always bump plugin.json version when changing commands, skills, or hooks.
+
+### Skill/Command Alignment
+
+Skill docs are the ground truth agents read. After any command implementation that diverges from its reference skill, the skill update is a correctness fix, not optional housekeeping.
+
+- **Command** is loaded at execution time. It's what runs.
+- **Skill** is loaded as reference during planning. It's what agents believe.
+
+When they diverge, the skill wins the epistemic battle even when the command is correct. An agent consulting the skill during planning will reason from stale information and may route around a capability that actually exists. After shipping a command change, update the corresponding skill in the same PR.
