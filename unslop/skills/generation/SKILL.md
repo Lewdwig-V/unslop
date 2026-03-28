@@ -40,7 +40,7 @@ The Architect processes change intent and updates the spec. It runs in the user'
 
 After the Architect finalizes the Abstract Spec (Stage A.1) and before dispatching the Builder, the Archaeologist drafts a Concrete Spec -- the "Middle-End IR" that bridges intent and code.
 
-**The Archaeologist runs as a subagent** for context hygiene. The Architect dispatches it with `model` from config (`archaeologist` key, default `sonnet`). The Archaeologist's algorithmic analysis stays in its own context, keeping the Architect clean for orchestration.
+**The Archaeologist runs as a subagent** for context hygiene. The Architect dispatches it with `model` from `config.models.archaeologist`. The Archaeologist's algorithmic analysis stays in its own context, keeping the Architect clean for orchestration.
 
 **Persona:** Senior Implementation Engineer. Thinks in algorithms and patterns, not business requirements or syntax.
 
@@ -108,7 +108,7 @@ After the Archaeologist delivers its dual output, the Architect dispatches the M
 
 **Inputs (provided by the Architect):**
 - `behaviour.yaml` fragment from Stage A.2 (Archaeologist output)
-- Model: `config.models.mason` (default: `sonnet`)
+- Model: `config.models.mason`
 
 **Output:**
 - A test file with an `@unslop-managed` header and a `## behaviour-source: behaviour.yaml` annotation
@@ -124,18 +124,9 @@ After the Archaeologist delivers its dual output, the Architect dispatches the M
 
 ### Model Selection
 
-Before dispatching subagents, read `.unslop/config.json`. If a `models` block exists, use the role-specific key as the `model` parameter to `Agent()`. If the key is absent, use the default:
+Before dispatching subagents, read `.unslop/config.json`. If a `models` block exists, use the role-specific key as the `model` parameter to `Agent()`. If the key is absent, use the default from the config template in `init.md`. See AGENTS.md for the canonical model/role mapping and rationale.
 
-| Role | Config key | Default | Rationale |
-|---|---|---|---|
-| Archaeologist (generate mode) | `archaeologist` | sonnet | Mechanical: spec-to-spec projection (concrete spec + behaviour.yaml) |
-| Mason | `mason` | sonnet | Chinese Wall removes context, model must compensate with stronger reasoning |
-| Builder | `builder` | sonnet | Code generation from detailed specs |
-| Saboteur | `saboteur` | sonnet | Mutation testing + constitutional compliance + edge case probing |
-
-The `model` parameter controls which Claude model runs the subagent. Valid values: `sonnet`, `opus`, `haiku`, or a full model ID (e.g., `claude-sonnet-4-6`).
-
-**Note on Archaeologist model selection:** The Archaeologist uses **sonnet** in generate mode (spec projection -- well-defined transformation) but **opus** in distill mode (inferring intent from code -- judgment under uncertainty). The generate pipeline always uses generate mode. The distill pipeline (invoked by `/unslop:distill` or `/unslop:takeover`) uses distill mode. See the adversarial skill for distill-mode model defaults.
+Valid model values: `sonnet`, `opus`, `haiku`, or a full model ID (e.g., `claude-sonnet-4-6`).
 
 ### Subagent Dependency Chain
 
@@ -274,7 +265,7 @@ All targets passed. Merging atomically.
 Agent(
     description="Implement spec changes in isolated worktree",
     isolation="worktree",
-    model=config.models.builder,  # from .unslop/config.json, default: sonnet
+    model=config.models.builder,  # from .unslop/config.json
     prompt="""You are implementing changes to managed files based on their specs.
 
     Target spec: {spec_path}
@@ -458,7 +449,7 @@ After the Builder reports DONE with green tests and the Architect has authorized
 - Path to the newly committed managed file
 - Path to its `*.spec.md`
 - Path to the Mason-generated test file (if present)
-- Model: `config.models.saboteur` (default: `sonnet`)
+- Model: `config.models.saboteur`
 
 **Saboteur outputs:** Results are written as JSON to `.unslop/verification/<managed-file-hash>.json`. The JSON contract matches what `/unslop:status` and `/unslop:verify` consume:
 

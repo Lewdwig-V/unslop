@@ -182,7 +182,7 @@ Dispatch an Archaeologist subagent to produce the concrete spec and behaviour sp
 - **Non-goals projection:** If the abstract spec contains `non_goals:`, the Archaeologist:
   1. Projects each non-goal into `behaviour.yaml` as a negative constraint (invariant asserting the behaviour is NOT present, prefixed `MUST NOT`)
   2. Projects each non-goal into the concrete spec as an explicit exclusion under a `## Exclusions` section
-- **Model:** `config.models.archaeologist` (default: `sonnet`)
+- **Model:** `config.models.archaeologist`
 - **Note:** The Archaeologist reads the abstract spec, NOT source code. Source reading is for distill mode only.
 - **Pending specs:** When processing a spec in `pending` state (no existing implementation), the Archaeologist skips the existing-code read entirely and projects from the abstract spec alone. The discovery gate (Stage 0b) is especially important for pending specs -- it catches correctness requirements the spec didn't anticipate, without the safety net of existing code.
 
@@ -220,7 +220,7 @@ Derive the expected test file path from project conventions (e.g. `src/retry.py`
   - **Input:** `behaviour.yaml` ONLY.
   - **HARD RULE:** Mason NEVER sees the abstract spec, concrete spec, or source code. Chinese Wall -- behaviour.yaml is the sole input. This ensures tests are derived purely from observable behaviour, not implementation details.
   - **Output:** test file with `@unslop-managed` header containing `spec-hash` (hash of the **abstract spec**, not behaviour.yaml -- this ensures status/weed drift checks compare tests against the same spec hash used for code files) and `generated` timestamp
-  - **Model:** `config.models.mason` (default: `sonnet`)
+  - **Model:** `config.models.mason`
   - **Isolation:** worktree (merge test file on success)
 
 **5d. Stage 2: Code Implementation (Builder)**

@@ -112,6 +112,6 @@ When `--cleanup` is passed:
 
 ---
 
-**Model:** `config.models.architect` (default: `opus`). Absorb is reconciliation work -- merging intent sections and detecting conflicts requires judgment under ambiguity.
+**Model:** `config.models.architect`. Absorb is reconciliation work -- merging intent sections and detecting conflicts requires judgment under ambiguity.
 
 This command is NOT read-only. It writes the merged unit spec, moves originals to staging, and updates dependency references across the project.

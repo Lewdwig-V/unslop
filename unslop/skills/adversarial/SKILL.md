@@ -34,20 +34,13 @@ The pipeline has three independent agents with a **Chinese Wall** between them:
 
 ### Model Selection
 
-Before dispatching any adversarial agent, read `.unslop/config.json`. If a `models` block exists and contains a key matching the agent role, pass that value as the `model` parameter when dispatching via `Agent()`. If the `models` block is missing or the role key is absent, use the hardcoded default. Note: the adversarial agents are dispatched by the controlling session -- no `Agent()` code block exists in this skill. The controlling session must set the `model` parameter when creating each agent.
+Before dispatching any adversarial agent, read `.unslop/config.json`. If a `models` block exists and contains a key matching the agent role, pass that value as the `model` parameter when dispatching via `Agent()`. If the key is absent, use the default from the config template in `init.md`. See AGENTS.md for the canonical model/role mapping and rationale.
 
-| Role | Default | Notes |
-|---|---|---|
-| archaeologist (distill mode) | opus | Judgment: inferring intent from code under uncertainty |
-| archaeologist (generate mode) | sonnet | Mechanical: well-defined spec-to-spec projection |
-| mason | sonnet | Chinese Wall removes context, model must compensate with stronger reasoning |
-| saboteur | sonnet | Mutation testing is mechanical, but constitutional compliance and edge case probing require judgment |
-
-The `model` parameter controls which Claude model runs the subagent. Valid values: `sonnet`, `opus`, `haiku`, or a full model ID (e.g., `claude-sonnet-4-6`). In the dispatch annotations below, `config.models.<role>` refers to the value at `.unslop/config.json` -> `models` -> `<role>`.
+Valid model values: `sonnet`, `opus`, `haiku`, or a full model ID (e.g., `claude-sonnet-4-6`). In the dispatch annotations below, `config.models.<role>` refers to the value at `.unslop/config.json` -> `models` -> `<role>`.
 
 ### Phase 1: Archaeologist (Intent Extraction + Strategic Projection)
 
-**Dispatch model:** `config.models.archaeologist` -- default depends on mode: **opus** in distill mode (judgment under uncertainty), **sonnet** in generate mode (well-defined transformation). The calling command sets the model based on context.
+**Dispatch model:** `config.models.archaeologist`. The calling command sets the model based on context (see model defaults in `init.md` config template and AGENTS.md).
 
 The Archaeologist operates in two distinct modes depending on its invocation context:
 
@@ -67,7 +60,7 @@ The Strategist persona (v0.24.0-v0.34.0) has been subsumed by the Archaeologist 
 
 ### Phase 2: Mason (Spec-Blind Test Construction)
 
-**Dispatch model:** `config.models.mason` (default: sonnet)
+**Dispatch model:** `config.models.mason`
 
 The Mason receives ONLY the behaviour YAML. It is **denied access to source code**.
 This is the critical information asymmetry — the "firewall" — that forces black-box
@@ -83,7 +76,7 @@ to Phase 3. Tests that mock internal modules are Hard Rejected.
 
 ### Phase 3: Saboteur (Mutation Validation)
 
-**Dispatch model:** `config.models.saboteur` (default: sonnet)
+**Dispatch model:** `config.models.saboteur`
 
 The Saboteur operates in two contexts:
 
