@@ -203,6 +203,30 @@ After classifying each managed file, check for `blocked_constraints` in the fres
 
 The ⊘ indicator is a new annotation type parallel to Δ (pending changes). It appears regardless of the file's staleness state. A file can show both ⊘ and Δ simultaneously. Blocked constraints do NOT change the file's staleness classification -- they are informational only.
 
+**Skill discovery.** Scan all three tiers and report loaded skills:
+
+```
+Skills:
+  project  "typed-error-handling" (advisory, applies to: src/**/*.py)
+  project  "kafka-patterns" (constitutional, applies to: src/consumers/**)
+  user     "my-style" (advisory, applies to: all)
+
+  Shadowing:
+    user-local "error-handling" shadows project-local "error-handling"
+
+  Downgraded:
+    user-local "strict-types" declares constitutional -- downgraded to advisory
+```
+
+- Report each loaded skill with its tier, enforcement level, and applies-to scope.
+- Report shadowing relationships (user-local shadowing project-local or plugin, project-local shadowing plugin).
+- Report user-local constitutional downgrades.
+- If no project or user skills exist, omit the Skills section entirely.
+- If there are no shadowing relationships, omit the Shadowing subsection.
+- If there are no downgrades, omit the Downgraded subsection.
+
+---
+
 After all file entries, check for staged originals in `.unslop/absorbed/` and `.unslop/exuded/`. If any exist, display:
 
 ```

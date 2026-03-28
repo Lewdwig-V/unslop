@@ -4,7 +4,7 @@
 
 ## What unslop Is
 
-unslop is a Claude Code plugin for spec-driven development. Specs (*.spec.md) are the source of truth. Generated code is a disposable artifact derived from specs. The plugin has 19 commands, 6 skills, and 1 domain skill (FastAPI).
+unslop is a Claude Code plugin for spec-driven development. Specs (*.spec.md) are the source of truth. Generated code is a disposable artifact derived from specs. The plugin has 20 commands and 6 skills, with three-tier skill discovery for project-local and user-local domain skills.
 
 ## Design Philosophy
 
@@ -103,9 +103,8 @@ The concrete spec (*.impl.md) is an internal artifact of the generate pipeline. 
 ```
 unslop/
   .claude-plugin/plugin.json    # Plugin manifest (version, metadata)
-  commands/*.md                 # 19 command definitions (the execution surface)
+  commands/*.md                 # 20 command definitions (the execution surface)
   skills/*/SKILL.md             # 6 skill reference files
-  domain/*/SKILL.md             # Domain-specific skills (FastAPI)
   scripts/
     orchestrator.py             # Re-export facade for all Python modules
     core/
@@ -131,12 +130,27 @@ unslop/
   .unslop/                      # Project state directory
     config.json                 # Test command, model overrides
     principles.md               # Project-wide constraints
+    skills/*/SKILL.md           # Project-local domain skills
     verification/               # Saboteur async results
     absorbed/                   # Staged originals from absorb
     exuded/                     # Staged originals from exude
 tests/
   test_orchestrator.py          # 405 tests for all Python modules
 ```
+
+## Skill Discovery
+
+Three tiers, highest priority wins:
+
+1. **User-local:** `~/.config/unslop/skills/<name>/SKILL.md`
+2. **Project-local:** `.unslop/skills/<name>/SKILL.md`
+3. **Plugin:** `${CLAUDE_PLUGIN_ROOT}/skills/<name>/SKILL.md`
+
+When a skill name exists at multiple tiers, the highest-priority tier wins. The lower-tier skill is completely suppressed -- not loaded, not merged, not consulted.
+
+Skills declare `enforcement` (advisory or constitutional) and `applies-to` (glob patterns for applicability filtering). Constitutional skills are scoped principles checked by the Saboteur during generation. User-local skills are always downgraded to advisory -- constitutional enforcement requires version-controlled, code-reviewed project-local skills.
+
+Create project skills with `/unslop:crystallize` (extracts cross-cutting patterns from the spec corpus) or manually in `.unslop/skills/<name>/SKILL.md`.
 
 ## Conventions
 

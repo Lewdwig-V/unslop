@@ -427,6 +427,43 @@ Each entry has three required fields: `principle`, `rationale`, `timestamp`.
 - **Consumed by:** `/unslop:weed` for stale override detection (principle removed or changed since override was recorded).
 - **Removable:** During elicit amendment pass if the override is no longer needed (principle changed, code updated to comply).
 
+## Domain Skills
+
+Domain skills are project-local or user-local patterns that augment the generation pipeline. They live in `.unslop/skills/<name>/SKILL.md` (project-local) or `~/.config/unslop/skills/<name>/SKILL.md` (user-local) and use YAML frontmatter to declare their scope and enforcement level.
+
+### Fields
+
+| Field | Required | Values | Description |
+|---|---|---|---|
+| `name` | Yes | String | Skill identifier. Must match the directory name (`.unslop/skills/<name>/SKILL.md`). |
+| `description` | Yes | String | One-line description of the pattern or convention. |
+| `enforcement` | No (default: `advisory`) | `advisory`, `constitutional` | Advisory skills describe preferred patterns. Constitutional skills describe invariants checked by the Saboteur alongside `principles.md`. |
+| `applies-to` | No (default: all files) | List of glob patterns | Limits the skill to files matching the globs. Empty list or absent field means the skill applies to all files. |
+| `crystallized-from` | No | List of `{spec, pattern}` objects | Provenance -- which specs exhibited the pattern and what expression was matched. Written by `/unslop:crystallize`. |
+
+### Example
+
+```yaml
+---
+name: typed-error-handling
+description: All error handling uses typed Result patterns
+enforcement: advisory
+applies-to:
+  - "src/**/*.py"
+crystallized-from:
+  - spec: src/retry.py.spec.md
+    pattern: "Result<Response, ConnectionError>"
+  - spec: src/pool.py.spec.md
+    pattern: "Result<Connection, PoolError>"
+---
+```
+
+### Enforcement semantics
+
+- **Advisory:** The Archaeologist reads the skill as context during generation. If the generated code deviates from the pattern, a `discovered:` item is surfaced. The Saboteur does not check advisory skills.
+- **Constitutional:** The Saboteur checks compliance during constitutional verification (same pipeline as `principles.md`). Violations produce the same finding structure and soft-block ratification.
+- **User-local constitutional downgrade:** User-local skills declaring `enforcement: constitutional` are silently downgraded to `advisory`. Constitutional enforcement requires project-local skills (version-controlled, code-reviewed).
+
 ## Dependencies Between Specs
 
 When a managed file imports from or relies on another managed file, declare the dependency in YAML frontmatter:

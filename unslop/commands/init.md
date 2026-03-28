@@ -10,7 +10,7 @@ If it does not exist, proceed with the following steps:
 
 **1. Create directories**
 
-Create `.unslop/` and `.unslop/archive/`.
+Create `.unslop/`, `.unslop/archive/`, and `.unslop/skills/`. The skills directory is where project-local domain skills live -- patterns and conventions specific to this codebase. See the generation skill's Phase 0d for how skills are discovered and loaded.
 
 **2. Create `.unslop/.gitignore`**
 
@@ -57,6 +57,12 @@ If multiple indicators are found, or none are found, ask the user which test com
   "adversarial_max_iterations_note": "Maximum convergence iterations before requiring manual review",
   "mutation_tool": "builtin",
   "mutation_tool_note": "Mutation engine: 'mutmut' for full mutation testing, 'builtin' for lightweight AST mutator",
+  "crystallize_threshold": 3,
+  "crystallize_threshold_note": "Minimum number of specs exhibiting a pattern before crystallize proposes a skill",
+  "skill_adherence_threshold": 50,
+  "skill_adherence_threshold_note": "Minimum percentage of applicable specs that must follow a pattern before weed flags a skill as decayed",
+  "edge_case_budget": 10,
+  "edge_case_budget_note": "Maximum edge case findings per file during Saboteur verification",
   "entropy_threshold": 0.05,
   "entropy_threshold_note": "Minimum mutation kill rate improvement per iteration. Below this, convergence stalls and triggers radical spec hardening. Set to 0 to disable.",
   "mutation_budget": 20,
@@ -177,6 +183,17 @@ If no, skip. The workflow is optional.
 No managed files yet. Use /unslop:takeover or /unslop:spec to get started.
 ```
 
-**9. Commit**
+**9. Output skill discovery guide**
+
+Output a brief guide:
+
+> "Skills discovery:
+>   Plugin skills: methodology (elicit, distill, generate, verify)
+>   Project skills: .unslop/skills/ (domain patterns for this codebase)
+>   User skills: ~/.config/unslop/skills/ (personal patterns across projects)
+>
+> Create project skills with /unslop:crystallize or manually in .unslop/skills/<name>/SKILL.md"
+
+**10. Commit**
 
 Stage the entire `.unslop/` directory. If the CI workflow was generated in step 7, also stage `.github/workflows/unslop-freshness.yml`. Create a commit with the message: `chore: initialize unslop`

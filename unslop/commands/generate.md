@@ -17,6 +17,8 @@ Pending `*.change.md` entries are processed in Step 3c (Stage A) before any Buil
 
 Read `.unslop/config.json` to obtain the test command. If `config.json` does not exist, fall back to `.unslop/config.md` (legacy format). You will need the test command when validating regenerated files.
 
+**Skill loading:** Domain skills are loaded in Phase 0d of the generation skill (three-tier discovery). Skills with `enforcement: constitutional` are passed to the Saboteur alongside `principles.md` for constitutional compliance checking in Stage 3. See the generation skill's Phase 0d for the full discovery protocol.
+
 **Check for `--force` flag:** If `$ARGUMENTS` contains `--force`, note this — it allows regeneration to proceed on modified and conflict files without requiring user confirmation.
 
 **Check for `--force-ambiguous` flag:** If `$ARGUMENTS` contains `--force-ambiguous`, note this for the generation skill. When this flag is present, the generation skill's ambiguity detection (Section 0, Phase 0b) reports ambiguities as warnings instead of blocking generation.

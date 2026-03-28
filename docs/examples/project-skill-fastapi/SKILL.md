@@ -2,6 +2,10 @@
 name: fastapi-domain
 description: Use when generating code for FastAPI applications. Provides generation priors for dependency injection, schema enforcement, and async patterns.
 version: 0.1.0
+enforcement: advisory
+applies-to:
+  - "src/**/*.py"
+crystallized-from: []
 ---
 
 # FastAPI Generation Priors

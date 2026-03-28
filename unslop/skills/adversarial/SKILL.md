@@ -103,6 +103,8 @@ When the Saboteur runs as async post-generate verification (Stage 3 of the unifi
 
 **Severity:** Constitutional violations cause verification `status: "fail"` even if all mutants were killed. They soft-block ratification in `/unslop:elicit` -- the user must fix, override (`--force-constitutional` with rationale), or defer.
 
+The Saboteur checks both `.unslop/principles.md` and any loaded `constitutional` project-local skills. Constitutional skills are functionally equivalent to scoped principles -- violations produce the same finding structure and soft-block ratification.
+
 **Not applicable to:** The adversarial pipeline (Phase 1-2-3 in cover mode). Constitutional checking runs only in verification context, not during mutation-driven test generation.
 
 ### Edge Case Probing (Post-Generate Verification)

@@ -1,7 +1,7 @@
 {
   "name": "unslop",
-  "version": "0.41.0",
-  "description": "Spec-driven development harness for Claude Code -- 19 commands, five-phase model, five agents, constitutional principles, edge case probing, rejected alternatives, spec changelog, 405 tests",
+  "version": "0.42.0",
+  "description": "Spec-driven development harness for Claude Code -- 20 commands, five-phase model, five agents, three-tier domain skills, crystallize, constitutional principles, 405 tests",
   "author": {
     "name": "lewdwig"
   },

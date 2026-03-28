@@ -178,6 +178,7 @@ When `unslop` detects a `.unslop/` directory in your project, it auto-routes you
 | "Check fidelity right now" | `/unslop:verify` |
 | "Merge these file specs" | `/unslop:absorb` |
 | "Split this module spec" | `/unslop:exude` |
+| "What patterns do my specs share?" | `/unslop:crystallize` |
 
 If you explicitly ask to edit a managed file directly, unslop warns once (the file will show as `modified` in status) and steps aside. It's a tool, not a gatekeeper.
 
@@ -223,6 +224,7 @@ If you explicitly ask to edit a managed file directly, unslop warns once (the fi
 | `/unslop:promote` | Promote ephemeral concrete spec to permanent |
 | `/unslop:absorb` | Merge file specs into unit spec |
 | `/unslop:exude` | Partition unit spec into file specs |
+| `/unslop:crystallize` | Extract cross-cutting patterns into project skills |
 
 ---
 
@@ -263,7 +265,7 @@ For a deep dive into the generation pipeline, quality gates, and architectural c
 
 ## Contributing
 
-Domain skills are the most useful place to contribute. Framework-specific skills for common patterns (React, SQLAlchemy, Terraform, etc.) make `unslop` useful for more codebases with less configuration. See `unslop/domain/fastapi/SKILL.md` for the format.
+Domain skills are the most useful place to contribute. Framework-specific skills for common patterns (React, SQLAlchemy, Terraform, etc.) make `unslop` useful for more codebases with less configuration. See `docs/examples/project-skill-fastapi/SKILL.md` for the format.
 
 ## Acknowledgements
 

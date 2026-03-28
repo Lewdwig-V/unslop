@@ -826,29 +826,40 @@ Stop until resolved.
 
 ---
 
-### Phase 0d: Domain Skill Loading
+### Phase 0d: Skill Loading (Three-Tier Discovery)
 
-After change request consumption, check for framework-specific domain skills to load as additional generation context.
+After change request consumption, discover and load applicable domain skills from three tiers.
 
-**1. Check for explicit framework list:**
-Read `.unslop/config.json`. If it has a `frameworks` field (e.g., `["fastapi", "sqlalchemy"]`), use that list.
+**Discovery order (highest priority wins):**
 
-**2. If no explicit list, auto-detect:**
-Read any test files for the target module, and the existing managed source file (if it exists). Also scan the spec content for framework references (e.g., mentions of 'FastAPI', 'SQLAlchemy'). Identify framework imports:
-- `from fastapi import` or `import fastapi` -- load `unslop/domain/fastapi`
-- `from sqlalchemy import` or `import sqlalchemy` -- load `unslop/domain/sqlalchemy`
-- `import React` or `from 'react'` -- load `unslop/domain/react`
-- Other frameworks: check if a matching `unslop/domain/<name>/SKILL.md` exists
+1. **User-local:** `~/.config/unslop/skills/<name>/SKILL.md`
+2. **Project-local:** `.unslop/skills/<name>/SKILL.md`
 
-**3. Load matching skills:**
-For each detected framework, read the corresponding `unslop/domain/<framework>/SKILL.md` as additional generation context. These skills provide framework-specific conventions, patterns, and constraints.
+Plugin workflow skills (`${CLAUDE_PLUGIN_ROOT}/skills/`) are NOT discovered by Phase 0d. Those are methodology skills (generation, triage, adversarial, etc.) loaded by the command framework via frontmatter `skills:` references. Phase 0d discovers only domain skills from the project-local and user-local tiers.
 
-**4. Context priority:**
-Domain skills are additive -- they augment the generation skill, not replace it. Priority order:
+When a skill name exists at both tiers, the higher-priority tier wins. The lower-tier skill is completely suppressed -- not loaded, not merged, not consulted.
+
+**Enforcement field:** Each project-local or user-local skill may declare `enforcement: advisory` (default) or `enforcement: constitutional` in its YAML frontmatter.
+- `advisory`: The skill describes preferred patterns. The Archaeologist reads it as context and surfaces a `discovered:` item if it deviates.
+- `constitutional`: The skill describes invariants. The Saboteur checks compliance during constitutional verification (same as `principles.md`).
+- **User-local constitutional downgrade:** If a user-local skill declares `enforcement: constitutional`, silently downgrade to `advisory`. Constitutional enforcement requires project-local skills (version-controlled, code-reviewed).
+
+**Applicability filtering:** If a skill has an `applies-to` field with glob patterns, load it only for files matching those patterns. If `applies-to` is absent or an empty list, the skill applies to all files.
+
+**Loading steps:**
+
+1. Scan user-local and project-local tiers. Build a merged skill map keyed by name (user-local wins on name collision).
+2. For each skill in the map, check `applies-to` against the current target file path. Skip non-matching skills.
+3. Read matching skills as additional generation context.
+
+**Context priority:**
 - Project Principles (highest -- non-negotiable)
+- Constitutional Skills (scoped invariants)
 - File Spec (file-specific requirements)
-- Domain Skills (framework conventions -- defaults that the spec can override)
+- Advisory Skills (framework conventions -- defaults that the spec can override)
 - Generation Skill defaults (lowest)
+
+**Saboteur integration:** Pass loaded `constitutional` skills to the Saboteur alongside `principles.md` for Phase 2 (constitutional compliance). Advisory skills are not checked by the Saboteur.
 
 If no domain skills match, this phase is a no-op. Proceed to Phase 0e.
 

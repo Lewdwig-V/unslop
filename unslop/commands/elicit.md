@@ -151,6 +151,8 @@ Read:
 - Managed code (single file, or managed files listed in unit spec's `## Files` section)
 - Dependency DAG from the ripple check (Step 3)
 
+**Load applicable skills:** Discover and load project-local and user-local skills using three-tier discovery (see generation skill Phase 0d). The Architect reads loaded skills as context for the Socratic dialogue. If the user's request aligns with or contradicts a skill pattern, surface it: "This aligns with project skill 'typed-error-handling' which recommends Result types" or "This would deviate from project skill 'kafka-patterns'."
+
 **Phase 2: Intent verification**
 
 Read `intent`, `intent-approved`, and `intent-hash` from the current spec frontmatter.
