@@ -124,7 +124,9 @@ def parse_intent(content: str) -> dict | None:
                 # Blank line in folded/literal scalar -- preserve as paragraph break
                 intent_lines.append("")
                 continue
-            if line.startswith("  ") and not normalized.startswith(("intent-approved:", "intent-hash:")):
+            if line.startswith("  ") and not stripped.startswith(
+                ("intent-approved:", "intent-hash:", "intent_approved:", "intent_hash:")
+            ):
                 intent_lines.append(stripped)
                 continue
             else:
