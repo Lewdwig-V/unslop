@@ -68,6 +68,9 @@ The behaviour file must:
 
 If `--dry-run`, print the behaviour YAML to stdout instead of writing it.
 
+**Calibration context:** If `.unslop/saboteur-calibration.md` exists, load it for Saboteur classification context in Phase 3. See the adversarial skill's Phase 3 calibration loading.
+
+
 **3. Phase 2 — Mason (Spec-Blind Test Construction)**
 
 If `--phase` is not set or is `mason`:
