@@ -1,5 +1,5 @@
 # @unslop-managed -- Edit hashing.py.spec.md instead
-# spec-hash:09ca16ffb0e1 output-hash:8565f38d89c9 generated:2026-03-28T00:00:00Z
+# spec-hash:8e43c7b51522 output-hash:0086857549bd generated:2026-03-28T00:00:00Z
 from __future__ import annotations
 
 import hashlib
