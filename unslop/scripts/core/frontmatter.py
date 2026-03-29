@@ -7,6 +7,20 @@ import re
 import sys
 
 
+def _normalize_key(line: str) -> str:
+    """Normalize frontmatter key from snake_case to kebab-case.
+
+    Only transforms the key portion (before the first colon).
+    Leaves the value and indentation untouched.
+    """
+    colon = line.find(":")
+    if colon == -1:
+        return line
+    key = line[:colon]
+    value = line[colon:]
+    return key.replace("_", "-") + value
+
+
 def parse_frontmatter(content: str) -> list[str]:
     """Parse depends-on list from spec file frontmatter.
 
@@ -36,7 +50,7 @@ def parse_frontmatter(content: str) -> list[str]:
     deps = []
     in_depends = False
     for line in frontmatter_lines:
-        if line.strip() == "depends-on:":
+        if _normalize_key(line.strip()) == "depends-on:":
             in_depends = True
             continue
         if in_depends:
@@ -67,6 +81,7 @@ def parse_managed_file(content: str) -> str | None:
         stripped = lines[i].strip()
         if stripped == "---":
             break
+        stripped = _normalize_key(stripped)
         if stripped.startswith("managed-file:"):
             return stripped.split(":", 1)[1].strip()
 
@@ -101,6 +116,7 @@ def parse_intent(content: str) -> dict | None:
 
     for line in lines[1:end]:
         stripped = line.strip()
+        normalized = _normalize_key(stripped)
 
         if in_intent:
             # Multi-line intent: continuation lines are indented, blank lines are valid
@@ -108,25 +124,25 @@ def parse_intent(content: str) -> dict | None:
                 # Blank line in folded/literal scalar -- preserve as paragraph break
                 intent_lines.append("")
                 continue
-            if line.startswith("  ") and not stripped.startswith(("intent-approved:", "intent-hash:")):
+            if line.startswith("  ") and not normalized.startswith(("intent-approved:", "intent-hash:")):
                 intent_lines.append(stripped)
                 continue
             else:
                 in_intent = False
                 intent = " ".join(part for part in intent_lines if part)
 
-        if stripped.startswith("intent:"):
-            val = stripped.split(":", 1)[1].strip()
+        if normalized.startswith("intent:"):
+            val = normalized.split(":", 1)[1].strip()
             if val.startswith(">") or val.startswith("|"):
                 # YAML folded/literal scalar (>, >-, >+, |, |-, |+) -- collect continuation lines
                 in_intent = True
                 intent_lines = []
             elif val:
                 intent = val
-        elif stripped.startswith("intent-approved:"):
-            intent_approved = stripped.split(":", 1)[1].strip()
-        elif stripped.startswith("intent-hash:"):
-            intent_hash = stripped.split(":", 1)[1].strip()
+        elif normalized.startswith("intent-approved:"):
+            intent_approved = normalized.split(":", 1)[1].strip()
+        elif normalized.startswith("intent-hash:"):
+            intent_hash = normalized.split(":", 1)[1].strip()
 
     # Flush multi-line intent if still collecting at end of frontmatter
     if in_intent and intent_lines:
@@ -185,8 +201,8 @@ def parse_non_goals(content: str) -> list[str]:
     items = []
     in_non_goals = False
     for line in frontmatter_lines:
-        stripped = line.strip()
-        if stripped in ("non_goals:", "non-goals:"):
+        stripped = _normalize_key(line.strip())
+        if stripped == "non-goals:":
             in_non_goals = True
             continue
         if in_non_goals:
@@ -215,7 +231,7 @@ def parse_needs_review(content: str) -> str | None:
         return None
 
     for i in range(1, len(lines)):
-        stripped = lines[i].strip()
+        stripped = _normalize_key(lines[i].strip())
         if stripped == "---":
             break
         if stripped.startswith("needs-review:"):
@@ -234,7 +250,7 @@ def parse_review_acknowledged(content: str) -> str | None:
         return None
 
     for i in range(1, len(lines)):
-        stripped = lines[i].strip()
+        stripped = _normalize_key(lines[i].strip())
         if stripped == "---":
             break
         if stripped.startswith("review-acknowledged:"):
@@ -291,17 +307,18 @@ def _parse_nested_list_field(
 
     for line in frontmatter_lines:
         stripped = line.strip()
+        normalized_line = _normalize_key(line)
 
         if in_section:
-            if entry_delimiter.match(line):
+            if entry_delimiter.match(normalized_line):
                 if current_entry is not None:
                     entries.append((current_entry, seen_keys))
-                val = line.split(":", 1)[1].strip().strip('"').strip("'")
+                val = normalized_line.split(":", 1)[1].strip().strip('"').strip("'")
                 current_entry = {first_key: val} if val else {}
                 seen_keys = {first_key}
                 continue
             elif current_entry is not None and re.match(r"^    \w", line):
-                key, _, val = stripped.partition(":")
+                key, _, val = _normalize_key(stripped).partition(":")
                 k = key.strip()
                 if k:
                     seen_keys.add(k)
@@ -328,7 +345,7 @@ def _parse_nested_list_field(
                 in_section = False
                 continue
 
-        if stripped == f"{field_name}:":
+        if _normalize_key(stripped) == f"{field_name}:":
             in_section = True
 
     if current_entry is not None:
@@ -473,10 +490,12 @@ def parse_concrete_frontmatter(content: str) -> dict:
 
     for line in lines[1:end]:
         stripped = line.strip()
+        normalized = _normalize_key(stripped)
+        normalized_line = _normalize_key(line)
 
         # Handle nested target parsing first
         if in_targets:
-            if re.match(r"^  - path:", line):
+            if re.match(r"^  - path:", normalized_line):
                 if current_target:
                     targets.append(current_target)
                 current_target = {"path": line.split(":", 1)[1].strip()}
@@ -493,13 +512,13 @@ def parse_concrete_frontmatter(content: str) -> dict:
                 in_targets = False
 
         if in_blocked_by:
-            if re.match(r"^  - symbol:", line):
+            if re.match(r"^  - symbol:", normalized_line):
                 if current_blocker:
                     blocked_by.append(current_blocker)
-                current_blocker = {"symbol": line.split(":", 1)[1].strip().strip('"').strip("'")}
+                current_blocker = {"symbol": normalized_line.split(":", 1)[1].strip().strip('"').strip("'")}
                 continue
             elif current_blocker and re.match(r"^    \w", line):
-                key, _, val = stripped.partition(":")
+                key, _, val = normalized.partition(":")
                 if key.strip() and val.strip():
                     current_blocker[key.strip()] = val.strip().strip('"').strip("'")
                 continue
@@ -510,13 +529,13 @@ def parse_concrete_frontmatter(content: str) -> dict:
                 in_blocked_by = False
 
         if in_protected_regions:
-            if re.match(r"^  - marker:", line):
+            if re.match(r"^  - marker:", normalized_line):
                 if current_region:
                     protected_regions.append(current_region)
-                current_region = {"marker": line.split(":", 1)[1].strip().strip('"').strip("'")}
+                current_region = {"marker": normalized_line.split(":", 1)[1].strip().strip('"').strip("'")}
                 continue
             elif current_region and re.match(r"^    \w", line):
-                key, _, val = stripped.partition(":")
+                key, _, val = normalized.partition(":")
                 if key.strip() and val.strip():
                     parsed_key = key.strip().replace("-", "_")
                     current_region[parsed_key] = val.strip().strip('"').strip("'")
@@ -535,24 +554,24 @@ def parse_concrete_frontmatter(content: str) -> dict:
             else:
                 in_concrete_deps = False
 
-        if stripped.startswith("source-spec:"):
-            result["source_spec"] = stripped.split(":", 1)[1].strip()
-        elif stripped.startswith("target-language:"):
-            result["target_language"] = stripped.split(":", 1)[1].strip()
-        elif stripped.startswith("ephemeral:"):
-            val = stripped.split(":", 1)[1].strip().lower()
+        if normalized.startswith("source-spec:"):
+            result["source_spec"] = normalized.split(":", 1)[1].strip()
+        elif normalized.startswith("target-language:"):
+            result["target_language"] = normalized.split(":", 1)[1].strip()
+        elif normalized.startswith("ephemeral:"):
+            val = normalized.split(":", 1)[1].strip().lower()
             result["ephemeral"] = val == "true"
-        elif stripped.startswith("complexity:"):
-            result["complexity"] = stripped.split(":", 1)[1].strip()
-        elif stripped.startswith("extends:"):
-            result["extends"] = stripped.split(":", 1)[1].strip()
-        elif stripped == "targets:":
+        elif normalized.startswith("complexity:"):
+            result["complexity"] = normalized.split(":", 1)[1].strip()
+        elif normalized.startswith("extends:"):
+            result["extends"] = normalized.split(":", 1)[1].strip()
+        elif normalized == "targets:":
             in_targets = True
-        elif stripped == "concrete-dependencies:":
+        elif normalized == "concrete-dependencies:":
             in_concrete_deps = True
-        elif stripped == "blocked-by:":
+        elif normalized == "blocked-by:":
             in_blocked_by = True
-        elif stripped == "protected-regions:":
+        elif normalized == "protected-regions:":
             in_protected_regions = True
 
     # Flush final target

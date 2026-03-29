@@ -5633,6 +5633,43 @@ def test_parse_managed_file_no_frontmatter():
     assert parse_managed_file(content) is None
 
 
+def test_parse_managed_file_underscore_variant():
+    content = """---
+managed_file: crates/lajjzy-tui/src/widgets/status_bar.rs
+depends-on:
+  - src/utils.spec.md
+---
+
+## Purpose
+"""
+    assert parse_managed_file(content) == "crates/lajjzy-tui/src/widgets/status_bar.rs"
+
+
+def test_parse_intent_underscore_keys():
+    content = """---
+intent: Do something useful
+intent_approved: 2026-03-28T00:00:00Z
+intent_hash: abcdef123456
+---
+"""
+    result = parse_intent(content)
+    assert result is not None
+    assert result["intent"] == "Do something useful"
+    assert result["intent_approved"] == "2026-03-28T00:00:00Z"
+    assert result["intent_hash"] == "abcdef123456"
+
+
+def test_parse_concrete_frontmatter_underscore_keys():
+    content = """---
+source_spec: src/retry.py.spec.md
+target_language: python
+---
+"""
+    result = parse_concrete_frontmatter(content)
+    assert result["source_spec"] == "src/retry.py.spec.md"
+    assert result["target_language"] == "python"
+
+
 def test_check_freshness_managed_file_override(tmp_path):
     """Spec with managed-file frontmatter resolves to the overridden path."""
     # Create src/dispatch/mod.rs as the managed file
