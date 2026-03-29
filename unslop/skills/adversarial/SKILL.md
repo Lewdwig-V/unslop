@@ -80,6 +80,8 @@ to Phase 3. Tests that mock internal modules are Hard Rejected.
 
 **HARD RULE: The Saboteur MUST run in a worktree (`isolation: "worktree"`).** Mutations are applied to source files in the worktree copy, never to the main working tree. The worktree is discarded after verification -- the Saboteur's output is a JSON report, not code changes. This eliminates the mutation leak failure mode where an unrevetted mutation corrupts the source file.
 
+**Calibration loading:** At Stage 3 start, check for `.unslop/saboteur-calibration.md`. If present, load it as few-shot classification context. The calibration file contains examples of correctly classified surviving mutants and edge case assessments from previous runs. Examples are anchors, not rules -- the Saboteur uses them as strong priors for classification but can disagree if the current case is genuinely different. If the file does not exist, proceed without calibration (current behaviour).
+
 The Saboteur operates in two contexts:
 
 **Verify mode (post-generate):** Runs async mutation testing as a fidelity check after the generate pipeline completes. Results are stored in `.unslop/verification/`. This mode is triggered automatically by `/unslop:generate` and on-demand by `/unslop:verify`. It validates that the generated code matches the behavioural contract defined in the behaviour.yaml.
@@ -124,6 +126,36 @@ After constitutional checking, the Saboteur probes the code's attack surface for
 **Severity:** Informational only. Edge case findings do NOT affect verification `status` and do NOT block ratification. They surface in `/unslop:status` as a count with a hint to investigate.
 
 **Relationship to cover:** Edge case probing is a lightweight, automatic version of cover's gap analysis. If findings exist, the user can run `/unslop:cover` for deep investigation. The probing phase never writes tests -- it only identifies gaps.
+
+### Contract Compliance (Re-Generates Only)
+
+After edge case probing, if a `<managed-file>.contract.yaml` sidecar exists next to the spec, the Saboteur verifies the contract's expected outcomes.
+
+**Process:** For each expected outcome in the contract:
+1. If `invariant: true` -- verify the behaviour is unchanged (no surviving mutants in the invariant's domain, no test regressions in related tests)
+2. If `invariant: false` -- verify the behaviour changed as expected (the new code implements the described change, validated via targeted mutation or edge case probe)
+3. Cross-reference against `verification-strategy` -- use the Saboteur's own planned method for each outcome
+
+**Output:** `contract_compliance` object in the verification JSON:
+
+```json
+{
+  "contract_compliance": {
+    "outcomes_verified": 2,
+    "outcomes_partial": 1,
+    "outcomes_unverifiable": 0,
+    "results": [
+      {"outcome_id": 1, "status": "verified", "evidence": "mutation at target killed by test"},
+      {"outcome_id": 2, "status": "verified", "evidence": "boundary mutations all killed"},
+      {"outcome_id": 3, "status": "partial", "evidence": "count invariant verified, timing not testable"}
+    ]
+  }
+}
+```
+
+**Effect on status:** Contract compliance is additive -- it does not independently cause `status: "fail"`. A contract with unverified outcomes produces a warning in `/unslop:status`, not a hard block. The mutation testing and constitutional compliance results remain the primary status drivers.
+
+**Cleanup:** After a `status: "pass"` result, delete the `<managed-file>.contract.yaml` sidecar. On `status: "fail"`, the contract persists through convergence iterations to focus repairs.
 
 ### Mutant Classification (Archaeologist)
 

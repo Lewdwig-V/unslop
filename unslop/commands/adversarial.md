@@ -100,6 +100,10 @@ If `--dry-run`, print the test file to stdout instead of writing it.
 
 If `--phase` is not set or is `saboteur`:
 
+**Calibration context:** If `.unslop/saboteur-calibration.md` exists, load it as few-shot classification context. See the adversarial skill's Phase 3 calibration loading.
+
+If a `<managed-file>.contract.yaml` sidecar exists next to the spec, load it for contract-compliance verification. See the adversarial skill's Contract Compliance section.
+
 Check if a mutation tool is available. Check for `mutmut` first, then fall back to a built-in minimal mutator.
 
 **4a. Run baseline tests:** Execute the project's test command. If tests fail before mutation, stop:

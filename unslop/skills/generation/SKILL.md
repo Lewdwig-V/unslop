@@ -951,6 +951,66 @@ For each `depends-on` entry in the target's abstract spec, check if a correspond
 
 ---
 
+### Phase 0f: Sprint Contract (Re-Generates Only)
+
+**When it fires:** Only on re-generates -- when the spec has changed since the last successful generate. Compare `spec-hash` in the managed file's `@unslop-managed` header against the current spec hash. If they match (fresh) or there's no prior header (first generate), skip Phase 0f.
+
+Phase 0f negotiates a per-execution contract between the Architect and Saboteur before the Builder runs. The contract captures what specifically should change (and what should remain invariant) for this generate pass, enabling targeted verification in Stage 3.
+
+**Step 1 -- Architect writes Expected Outcomes (normative):**
+
+The Architect reads the spec diff (current spec vs the spec at the time of last generate, reconstructable from `spec-hash` in the managed file header). From the diff, the Architect produces a list of expected outcomes:
+
+- Each outcome has an `id`, `description`, and `invariant` flag (true = should NOT change, false = should change)
+- Outcomes describe observable behaviour changes, not implementation details
+- The Architect MUST include invariants for behaviours adjacent to the change that should remain stable
+
+**Step 2 -- Saboteur writes Verification Strategy (operational):**
+
+The Saboteur reads the Architect's expected outcomes and produces a verification strategy:
+
+- For each outcome: `verifiable` (true/partial/false), `method` (how it will be checked), and optionally `gap` + `fallback` for partial cases
+- **HARD RULE:** The Saboteur MUST flag any outcome it cannot fully verify in an `unverifiable-gaps` list. This is the Saboteur's adversarial contribution -- surfacing where the verification strategy can't cover what the Architect claimed. Silently accepting unverifiable outcomes defeats the contract's purpose.
+
+**Step 3 -- Write contract sidecar:**
+
+Write the contract as `<managed-file>.contract.yaml` next to the spec file. Format:
+
+```yaml
+spec-path: <spec-path>
+spec-diff-hash: <hash of spec diff>
+timestamp: <ISO8601>
+
+expected-outcomes:
+  - id: 1
+    description: "<behaviour change or invariant>"
+    invariant: false
+  - id: 2
+    description: "<behaviour that should not change>"
+    invariant: true
+
+verification-strategy:
+  - outcome-id: 1
+    verifiable: true
+    method: "<mutation/edge case strategy>"
+  - outcome-id: 2
+    verifiable: partial
+    gap: "<what can't be verified>"
+    fallback: "<best-effort alternative>"
+
+unverifiable-gaps:
+  - outcome-id: 2
+    reason: "<why it can't be verified>"
+    recommendation: "<accept partial / add test infrastructure>"
+```
+
+**Contract lifecycle:**
+- **Successful verification (status: pass):** Delete `<managed-file>.contract.yaml`.
+- **Failed verification (convergence loop):** Contract persists. The convergence loop uses the contract to focus repairs -- `weak_test` survivors that relate to a contract outcome get priority.
+- **Abandoned generate:** Contract persists until next generate pass overwrites it.
+
+---
+
 ## 1. Generation Mode Selection
 
 Generation operates in one of three modes. **The controlling agent or command selects the mode.** The default depends on context -- see Dispatch Logic below.

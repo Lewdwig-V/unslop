@@ -73,6 +73,10 @@ Read `.unslop/config.json` if it exists. Extract:
 
 Load the **unslop/adversarial** skill. The Saboteur dispatch follows Phase 3 of that skill.
 
+If `.unslop/saboteur-calibration.md` exists, load it as few-shot classification context for the Saboteur. See the adversarial skill's Phase 3 calibration loading.
+
+If a `<managed-file>.contract.yaml` sidecar exists next to the spec, load it for contract-compliance verification. See the adversarial skill's Contract Compliance section.
+
 **3. Dispatch Saboteur subagent**
 
 Dispatch a Saboteur subagent synchronously using `model` from `config.models.saboteur` (see `init.md` config for default) with `isolation: "worktree"`.
