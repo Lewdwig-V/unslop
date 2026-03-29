@@ -217,6 +217,18 @@ For each discovery, present:
 
 **HARD RULE:** Discovered constraints flow back through the abstract spec via explicit user approval. The concrete spec is never a ratification path for abstract spec changes. If the Archaeologist finds a correctness requirement the abstract spec doesn't cover, it must surface via `discovered:` -- never silently absorbed into the concrete spec.
 
+**5b-1. Phase 0f: Sprint Contract (Re-Generates Only)**
+
+If the managed file exists and has an `@unslop-managed` header with a `spec-hash` that differs from the current spec hash, negotiate a sprint contract:
+
+1. **Architect** reads the spec diff and writes expected outcomes (normative -- what should change, what should remain invariant). See the generation skill's Phase 0f.
+2. **Saboteur** reads the expected outcomes and writes a verification strategy (operational -- how each outcome will be verified, with explicit unverifiable-gaps). See the generation skill's Phase 0f.
+3. Write the contract as `<file>.contract.yaml` next to the spec file.
+
+If the managed file does not exist (new file) or the spec hash matches (fresh), skip Phase 0f.
+
+The contract is consumed by the Saboteur in Stage 3 (Step 5e) and deleted on successful verification.
+
 **5c. Stage 1: Mason -- Test Derivation (conditional)**
 
 Derive the expected test file path from project conventions (e.g. `src/retry.py` -> `tests/test_retry.py`).
