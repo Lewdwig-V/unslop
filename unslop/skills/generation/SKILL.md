@@ -974,7 +974,7 @@ The Saboteur reads the Architect's expected outcomes and produces a verification
 
 **Step 3 -- Write contract sidecar:**
 
-Write the contract as `<file>.contract.yaml` next to the spec file. Format:
+Write the contract as `<managed-file>.contract.yaml` next to the spec file. Format:
 
 ```yaml
 spec-path: <spec-path>
@@ -1005,7 +1005,7 @@ unverifiable-gaps:
 ```
 
 **Contract lifecycle:**
-- **Successful verification (status: pass):** Delete `<file>.contract.yaml`.
+- **Successful verification (status: pass):** Delete `<managed-file>.contract.yaml`.
 - **Failed verification (convergence loop):** Contract persists. The convergence loop uses the contract to focus repairs -- `weak_test` survivors that relate to a contract outcome get priority.
 - **Abandoned generate:** Contract persists until next generate pass overwrites it.
 

@@ -223,7 +223,7 @@ If the managed file exists and has an `@unslop-managed` header with a `spec-hash
 
 1. **Architect** reads the spec diff and writes expected outcomes (normative -- what should change, what should remain invariant). See the generation skill's Phase 0f.
 2. **Saboteur** reads the expected outcomes and writes a verification strategy (operational -- how each outcome will be verified, with explicit unverifiable-gaps). See the generation skill's Phase 0f.
-3. Write the contract as `<file>.contract.yaml` next to the spec file.
+3. Write the contract as `<managed-file>.contract.yaml` next to the spec file.
 
 If the managed file does not exist (new file) or the spec hash matches (fresh), skip Phase 0f.
 
@@ -288,6 +288,7 @@ After the Builder succeeds and the worktree merges, dispatch the Saboteur in the
     "surviving_mutants": [],
     "constitutional_violations": [],
     "edge_case_findings": [],
+    "contract_compliance": null,
     "error_message": null
   }
   ```
@@ -298,6 +299,7 @@ After the Builder succeeds and the worktree merges, dispatch the Saboteur in the
 - The Saboteur uses the adversarial pipeline (Archaeologist -> Mason -> Saboteur from the adversarial skill) to run mutation testing against the generated code.
 - **Constitutional compliance.** After mutation testing, if `.unslop/principles.md` exists, the Saboteur checks whether the generated code violates any principle. This is LLM-native analysis -- principles are natural language, violations require judgment. Each violation is recorded as `{"principle": "<text>", "location": "<file:lines>", "violation": "<what code does>", "required": "<what principle requires>"}` in the `constitutional_violations` array. Constitutional violations cause `status: "fail"` even if all mutants were killed.
 - **Edge case probing.** After constitutional checking, the Saboteur probes the code's attack surface for edge cases the spec didn't anticipate. Generates adversarial inputs (boundary values, malformed data, null/empty/oversized inputs) and assesses graceful handling vs silent failure. Budget: `config.edge_case_budget` findings (default: 10), severity-ranked (silent data corruption > unhandled exception > resource leak > unexpected behaviour). Each finding: `{"input": "<desc>", "expected": "<expected>", "actual": "<actual>", "severity": "<level>", "spec_gap": true|false}` in the `edge_case_findings` array. Edge case findings are **informational only** -- they do NOT affect `status` and do NOT block anything.
+- **Contract cleanup.** The Saboteur runs in a worktree and cannot delete files from the main tree. After the Saboteur completes and writes its verification JSON to `.unslop/verification/`, the controlling command (generate or sync) checks the result status. If `status: "pass"` and a `<managed-file>.contract.yaml` sidecar exists, the controlling command deletes it from the main tree. This is a main-tree operation, not a worktree operation.
 
 **6. Update the alignment summary**
 

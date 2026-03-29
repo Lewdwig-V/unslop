@@ -129,7 +129,7 @@ After constitutional checking, the Saboteur probes the code's attack surface for
 
 ### Contract Compliance (Re-Generates Only)
 
-After edge case probing, if a `<file>.contract.yaml` sidecar exists next to the spec, the Saboteur verifies the contract's expected outcomes.
+After edge case probing, if a `<managed-file>.contract.yaml` sidecar exists next to the spec, the Saboteur verifies the contract's expected outcomes.
 
 **Process:** For each expected outcome in the contract:
 1. If `invariant: true` -- verify the behaviour is unchanged (no surviving mutants in the invariant's domain, no test regressions in related tests)
@@ -141,15 +141,13 @@ After edge case probing, if a `<file>.contract.yaml` sidecar exists next to the 
 ```json
 {
   "contract_compliance": {
-    "outcomes_verified": 0,
-    "outcomes_partial": 0,
+    "outcomes_verified": 2,
+    "outcomes_partial": 1,
     "outcomes_unverifiable": 0,
     "results": [
-      {
-        "outcome_id": 1,
-        "status": "verified|partial|unverifiable",
-        "evidence": "description of how the outcome was verified"
-      }
+      {"outcome_id": 1, "status": "verified", "evidence": "mutation at target killed by test"},
+      {"outcome_id": 2, "status": "verified", "evidence": "boundary mutations all killed"},
+      {"outcome_id": 3, "status": "partial", "evidence": "count invariant verified, timing not testable"}
     ]
   }
 }
@@ -157,7 +155,7 @@ After edge case probing, if a `<file>.contract.yaml` sidecar exists next to the 
 
 **Effect on status:** Contract compliance is additive -- it does not independently cause `status: "fail"`. A contract with unverified outcomes produces a warning in `/unslop:status`, not a hard block. The mutation testing and constitutional compliance results remain the primary status drivers.
 
-**Cleanup:** After a `status: "pass"` result, delete the `<file>.contract.yaml` sidecar. On `status: "fail"`, the contract persists through convergence iterations to focus repairs.
+**Cleanup:** After a `status: "pass"` result, delete the `<managed-file>.contract.yaml` sidecar. On `status: "fail"`, the contract persists through convergence iterations to focus repairs.
 
 ### Mutant Classification (Archaeologist)
 

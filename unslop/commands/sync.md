@@ -295,11 +295,9 @@ Continue with valid targets. Do not fail the entire sync because of structural m
 
 **Pre-Builder: Sprint Contract (Re-Generates Only)**
 
-Before dispatching the Builder, if the managed file has an existing `@unslop-managed` header with a `spec-hash` differing from the current spec hash, run Phase 0f (sprint contract negotiation) per the generation skill. Write the contract as `<file>.contract.yaml`. The Saboteur consumes it during async verification and deletes it on success.
+Before dispatching the Builder, if the managed file has an existing `@unslop-managed` header with a `spec-hash` differing from the current spec hash, run Phase 0f (sprint contract negotiation) per the generation skill. Write the contract as `<managed-file>.contract.yaml`. The Saboteur consumes it during async verification and deletes it on success.
 
-**Pre-Builder: Saboteur Calibration**
-
-If `.unslop/saboteur-calibration.md` exists, it will be loaded by the Saboteur during async verification after the Builder completes. No action needed here -- the calibration file is consumed at Stage 3 start, not at Builder dispatch.
+**Note:** If `.unslop/saboteur-calibration.md` exists, the Saboteur loads it automatically at Stage 3 start during async verification.
 
 Dispatch a Builder Agent using the generation skill's two-stage execution model:
 - test_policy: `"Do NOT create or modify spec-backed test files. Use existing tests for validation only. Tests marked @unslop-incidental may be updated or removed if they fail against regenerated code that correctly follows the spec."` See the generation skill's `@unslop-incidental Test Lifecycle` section for details.
