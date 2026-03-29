@@ -108,6 +108,52 @@ Present the template to the user for editing.
 
 If no, skip. Principles are optional.
 
+**5b. Create `.unslop/saboteur-calibration.md` (optional)**
+
+Ask the user: 'Would you like to seed Saboteur calibration? This provides few-shot examples that improve mutation classification accuracy over time.'
+
+If yes, create `.unslop/saboteur-calibration.md` with the starter template:
+
+```markdown
+# Saboteur Calibration
+
+Few-shot examples for mutation classification and edge case assessment.
+The Saboteur loads this file at Stage 3 start as classification context.
+Examples are anchors, not rules -- disagree if the current case is genuinely different.
+
+## Correct Classifications
+
+### equivalent: dead branch in single-match loop
+- **Pattern:** Loop over non-overlapping list with break-on-first-match
+- **Mutation:** Remove break statement
+- **Classification:** equivalent -- no entry overlaps, break is unreachable after first match
+
+### weak_test: existence check without value assertion
+- **Pattern:** Test asserts `result is not None` but not `result == expected`
+- **Mutation:** Return wrong value of correct type
+- **Classification:** weak_test -- spec requires specific value, test only checks non-None
+
+### spec_gap: unspecified boundary return type
+- **Pattern:** Function returns {} vs None when all inputs filtered out
+- **Mutation:** Change empty-dict return to None
+- **Classification:** spec_gap -- spec doesn't specify return type when all inputs are invalid
+
+## Misclassifications
+
+(Add corrections here when the Saboteur gets a classification wrong.
+These are more valuable than confirmations -- a single correction
+teaches more than ten confirmations.)
+
+## Edge Case Calibration
+
+(Add examples of edge cases that should or should not be flagged.
+Reference spec non-goals to suppress false positives.)
+```
+
+Present the template to the user for editing.
+
+If no, skip. Calibration is optional and can be added later.
+
 **6. Detect frameworks (optional)**
 
 Scan the project for known framework indicators:
