@@ -372,7 +372,7 @@ concrete-dependencies: []
 
 **Equivalent mutants (3):** All involve dead code paths. M5/M6 remove breaks from loops over non-overlapping lists -- the break is unreachable after the first match. M12 changes a boundary check that's already covered by an adjacent condition.
 
-**Weak test mutants (2):** Both are real gaps. M15 reveals a spec gap (return type when all manifest entries are malformed is unspecified). M19 reveals an assertion gap (test checks blank lines are header but doesn't verify body excludes subsequent header lines).
+**Weak test mutants (2):** Both are real gaps. M15 reveals a missing test case (no test exercises a manifest line where all entries are malformed, so the empty-dict vs None return is unchecked). M19 reveals an imprecise assertion (test checks blank lines are treated as header but doesn't verify the body excludes subsequent header lines).
 
 **Edge cases probed:** 10 (100KB string, emoji, RTL text, null bytes, regex patterns, whitespace equivalence, malformed spec-hash, mixed comment styles, negative end_line, BOM prefix). All handled correctly.
 
