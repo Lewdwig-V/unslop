@@ -258,9 +258,16 @@ Select generation mode and dispatch the Builder:
    - If the concrete spec has `protected-regions`: the Builder MUST preserve these regions verbatim. Extract the protected region before generation, append it unchanged after generation, and write `managed-end-line` in the header to mark where the protected region starts. After the Builder completes, the Architect MUST verify the protected region hash matches before accepting the worktree. See the generation skill's protected-regions protocol.
    - If the concrete spec has `blocked-by` entries: the Builder treats each as an explicit deviation permit. Proceed normally with unblocked constraints. Add a code comment at each deviation site using the target language's comment syntax: `blocked-by: <symbol> -- <reason>`. **HARD RULE:** The Builder MUST NOT deviate on any constraint not explicitly listed in `blocked-by`. The `blocked-by` list is exhaustive -- unlisted constraints are fully binding.
    - If the concrete spec has `targets` (instead of `target-language`): generation dispatches parallel Builders -- one per target. Each Builder receives the same Abstract Spec, `## Strategy`, and `## Type Sketch`, but gets target-specific `## Lowering Notes` and `targets[].notes`. **HARD RULE:** All Builders MUST succeed for the merge to proceed -- if any Builder fails, all worktrees are discarded. Partial merges (some targets succeed, some fail) MUST NOT proceed. See the `unslop/concrete-spec` skill for multi-target syntax and the `unslop/generation` skill for dispatch mechanics.
-3. **Verify result:**
-   - If DONE with green tests: worktree merges automatically. Compute `output-hash`, update header.
-   - If BLOCKED or tests fail: discard worktree, revert ALL staged spec updates from Step 3c (`git checkout HEAD -- <spec_path>` for every spec that was staged), not just the failing file's spec. Report failure and **stop immediately**. Do not process remaining files.
+3. **Merge worktree, write header, clean up:**
+
+   **HARD RULE:** The Claude Code Agent tool does NOT auto-merge worktrees. After Builder success, the Architect MUST manually copy changed files.
+
+   - If DONE with green tests:
+     1. **Copy files from worktree:** For each file the Builder created or modified, copy from worktree to main tree: `cp <worktree>/<path> <path>`.
+     2. **Clean up worktree:** `rm -rf <worktree-path> && git worktree prune`
+     3. **Write `@unslop-managed` header:** Insert the header as the first 2 lines of the managed file using the target language's comment syntax. Compute `spec-hash` (SHA-256 of spec content, stripped, 12 hex chars), `output-hash` (SHA-256 of file body below header, stripped, 12 hex chars), `generated` (current ISO 8601 timestamp). See the sync command's Step 4 for the full comment syntax table.
+     4. **Delete ephemeral concrete specs:** If `<file>.impl.md` exists with `ephemeral: true` in frontmatter, delete it. Do NOT delete permanent concrete specs.
+   - If BLOCKED or tests fail: discard worktree (`rm -rf <worktree-path> && git worktree prune`), revert ALL staged spec updates from Step 3c (`git checkout HEAD -- <spec_path>` for every spec that was staged), not just the failing file's spec. Report failure and **stop immediately**. Do not process remaining files.
 4. If a dependency was regenerated in this run, mark its dependents as stale even if their own specs haven't changed.
 
 If cascading regeneration of a dependent causes Builder failure, stop and report: which upstream regeneration caused the failure, which dependent broke, and the Builder's failure report.
