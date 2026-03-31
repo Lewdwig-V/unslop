@@ -64,19 +64,26 @@ async function findSpecFiles(
   excludeSet: Set<string>,
 ): Promise<string[]> {
   let results: string[] = [];
-  let entries: Awaited<ReturnType<typeof readdir>>;
+  let names: string[];
   try {
-    entries = await readdir(dir, { withFileTypes: true });
+    names = await readdir(dir);
   } catch {
     return results;
   }
-  for (const entry of entries) {
-    if (excludeSet.has(entry.name)) continue;
-    const fullPath = join(dir, entry.name);
-    if (entry.isDirectory()) {
+  for (const name of names) {
+    if (excludeSet.has(name)) continue;
+    const fullPath = join(dir, name);
+    let isDir = false;
+    try {
+      const s = await stat(fullPath);
+      isDir = s.isDirectory();
+    } catch {
+      continue;
+    }
+    if (isDir) {
       const nested = await findSpecFiles(fullPath, excludeSet);
       results = results.concat(nested);
-    } else if (entry.isFile() && entry.name.endsWith(".spec.md")) {
+    } else if (name.endsWith(".spec.md")) {
       results.push(fullPath);
     }
   }
