@@ -1,6 +1,6 @@
 # The Spec as Coordinator: Multi-Agent Code Generation Without an Orchestrator
 
-*Lewis V., March 2026*
+*Lewdwig-V, March 2026*
 
 ---
 
