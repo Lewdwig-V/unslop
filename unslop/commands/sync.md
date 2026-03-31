@@ -325,7 +325,7 @@ Dispatch a Builder Agent using the generation skill's two-stage execution model:
      - Rust/JS/TS/Go/Java/C: `// @unslop-managed -- Edit <spec-path> instead` + `// spec-hash:<hash> output-hash:<hash> generated:<ISO8601>`
      - HTML/XML: `<!-- @unslop-managed -- Edit <spec-path> instead -->` + `<!-- spec-hash:<hash> output-hash:<hash> generated:<ISO8601> -->`
      - SQL/Lua: `-- @unslop-managed -- Edit <spec-path> instead` + `-- spec-hash:<hash> output-hash:<hash> generated:<ISO8601>`
-     Compute `spec-hash` as SHA-256 of the spec file content (stripped), truncated to 12 hex chars. Compute `output-hash` as SHA-256 of the file body below the header (stripped), truncated to 12 hex chars. Set `generated` to current ISO 8601 timestamp.
+     Compute hashes using the same canonical method as `compute_hash()` in the orchestrator: read content, strip leading/trailing whitespace, encode as UTF-8, SHA-256, take first 12 hex chars. `spec-hash` = hash of full spec file content. `output-hash` = hash of file body below the header (everything after the 2 header lines). Set `generated` to current ISO 8601 UTC timestamp via `date -u +%Y-%m-%dT%H:%M:%SZ`.
   4. **Delete `.unslop/last-failure/<cache-key>.md`** if it exists.
   5. **Delete ephemeral concrete specs:** If `<file>.impl.md` exists and its frontmatter has `ephemeral: true`, delete it. Do NOT delete permanent concrete specs (`ephemeral: false` or no `ephemeral` field).
 - If BLOCKED or tests fail: discard worktree (`rm -rf <worktree-path> && git worktree prune`), revert any staged spec update (`git checkout HEAD -- <spec_path>`). Report the Builder's failure report and stop. Do not attempt to fix or retry.
