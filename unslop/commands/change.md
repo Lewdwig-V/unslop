@@ -20,15 +20,23 @@ Check that the target file exists. If it does not exist, stop and tell the user:
 
 > "File not found: `<file-path>`."
 
-Read the first 5 lines of the target file (to accommodate shebangs, doctype declarations, etc.). Check that at least one line contains `@unslop-managed`. If none do, stop and tell the user:
+Read the first 5 lines of the target file (to accommodate shebangs, doctype declarations, etc.). Check whether at least one line contains `@unslop-managed`.
 
-> "File is not managed by unslop. Run `/unslop:takeover` or `/unslop:spec` first."
-
-Read the `@unslop-managed` header to extract the spec path (the path that appears after `Edit` and before `instead`). Check that the spec file exists. If it does not, stop and tell the user:
+**If `@unslop-managed` header is found:** Extract the spec path (the path that appears after `Edit` and before `instead`). Check that the spec file exists. If it does not, stop:
 
 > "Spec not found. The managed file references a spec that no longer exists."
 
-**Classify the file state** using hash-based logic:
+**If `@unslop-managed` header is NOT found:** Check for a corresponding spec file using naming conventions:
+- For file `src/foo.py`, check for `src/foo.py.spec.md`
+- For file in a directory with a unit spec, check for `<dirname>.unit.spec.md`
+
+If a spec file exists, the file is in **distilled-but-not-yet-generated** state (spec was created via `/unslop:distill` but the Builder hasn't run yet). Use this spec path and **skip hash-based classification** -- there is no header to extract hashes from. Treat the file as `pending` state and proceed directly to the change recording step. The change will amend the spec; the user runs `/unslop:sync` or `/unslop:generate` later to produce managed code with a proper header.
+
+If no spec file exists either, stop:
+
+> "File is not managed by unslop. Run `/unslop:takeover` or `/unslop:spec` first."
+
+**Classify the file state** (header-present path only) using hash-based logic:
 - Extract the stored `spec-hash` and `output-hash` from the `@unslop-managed` header.
 - Compute the current spec hash: SHA-256 of the spec file content, truncated to 12 hex characters.
 - Compute the current output hash: SHA-256 of the managed file body below the `@unslop-managed` header block, stripped of leading/trailing whitespace, truncated to 12 hex characters.
