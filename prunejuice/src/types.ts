@@ -217,3 +217,56 @@ export interface CoordinatorDecision {
   retryFrom?: PipelineStage;
   reason: string;
 }
+
+// -- DAG cache ----------------------------------------------------------------
+
+export interface DAGCache {
+  /** spec_path (relative to cwd) -> list of spec paths it depends on */
+  dag: Record<string, string[]>;
+  /** spec_path -> content hash of the spec file */
+  manifest: Record<string, string>;
+  /** ISO 8601 timestamp for debugging */
+  builtAt: string;
+}
+
+// -- Ripple check results -----------------------------------------------------
+
+export interface RippleAbstractLayer {
+  directlyChanged: string[];
+  transitivelyAffected: string[];
+  total: number;
+}
+
+export interface RippleConcreteLayer {
+  affectedImpls: string[];
+  ghostStaleImpls: string[];
+  total: number;
+}
+
+export interface RippleManagedEntry {
+  managed: string;
+  spec: string;
+  concrete?: string;
+  exists: boolean;
+  currentState: string;
+  cause: "direct" | "transitive" | "ghost-stale";
+  language?: string;
+  error?: string;
+  ghostSource?: string;
+}
+
+export interface RippleCodeLayer {
+  regenerate: RippleManagedEntry[];
+  ghostStale: RippleManagedEntry[];
+  totalFiles: number;
+}
+
+export interface RippleResult {
+  inputSpecs: string[];
+  layers: {
+    abstract: RippleAbstractLayer;
+    concrete: RippleConcreteLayer;
+    code: RippleCodeLayer;
+  };
+  buildOrder: string[];
+}
