@@ -1,6 +1,7 @@
 import { readdir, readFile, stat, writeFile, mkdir } from "node:fs/promises";
 import { join, relative, resolve } from "node:path";
 import { truncatedHash } from "./hashchain.js";
+import { isEnoent, EXCLUDE_DIRS } from "./fs-utils.js";
 import type { DAGCache, TruncatedHash } from "./types.js";
 
 // -- In-memory singleton cache ------------------------------------------------
@@ -16,27 +17,6 @@ function normalizeKey(line: string): string {
   const rest = line.slice(colonIdx);
   return key.replace(/_/g, "-") + rest;
 }
-
-function isEnoent(err: unknown): boolean {
-  return (
-    typeof err === "object" &&
-    err !== null &&
-    "code" in err &&
-    (err as { code: string }).code === "ENOENT"
-  );
-}
-
-const EXCLUDE_DIRS = new Set([
-  ".prunejuice",
-  ".unslop",
-  "node_modules",
-  ".git",
-  "__pycache__",
-  "dist",
-  "build",
-  ".venv",
-  "venv",
-]);
 
 async function findSpecFiles(
   dir: string,

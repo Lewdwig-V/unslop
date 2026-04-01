@@ -1,13 +1,6 @@
 import { readdir, readFile, stat } from "node:fs/promises";
 import { join, relative, isAbsolute } from "node:path";
-
-function isEnoent(err: unknown): boolean {
-  return (
-    err instanceof Error &&
-    "code" in err &&
-    (err as NodeJS.ErrnoException).code === "ENOENT"
-  );
-}
+import { isEnoent } from "./fs-utils.js";
 import {
   truncatedHash,
   parseHeader,

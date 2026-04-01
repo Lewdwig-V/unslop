@@ -381,3 +381,110 @@ describe("resolveDeps", () => {
     await expect(resolveDeps("x.spec.md", tmp)).rejects.toThrow(/Cycle/);
   });
 });
+
+// -- topoSort (direct unit tests) --------------------------------------------
+
+describe("topoSort", () => {
+  it("sorts a simple chain (leaves first)", () => {
+    const graph = {
+      c: ["b"],
+      b: ["a"],
+      a: [],
+    };
+    expect(topoSort(graph)).toEqual(["a", "b", "c"]);
+  });
+
+  it("handles diamond dependency without error", () => {
+    // d depends on b and c, both depend on a
+    const graph = {
+      d: ["b", "c"],
+      b: ["a"],
+      c: ["a"],
+      a: [],
+    };
+    const result = topoSort(graph);
+    expect(result[0]).toBe("a");
+    expect(result[result.length - 1]).toBe("d");
+    expect(result).toHaveLength(4);
+  });
+
+  it("produces deterministic order for multiple zero-in-degree nodes", () => {
+    // Three independent nodes -- should sort alphabetically
+    const graph = { c: [], a: [], b: [] };
+    expect(topoSort(graph)).toEqual(["a", "b", "c"]);
+  });
+
+  it("throws on cycle with involved node names", () => {
+    const graph = { a: ["b"], b: ["a"] };
+    expect(() => topoSort(graph)).toThrow(/Cycle detected involving: a, b/);
+  });
+
+  it("handles empty graph", () => {
+    expect(topoSort({})).toEqual([]);
+  });
+
+  it("handles nodes referenced as deps but not as keys", () => {
+    // b depends on a, but a is not a key in graph
+    const graph = { b: ["a"] };
+    const result = topoSort(graph);
+    expect(result).toEqual(["a", "b"]);
+  });
+});
+
+// -- ensureDAG warm path from disk --------------------------------------------
+
+describe("ensureDAG disk reload", () => {
+  const dirs: string[] = [];
+
+  afterEach(async () => {
+    clearDAGCache();
+    for (const d of dirs.splice(0)) {
+      await rm(d, { recursive: true, force: true });
+    }
+  });
+
+  it("loads cache from disk when memory cache is cleared", async () => {
+    const tmp = await makeTmp();
+    dirs.push(tmp);
+
+    await writeAt(tmp, "a.spec.md", "---\n---\n# A");
+    await writeAt(
+      tmp,
+      "b.spec.md",
+      "---\ndepends-on:\n  - a.spec.md\n---\n# B",
+    );
+
+    // Cold start: builds cache and persists to disk
+    const dag1 = await ensureDAG(tmp);
+    expect(Object.keys(dag1.dag)).toHaveLength(2);
+
+    // Clear memory only -- disk cache remains
+    clearDAGCache(tmp);
+
+    // Should reload from disk, then run warm path validation
+    const dag2 = await ensureDAG(tmp);
+    expect(Object.keys(dag2.dag)).toHaveLength(2);
+    expect(dag2.dag["b.spec.md"]).toEqual(["a.spec.md"]);
+  });
+
+  it("detects changes after disk reload", async () => {
+    const tmp = await makeTmp();
+    dirs.push(tmp);
+
+    await writeAt(tmp, "a.spec.md", "---\n---\n# A");
+    await ensureDAG(tmp);
+
+    // Clear memory, modify spec, then reload
+    clearDAGCache(tmp);
+    await writeAt(
+      tmp,
+      "a.spec.md",
+      "---\ndepends-on:\n  - new.spec.md\n---\n# A modified",
+    );
+    await writeAt(tmp, "new.spec.md", "---\n---\n# New");
+
+    const dag = await ensureDAG(tmp);
+    expect(dag.dag["a.spec.md"]).toEqual(["new.spec.md"]);
+    expect(Object.keys(dag.dag)).toHaveLength(2);
+  });
+});

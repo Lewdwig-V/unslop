@@ -1,12 +1,13 @@
 import { readdir, readFile, stat } from "node:fs/promises";
 import { join, relative, resolve } from "node:path";
-import { ensureDAG } from "./dag.js";
+import { ensureDAG, topoSort } from "./dag.js";
 import {
   truncatedHash,
   parseHeader,
   getBodyBelowHeader,
   classifyFreshness,
 } from "./hashchain.js";
+import { isEnoent, EXCLUDE_DIRS } from "./fs-utils.js";
 import type {
   RippleResult,
   RippleAbstractLayer,
@@ -15,17 +16,6 @@ import type {
   RippleManagedEntry,
   TruncatedHash,
 } from "./types.js";
-
-// -- Internal helpers ---------------------------------------------------------
-
-function isEnoent(err: unknown): boolean {
-  return (
-    typeof err === "object" &&
-    err !== null &&
-    "code" in err &&
-    (err as { code: string }).code === "ENOENT"
-  );
-}
 
 interface ConcreteSpecMeta {
   sourceSpec: string | null;
@@ -121,18 +111,6 @@ function parseConcreteSpecFrontmatter(content: string): ConcreteSpecMeta {
   return result;
 }
 
-const EXCLUDE_DIRS = new Set([
-  ".prunejuice",
-  ".unslop",
-  "node_modules",
-  ".git",
-  "__pycache__",
-  "dist",
-  "build",
-  ".venv",
-  "venv",
-]);
-
 async function findImplFiles(
   dir: string,
   excludeSet: Set<string>,
@@ -215,7 +193,6 @@ function computeRippleBuildOrder(
   const subgraph: Record<string, string[]> = {};
   for (const node of affected) {
     const deps = (graph[node] ?? []).filter((d) => affected.has(d));
-    // Also add concrete spec edges projected to spec space
     const concreteDeps = concreteSpecEdges.get(node) ?? [];
     const allDeps = [
       ...new Set([...deps, ...concreteDeps.filter((d) => affected.has(d))]),
@@ -223,55 +200,12 @@ function computeRippleBuildOrder(
     subgraph[node] = allDeps;
   }
 
-  // Inline Kahn's sort (avoid importing topoSort to prevent circular deps)
-  const inDegree = new Map<string, number>();
-  const adjacency = new Map<string, string[]>();
-
-  for (const node of Object.keys(subgraph)) {
-    if (!inDegree.has(node)) inDegree.set(node, 0);
-    if (!adjacency.has(node)) adjacency.set(node, []);
-    for (const dep of subgraph[node]!) {
-      if (!inDegree.has(dep)) inDegree.set(dep, 0);
-      if (!adjacency.has(dep)) adjacency.set(dep, []);
-    }
-  }
-
-  for (const [node, deps] of Object.entries(subgraph)) {
-    for (const dep of deps) {
-      adjacency.get(dep)!.push(node);
-      inDegree.set(node, inDegree.get(node)! + 1);
-    }
-  }
-
-  const queue: string[] = [];
-  for (const [node, deg] of inDegree) {
-    if (deg === 0) queue.push(node);
-  }
-  queue.sort();
-
-  const result: string[] = [];
-
-  while (queue.length > 0) {
-    const node = queue.shift()!;
-    result.push(node);
-
-    for (const dependent of adjacency.get(node)!) {
-      const newDeg = inDegree.get(dependent)! - 1;
-      inDegree.set(dependent, newDeg);
-      if (newDeg === 0) {
-        const insertIdx = queue.findIndex((q) => q > dependent);
-        if (insertIdx === -1) queue.push(dependent);
-        else queue.splice(insertIdx, 0, dependent);
-      }
-    }
-  }
-
-  // Cycle fallback: alphabetical
-  if (result.length < inDegree.size) {
+  try {
+    return topoSort(subgraph);
+  } catch {
+    // Cycle fallback: alphabetical
     return [...affected].sort();
   }
-
-  return result;
 }
 
 // -- Exported function --------------------------------------------------------

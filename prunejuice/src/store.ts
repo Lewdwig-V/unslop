@@ -1,6 +1,7 @@
 import { readFile, writeFile, mkdir } from "node:fs/promises";
 import { resolve, dirname } from "node:path";
 import { truncatedHash, formatHeader } from "./hashchain.js";
+import { isEnoent } from "./fs-utils.js";
 import type {
   Spec,
   ConcreteSpec,
@@ -35,16 +36,6 @@ export async function ensureStore(cwd: string): Promise<void> {
       );
     }
   }
-}
-
-// -- Error-discriminating file read ------------------------------------------
-
-function isEnoent(err: unknown): boolean {
-  return (
-    err instanceof Error &&
-    "code" in err &&
-    (err as NodeJS.ErrnoException).code === "ENOENT"
-  );
 }
 
 // -- Artifact I/O ------------------------------------------------------------

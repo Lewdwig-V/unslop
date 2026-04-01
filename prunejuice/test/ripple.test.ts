@@ -161,4 +161,71 @@ describe("rippleCheck", () => {
     expect(entry.exists).toBe(true);
     expect(entry.currentState).toBe("fresh");
   });
+
+  it("traces concrete layer through impl files with source-spec", async () => {
+    const tmp = await makeTmp();
+    dirs.push(tmp);
+
+    // Abstract spec a, concrete impl points to a
+    await writeAt(tmp, "a.spec.md", "---\n---\n# A");
+    await writeAt(
+      tmp,
+      "a.impl.md",
+      "---\nsource-spec: a.spec.md\n---\n# Impl A",
+    );
+
+    const result = await rippleCheck(["a.spec.md"], tmp);
+    expect(result.layers.concrete.affectedImpls).toContain("a.impl.md");
+    expect(result.layers.concrete.total).toBeGreaterThanOrEqual(1);
+  });
+
+  it("detects ghost-stale impls through concrete-dependencies", async () => {
+    const tmp = await makeTmp();
+    dirs.push(tmp);
+
+    // a.spec.md is changed (input spec)
+    // a.impl.md has source-spec: a.spec.md (directly affected)
+    // b.impl.md has concrete-dependencies pointing to a.impl.md but source-spec: b.spec.md
+    // b.spec.md is NOT in the input -- so b.impl.md is ghost-stale
+    await writeAt(tmp, "a.spec.md", "---\n---\n# A");
+    await writeAt(tmp, "b.spec.md", "---\n---\n# B");
+    await writeAt(
+      tmp,
+      "a.impl.md",
+      "---\nsource-spec: a.spec.md\n---\n# Impl A",
+    );
+    await writeAt(
+      tmp,
+      "b.impl.md",
+      "---\nsource-spec: b.spec.md\nconcrete-dependencies:\n  - a.impl.md\n---\n# Impl B",
+    );
+
+    const result = await rippleCheck(["a.spec.md"], tmp);
+    expect(result.layers.concrete.ghostStaleImpls).toContain("b.impl.md");
+    expect(result.layers.code.ghostStale.length).toBeGreaterThanOrEqual(1);
+    const ghostEntry = result.layers.code.ghostStale.find(
+      (e) => e.concrete === "b.impl.md",
+    );
+    expect(ghostEntry).toBeDefined();
+    expect(ghostEntry!.cause).toBe("ghost-stale");
+    expect(ghostEntry!.ghostSource).toBe("b.impl.md");
+  });
+
+  it("classifies stale managed files correctly", async () => {
+    const tmp = await makeTmp();
+    dirs.push(tmp);
+
+    const oldSpecContent = "---\n---\n# Original spec";
+    const bodyContent = "export function widget() {}";
+    // Write managed file with hashes from OLD spec
+    await writeAt(tmp, "widget.ts", managedFile(oldSpecContent, bodyContent));
+    // But spec has been updated (different content)
+    const newSpecContent = "---\n---\n# Updated spec with changes";
+    await writeAt(tmp, "widget.ts.spec.md", newSpecContent);
+
+    const result = await rippleCheck(["widget.ts.spec.md"], tmp);
+    const entry = result.layers.code.regenerate[0]!;
+    expect(entry.exists).toBe(true);
+    expect(entry.currentState).toBe("stale");
+  });
 });
