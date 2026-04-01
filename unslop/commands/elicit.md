@@ -65,7 +65,7 @@ After distillation-specific phases complete, run the standard amendment phases (
 
 **HARD RULE:** The ripple check runs regardless of mode. Do not skip it.
 
-If a spec exists, call `python ${CLAUDE_PLUGIN_ROOT}/scripts/orchestrator.py ripple-check <spec-path> --root .` (or use MCP `unslop_ripple_check` if available). Store the downstream dependents for use in Phase 5 of amendment mode and for downstream flagging in Step 7.
+If a spec exists, call `prunejuice_ripple_check` with `{ specPaths: ["<spec-path>"], cwd: "." }`. Store the downstream dependents for use in Phase 5 of amendment mode and for downstream flagging in Step 7.
 
 If creating a new spec, skip the ripple check (nothing depends on a spec that doesn't exist yet).
 
@@ -101,7 +101,7 @@ Probe specifically for:
 
 > "What does this [file/unit/subsystem] depend on? What will depend on it?"
 
-Cross-reference against existing specs in the project. Use `python ${CLAUDE_PLUGIN_ROOT}/scripts/orchestrator.py discover .` (or MCP `unslop_discover`) to show existing managed files. Surface potential `depends-on` relationships.
+Cross-reference against existing specs in the project. Use `prunejuice_discover_files` with `{ directory: "." }` to show existing managed files. Surface potential `depends-on` relationships.
 
 **Phase 4: Non-goals (inferred)**
 
