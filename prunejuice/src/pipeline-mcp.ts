@@ -15,6 +15,7 @@ import {
 } from "./api.js";
 import type {
   Spec,
+  DiscoveryResolution,
   GenerateMcpResult,
   GenerateDiscoveryPending,
   SerialisedPipelineState,
@@ -69,9 +70,24 @@ export async function handleGenerateResume(
   const { pipelineState, resolutions } = params;
   let workingSpec = structuredClone(pipelineState.spec);
 
+  // Map action verbs to library's past-tense DiscoveryResolution type
+  const actionToResolution: Record<string, DiscoveryResolution> = {
+    promote: "promoted",
+    dismiss: "dismissed",
+    defer: "deferred",
+  };
+
+  // Build prior resolutions map (discoveryId = title) for auto-resolution
+  // on re-run, and apply spec amendments from promoted discoveries
+  const priorResolutions = new Map<string, DiscoveryResolution>();
+
   for (const resolution of resolutions) {
+    priorResolutions.set(
+      resolution.discoveryId,
+      actionToResolution[resolution.action] ?? "deferred",
+    );
+
     if (resolution.action === "promote" && resolution.specAmendment) {
-      // Merge arrays additively, preserve scalar fields unless explicitly overridden
       workingSpec = {
         intent: resolution.specAmendment.intent ?? workingSpec.intent,
         requirements: [
@@ -90,8 +106,11 @@ export async function handleGenerateResume(
     }
   }
 
-  // Re-run generate with amended spec (Archaeologist re-runs, which is correct)
-  const result = await generate(workingSpec, pipelineState.cwd);
+  // Re-run generate with amended spec + prior resolutions
+  // Archaeologist re-runs but re-discovered items are auto-resolved
+  const result = await generate(workingSpec, pipelineState.cwd, {
+    priorResolutions,
+  });
   return { success: true, result };
 }
 
