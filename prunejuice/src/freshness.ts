@@ -1,5 +1,13 @@
 import { readdir, readFile, stat } from "node:fs/promises";
-import { join, relative, dirname } from "node:path";
+import { join, relative, isAbsolute } from "node:path";
+
+function isEnoent(err: unknown): boolean {
+  return (
+    err instanceof Error &&
+    "code" in err &&
+    (err as NodeJS.ErrnoException).code === "ENOENT"
+  );
+}
 import {
   truncatedHash,
   parseHeader,
@@ -67,8 +75,9 @@ async function findSpecFiles(
   let names: string[];
   try {
     names = await readdir(dir);
-  } catch {
-    return results;
+  } catch (err: unknown) {
+    if (isEnoent(err)) return results;
+    throw err; // permission denied, I/O error, etc. must surface
   }
   for (const name of names) {
     if (excludeSet.has(name)) continue;
@@ -77,8 +86,10 @@ async function findSpecFiles(
     try {
       const s = await stat(fullPath);
       isDir = s.isDirectory();
-    } catch {
-      continue;
+    } catch (err: unknown) {
+      if (isEnoent(err)) continue; // vanished during scan
+      if (name.endsWith(".spec.md")) throw err; // spec files must be readable
+      continue; // non-spec entries can be skipped
     }
     if (isDir) {
       const nested = await findSpecFiles(fullPath, excludeSet);
@@ -101,12 +112,12 @@ async function classifyEntry(
   const managedRel = specRel.replace(/\.spec\.md$/, "");
   const managedAbsPath = join(cwd, managedRel);
 
-  // Read spec content
+  // Read spec content -- only tolerate ENOENT (race: file vanished since discovery)
   let specContent = "";
   try {
     specContent = await readFile(specAbsPath, "utf-8");
-  } catch {
-    // If we can't read the spec, treat as no spec content
+  } catch (err: unknown) {
+    if (!isEnoent(err)) throw err;
   }
   const currentSpecHash: TruncatedHash = truncatedHash(specContent);
 
@@ -116,8 +127,12 @@ async function classifyEntry(
   try {
     managedContent = await readFile(managedAbsPath, "utf-8");
     codeFileExists = true;
-  } catch {
-    codeFileExists = false;
+  } catch (err: unknown) {
+    if (isEnoent(err)) {
+      codeFileExists = false;
+    } else {
+      throw err; // permission denied, I/O error, etc.
+    }
   }
 
   // Parse header from managed file
@@ -163,6 +178,12 @@ export async function checkFreshnessAll(
   cwd: string,
   options?: { excludePatterns?: string[] },
 ): Promise<FreshnessReport> {
+  // Validate cwd is a readable directory
+  const cwdStat = await stat(cwd); // let ENOENT/EACCES propagate naturally
+  if (!cwdStat.isDirectory()) {
+    throw new Error(`cwd is not a directory: "${cwd}"`);
+  }
+
   const excludeSet = new Set(DEFAULT_EXCLUDE);
   if (options?.excludePatterns) {
     for (const pattern of options.excludePatterns) {
