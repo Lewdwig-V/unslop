@@ -175,16 +175,23 @@ describe("ensureDAG", () => {
     const tmp = await makeTmp();
     dirs.push(tmp);
 
-    await writeAt(tmp, "keep.spec.md", "# Keep");
-    await writeAt(tmp, "remove.spec.md", "# Remove");
+    await writeAt(tmp, "a.spec.md", "# A");
+    await writeAt(
+      tmp,
+      "b.spec.md",
+      "---\ndepends-on:\n  - a.spec.md\n---\n# B",
+    );
     await ensureDAG(tmp);
 
-    // Delete the spec
-    await unlink(join(tmp, "remove.spec.md"));
+    // Delete a.spec.md -- b.spec.md still lists it as a dep
+    await unlink(join(tmp, "a.spec.md"));
+    clearDAGCache();
     const cache = await ensureDAG(tmp);
 
-    expect(cache.manifest["remove.spec.md"]).toBeUndefined();
-    expect(cache.dag["remove.spec.md"]).toBeUndefined();
+    expect(cache.manifest["a.spec.md"]).toBeUndefined();
+    expect(cache.dag["a.spec.md"]).toBeUndefined();
+    // b.spec.md survives but its edge to the deleted spec must be removed
+    expect(cache.dag["b.spec.md"]).toEqual([]);
   });
 
   it("persists cache to .prunejuice/dag-cache.json", async () => {
