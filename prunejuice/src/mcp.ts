@@ -9,6 +9,14 @@ import { deepSyncPlan, bulkSyncPlan, resumeSyncPlan } from "./sync.js";
 import { computeSpecDiff } from "./spec-diff.js";
 import { discoverFiles } from "./discover.js";
 import type { RippleResult, DeepSyncResult, BulkSyncResult, ResumeSyncResult, SpecDiffResult } from "./types.js";
+import {
+  handleGenerate,
+  handleGenerateResume,
+  handleDistill,
+  handleCover,
+  handleWeed,
+  handleVerify,
+} from "./pipeline-mcp.js";
 
 // -- Tool handler (exported for direct testing) --------------------------------
 
@@ -494,6 +502,159 @@ export function createServer(): McpServer {
           },
         ],
       };
+    },
+  );
+
+  server.registerTool(
+    "prunejuice_generate",
+    {
+      description:
+        "Run the full generate pipeline: Archaeologist -> Mason -> Builder -> Saboteur with convergence. Returns discovery_pending if discoveries need resolution.",
+      inputSchema: {
+        spec: z.object({
+          intent: z.string(),
+          requirements: z.array(z.string()),
+          constraints: z.array(z.string()),
+          acceptanceCriteria: z.array(z.string()),
+        }),
+        cwd: z.string(),
+      },
+    },
+    async (args) => {
+      try {
+        const result = await handleGenerate({ spec: args.spec, cwd: args.cwd });
+        return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }] };
+      } catch (err: unknown) {
+        const message = err instanceof Error ? `${err.message}\n${err.stack ?? ""}` : String(err);
+        return { isError: true, content: [{ type: "text", text: `Unexpected error in prunejuice_generate:\n${message}` }] };
+      }
+    },
+  );
+
+  server.registerTool(
+    "prunejuice_generate_resume",
+    {
+      description: "Resume the generate pipeline after discovery resolution.",
+      inputSchema: {
+        pipelineState: z.object({
+          spec: z.object({
+            intent: z.string(),
+            requirements: z.array(z.string()),
+            constraints: z.array(z.string()),
+            acceptanceCriteria: z.array(z.string()),
+          }),
+          concreteSpec: z.any(),
+          behaviourContract: z.any(),
+          cwd: z.string(),
+        }),
+        resolutions: z.array(
+          z.object({
+            discoveryId: z.string(),
+            action: z.enum(["promote", "dismiss", "defer"]),
+            specAmendment: z.any().optional(),
+          }),
+        ),
+      },
+    },
+    async (args) => {
+      try {
+        const result = await handleGenerateResume({ pipelineState: args.pipelineState, resolutions: args.resolutions });
+        return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }] };
+      } catch (err: unknown) {
+        const message = err instanceof Error ? `${err.message}\n${err.stack ?? ""}` : String(err);
+        return { isError: true, content: [{ type: "text", text: `Unexpected error in prunejuice_generate_resume:\n${message}` }] };
+      }
+    },
+  );
+
+  server.registerTool(
+    "prunejuice_distill",
+    {
+      description: "Infer a spec from existing code.",
+      inputSchema: {
+        cwd: z.string(),
+      },
+    },
+    async (args) => {
+      try {
+        const result = await handleDistill({ cwd: args.cwd });
+        return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }] };
+      } catch (err: unknown) {
+        const message = err instanceof Error ? `${err.message}\n${err.stack ?? ""}` : String(err);
+        return { isError: true, content: [{ type: "text", text: `Unexpected error in prunejuice_distill:\n${message}` }] };
+      }
+    },
+  );
+
+  server.registerTool(
+    "prunejuice_cover",
+    {
+      description: "Mutation-driven test coverage improvement.",
+      inputSchema: {
+        cwd: z.string(),
+        spec: z.object({
+          intent: z.string(),
+          requirements: z.array(z.string()),
+          constraints: z.array(z.string()),
+          acceptanceCriteria: z.array(z.string()),
+        }).optional(),
+        maxIterations: z.number().int().optional(),
+      },
+    },
+    async (args) => {
+      try {
+        const result = await handleCover({ cwd: args.cwd, spec: args.spec, maxIterations: args.maxIterations });
+        return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }] };
+      } catch (err: unknown) {
+        const message = err instanceof Error ? `${err.message}\n${err.stack ?? ""}` : String(err);
+        return { isError: true, content: [{ type: "text", text: `Unexpected error in prunejuice_cover:\n${message}` }] };
+      }
+    },
+  );
+
+  server.registerTool(
+    "prunejuice_weed",
+    {
+      description: "Detect intent drift between spec and code.",
+      inputSchema: {
+        cwd: z.string(),
+        spec: z.object({
+          intent: z.string(),
+          requirements: z.array(z.string()),
+          constraints: z.array(z.string()),
+          acceptanceCriteria: z.array(z.string()),
+        }).optional(),
+      },
+    },
+    async (args) => {
+      try {
+        const result = await handleWeed({ cwd: args.cwd, spec: args.spec });
+        return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }] };
+      } catch (err: unknown) {
+        const message = err instanceof Error ? `${err.message}\n${err.stack ?? ""}` : String(err);
+        return { isError: true, content: [{ type: "text", text: `Unexpected error in prunejuice_weed:\n${message}` }] };
+      }
+    },
+  );
+
+  server.registerTool(
+    "prunejuice_verify",
+    {
+      description: "Synchronous Saboteur verification on a single file.",
+      inputSchema: {
+        cwd: z.string(),
+        specPath: z.string(),
+        managedFilePath: z.string(),
+      },
+    },
+    async (args) => {
+      try {
+        const result = await handleVerify({ cwd: args.cwd, specPath: args.specPath, managedFilePath: args.managedFilePath });
+        return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }] };
+      } catch (err: unknown) {
+        const message = err instanceof Error ? `${err.message}\n${err.stack ?? ""}` : String(err);
+        return { isError: true, content: [{ type: "text", text: `Unexpected error in prunejuice_verify:\n${message}` }] };
+      }
     },
   );
 

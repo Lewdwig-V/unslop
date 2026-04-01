@@ -48,7 +48,9 @@ import type {
   PipelinePhase,
   MutationResult,
   DiscoveredItem,
+  DiscoveryResolution,
   ResolvedDiscovery,
+  VerifyResult,
 } from "./types.js";
 
 // -- Logging -----------------------------------------------------------------
@@ -187,10 +189,13 @@ export async function generate(
   options: {
     log?: LogFn;
     onDiscovery?: DiscoveryHandler;
+    /** Pre-resolved discoveries from a prior generate call (keyed by title). */
+    priorResolutions?: Map<string, DiscoveryResolution>;
   } = {},
 ): Promise<GenerateResult> {
   const log = options.log ?? defaultLog;
   const onDiscovery = options.onDiscovery ?? defaultDiscoveryHandler;
+  const priorResolutions = options.priorResolutions;
   await ensureStore(cwd);
 
   // Clone spec to avoid mutating the caller's object during convergence
@@ -218,12 +223,39 @@ export async function generate(
 
   // Stage 0b: Discovery gate
   if (state.concreteSpec.discovered.length > 0) {
-    log(
-      "generate",
-      `${state.concreteSpec.discovered.length} discovered item(s) — invoking discovery handler.`,
-    );
-    const resolutions = await onDiscovery(state.concreteSpec.discovered);
-    applyDiscoveryResolutions(state.concreteSpec.discovered, resolutions);
+    // Auto-resolve discoveries that have prior resolutions
+    if (priorResolutions && priorResolutions.size > 0) {
+      const unresolved: DiscoveredItem[] = [];
+      for (const item of state.concreteSpec.discovered) {
+        const prior = priorResolutions.get(item.title);
+        if (prior) {
+          item.resolution = prior;
+          log(
+            "discovery-gate",
+            `"${item.title}" auto-resolved as ${prior} (prior resolution)`,
+          );
+        } else {
+          unresolved.push(item);
+        }
+      }
+
+      // Only invoke handler for genuinely new discoveries
+      if (unresolved.length > 0) {
+        log(
+          "generate",
+          `${unresolved.length} new discovered item(s) — invoking discovery handler.`,
+        );
+        const resolutions = await onDiscovery(unresolved);
+        applyDiscoveryResolutions(unresolved, resolutions);
+      }
+    } else {
+      log(
+        "generate",
+        `${state.concreteSpec.discovered.length} discovered item(s) — invoking discovery handler.`,
+      );
+      const resolutions = await onDiscovery(state.concreteSpec.discovered);
+      applyDiscoveryResolutions(state.concreteSpec.discovered, resolutions);
+    }
   }
 
   // Run Mason → Builder → Saboteur
@@ -554,6 +586,68 @@ export async function weed(
   return report;
 }
 
+// -- Verify (single-file Saboteur) -------------------------------------------
+
+/**
+ * Run Saboteur verification on a single managed file.
+ * Loads existing pipeline artifacts (spec, tests, implementation) from the store.
+ * Returns a VerifyResult with kill rate, mutation results, and compliance violations.
+ */
+export async function verify(
+  cwd: string,
+  options: {
+    specPath: string;
+    managedFilePath: string;
+    log?: LogFn;
+  },
+): Promise<VerifyResult> {
+  const log = options.log ?? defaultLog;
+  await ensureStore(cwd);
+
+  const existing = await loadPipelineState(cwd);
+  const spec = requireDefined(existing.spec, "spec", "verify");
+  const tests = requireDefined(existing.tests, "tests", "verify");
+  const implementation = requireDefined(
+    existing.implementation,
+    "implementation",
+    "verify",
+  );
+
+  log("verify", `Verifying ${options.managedFilePath} against ${options.specPath}...`);
+
+  const rawReport = await runSaboteur(spec, tests, implementation, cwd);
+  const report = validateSaboteurReport(rawReport);
+
+  return {
+    status: report.verdict === "pass" ? "pass" : "fail",
+    killRate: report.killRate,
+    mutationResults: report.mutationResults,
+    complianceViolations: report.complianceViolations,
+  };
+}
+
+// -- Archaeologist-only phase (for MCP two-call discovery flow) ---------------
+
+/**
+ * Run just the Archaeologist stage and return the ConcreteSpec.
+ * Used by the MCP generate handler to check for discoveries before
+ * committing to the full pipeline.
+ */
+export async function archaeologistPhase(
+  spec: Spec,
+  cwd: string,
+  options: { log?: LogFn } = {},
+): Promise<ConcreteSpec> {
+  const log = options.log ?? defaultLog;
+  await ensureStore(cwd);
+
+  log("generate", "Archaeologist analyzing codebase...");
+  const concreteSpec = await runArchaeologist(spec, cwd);
+  await saveConcreteSpec(cwd, concreteSpec);
+  await saveBehaviourContract(cwd, concreteSpec.behaviourContract);
+  return concreteSpec;
+}
+
 // -- Orchestrator: Takeover --------------------------------------------------
 
 /**
@@ -666,4 +760,5 @@ export type {
   SurvivorClassification,
   TruncatedHash,
   PipelinePhase,
+  VerifyResult,
 } from "./types.js";
