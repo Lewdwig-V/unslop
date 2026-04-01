@@ -47,11 +47,9 @@ Check that the spec file exists. If it does not exist, stop and tell the user:
 
 **2b. Check dependencies**
 
-If the spec has `depends-on` frontmatter, call `python ${CLAUDE_PLUGIN_ROOT}/scripts/orchestrator.py deps <spec-path> --root .` to find transitive dependencies.
+If the spec has `depends-on` frontmatter, call the `prunejuice_resolve_deps` MCP tool with `{ specPath: "<spec-path>", cwd: "." }` to find transitive dependencies.
 
 Check if any dependencies are stale or conflict (using hash-based classification: compare stored spec-hash against current spec hash; if mismatch, the dependency is stale). If so, regenerate stale dependencies first, in dependency order, before regenerating the target file.
-
-If Python is not available and the spec has no `depends-on` frontmatter, proceed without dependency resolution (backwards compatible). If the spec has dependencies but Python is unavailable, report an error: "This spec has dependencies that require Python 3.8+ for resolution."
 
 **2c. Check diagnostic cache**
 
@@ -65,10 +63,10 @@ Inject the failure report contents into the Builder's prompt via the `{previous_
 
 If `--deep` was passed, switch to the deep sync workflow instead of the single-file flow:
 
-1. Call the orchestrator to compute the deep sync plan:
+1. Call the `prunejuice_deep_sync_plan` MCP tool to compute the deep sync plan:
 
 ```
-python ${CLAUDE_PLUGIN_ROOT}/scripts/orchestrator.py deep-sync-plan <file-path> --root . [--force]
+prunejuice_deep_sync_plan { filePath: "<file-path>", cwd: ".", force: false }
 ```
 
 This returns a JSON response with:
@@ -118,10 +116,10 @@ After displaying the plan or completing the deep sync, **return** — do not fal
 
 If `--stale-only` was passed, switch to the bulk sync workflow. This scans the entire project for stale files and batches them into worktree groups that respect topological order.
 
-1. Call the orchestrator to compute the bulk sync plan:
+1. Call the `prunejuice_bulk_sync_plan` MCP tool to compute the bulk sync plan:
 
 ```
-python ${CLAUDE_PLUGIN_ROOT}/scripts/orchestrator.py bulk-sync-plan --root . [--force] [--max-batch N]
+prunejuice_bulk_sync_plan { cwd: ".", force: false, maxBatchSize: 8 }
 ```
 
 This returns a JSON response with:
@@ -187,10 +185,10 @@ If `--resume` was passed, resume a previously failed bulk sync using the saved s
 
 > "No previous sync state found. Run `/unslop:sync --stale-only` first."
 
-2. Call the orchestrator to compute the resume plan:
+2. Call the `prunejuice_resume_sync_plan` MCP tool to compute the resume plan:
 
 ```
-python ${CLAUDE_PLUGIN_ROOT}/scripts/orchestrator.py resume-sync-plan --failed <f1,f2> --succeeded <s1,s2> --root . [--force] [--max-batch N]
+prunejuice_resume_sync_plan { cwd: ".", failedFiles: ["<f1>", "<f2>"], succeededFiles: ["<s1>", "<s2>"] }
 ```
 
 This returns the same structure as `bulk-sync-plan`, plus:
