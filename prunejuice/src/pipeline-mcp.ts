@@ -11,16 +11,14 @@ import {
   cover,
   weed,
   verify,
-  type DiscoveryHandler,
+  archaeologistPhase,
 } from "./api.js";
 import type {
   Spec,
-  GenerateResult,
   GenerateMcpResult,
   GenerateDiscoveryPending,
   SerialisedPipelineState,
   DiscoveryResolutionInput,
-  DiscoveredItem,
   CoverResult,
   DriftReport,
   VerifyResult,
@@ -36,45 +34,26 @@ export interface GenerateParams {
 export async function handleGenerate(
   params: GenerateParams,
 ): Promise<GenerateMcpResult | GenerateDiscoveryPending> {
-  // eslint-disable-next-line prefer-const -- assigned inside async callback
-  let pendingDiscoveries: DiscoveredItem[] | undefined;
+  // Run Archaeologist first to check for discoveries
+  const concreteSpec = await archaeologistPhase(params.spec, params.cwd);
 
-  const onDiscovery: DiscoveryHandler = async (discovered) => {
-    pendingDiscoveries = [...discovered];
-    // Defer all -- client will resolve in the resume call
-    return discovered.map((item) => ({
-      item: { ...item },
-      resolution: "deferred" as const,
-    }));
-  };
-
-  try {
-    const result = await generate(params.spec, params.cwd, { onDiscovery });
-
-    if (
-      pendingDiscoveries !== undefined &&
-      pendingDiscoveries.length > 0 &&
-      pendingDiscoveries.some((d: DiscoveredItem) => d.observation || d.question)
-    ) {
-      return {
-        status: "discovery_pending",
-        pipelineState: {
-          spec: result.spec,
-          concreteSpec: result.concreteSpec,
-          behaviourContract: result.concreteSpec.behaviourContract,
-          cwd: params.cwd,
-        },
-        discoveries: pendingDiscoveries,
-      };
-    }
-
-    return { success: true, result };
-  } catch (err: unknown) {
+  if (concreteSpec.discovered.length > 0) {
+    // Halt: return discoveries for client resolution
     return {
-      success: false,
-      error: err instanceof Error ? err.message : String(err),
+      status: "discovery_pending",
+      pipelineState: {
+        spec: params.spec,
+        concreteSpec,
+        behaviourContract: concreteSpec.behaviourContract,
+        cwd: params.cwd,
+      },
+      discoveries: concreteSpec.discovered,
     };
   }
+
+  // No discoveries -- run full pipeline
+  const result = await generate(params.spec, params.cwd);
+  return { success: true, result };
 }
 
 // -- Handler 2: Generate Resume (second call of two-call discovery flow) -----
@@ -92,9 +71,9 @@ export async function handleGenerateResume(
 
   for (const resolution of resolutions) {
     if (resolution.action === "promote" && resolution.specAmendment) {
+      // Merge arrays additively, preserve scalar fields unless explicitly overridden
       workingSpec = {
-        ...workingSpec,
-        ...resolution.specAmendment,
+        intent: resolution.specAmendment.intent ?? workingSpec.intent,
         requirements: [
           ...workingSpec.requirements,
           ...(resolution.specAmendment.requirements ?? []),
@@ -111,15 +90,9 @@ export async function handleGenerateResume(
     }
   }
 
-  try {
-    const result = await generate(workingSpec, pipelineState.cwd);
-    return { success: true, result };
-  } catch (err: unknown) {
-    return {
-      success: false,
-      error: err instanceof Error ? err.message : String(err),
-    };
-  }
+  // Re-run generate with amended spec (Archaeologist re-runs, which is correct)
+  const result = await generate(workingSpec, pipelineState.cwd);
+  return { success: true, result };
 }
 
 // -- Handler 3: Distill ------------------------------------------------------

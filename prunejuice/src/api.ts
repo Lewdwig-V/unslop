@@ -582,7 +582,7 @@ export async function verify(
     "verify",
   );
 
-  log("generate", `Verifying ${options.managedFilePath} against ${options.specPath}...`);
+  log("verify", `Verifying ${options.managedFilePath} against ${options.specPath}...`);
 
   const rawReport = await runSaboteur(spec, tests, implementation, cwd);
   const report = validateSaboteurReport(rawReport);
@@ -593,6 +593,28 @@ export async function verify(
     mutationResults: report.mutationResults,
     complianceViolations: report.complianceViolations,
   };
+}
+
+// -- Archaeologist-only phase (for MCP two-call discovery flow) ---------------
+
+/**
+ * Run just the Archaeologist stage and return the ConcreteSpec.
+ * Used by the MCP generate handler to check for discoveries before
+ * committing to the full pipeline.
+ */
+export async function archaeologistPhase(
+  spec: Spec,
+  cwd: string,
+  options: { log?: LogFn } = {},
+): Promise<ConcreteSpec> {
+  const log = options.log ?? defaultLog;
+  await ensureStore(cwd);
+
+  log("generate", "Archaeologist analyzing codebase...");
+  const concreteSpec = await runArchaeologist(spec, cwd);
+  await saveConcreteSpec(cwd, concreteSpec);
+  await saveBehaviourContract(cwd, concreteSpec.behaviourContract);
+  return concreteSpec;
 }
 
 // -- Orchestrator: Takeover --------------------------------------------------

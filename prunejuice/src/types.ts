@@ -110,6 +110,7 @@ export type PipelinePhase =
   | "convergence"
   | "cover"
   | "weed"
+  | "verify"
   | "takeover"
   | "change"
   | "sync"
@@ -326,7 +327,7 @@ export interface SpecDiffResult {
 // -- Pipeline MCP types -------------------------------------------------------
 
 export interface VerifyResult {
-  status: "pass" | "fail" | "error";
+  status: "pass" | "fail";
   killRate: number;
   mutationResults: MutationResult[];
   complianceViolations: string[];
