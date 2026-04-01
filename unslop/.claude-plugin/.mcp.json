@@ -1,13 +1,5 @@
 {
   "mcpServers": {
-    "unslop": {
-      "command": "python3",
-      "args": ["-m", "unslop.scripts.mcp_server"],
-      "cwd": "${PROJECT_ROOT}",
-      "env": {
-        "PYTHONPATH": "${CLAUDE_PLUGIN_ROOT}/.."
-      }
-    },
     "prunejuice": {
       "command": "npx",
       "args": ["tsx", "${CLAUDE_PLUGIN_ROOT}/../prunejuice/src/mcp.ts"],

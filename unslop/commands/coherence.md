@@ -24,7 +24,7 @@ If the orchestrator reports a cycle during dependency resolution, stop and repor
 **Targeted mode** (spec path provided):
 
 1. Verify the spec file exists. If not, stop: "Spec not found at `<path>`."
-2. Resolve upstream dependencies: `python ${CLAUDE_PLUGIN_ROOT}/scripts/orchestrator.py deps <spec-path> --root .`
+2. Resolve upstream dependencies: call `prunejuice_resolve_deps` with `{ specPath: "<spec-path>", cwd: "." }`
 3. Resolve reverse dependents: scan the dependency map for specs whose `depends-on` lists reference the target spec path.
 4. For each upstream dependency: read both specs and check for incoherence (same checks as Phase 0e in the generation skill -- type compatibility, constraint compatibility, error contract compatibility, naming consistency).
 5. For each reverse dependent: read both specs and check for incoherence.

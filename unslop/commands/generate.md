@@ -49,15 +49,13 @@ Find all `*.spec.md` files in the project tree (excluding `.unslop/` and `node_m
 
 **3b. Resolve build order**
 
-**Preferred:** If available, use MCP tools (`unslop_check_freshness`, `unslop_build_order`, `unslop_ripple_check`) instead of shelling out to `orchestrator.py`. Fall back to CLI if MCP is not available.
-
 Check if any of the found spec files have `depends-on` frontmatter (look for `---` at the start of any spec file). If dependency frontmatter is found:
 
-1. Call `python ${CLAUDE_PLUGIN_ROOT}/scripts/orchestrator.py build-order .` to get the full build order across all specs.
+1. Call `prunejuice_build_order` with `{ cwd: "." }` to get the full build order across all specs.
 2. Process files in this order instead of arbitrary order.
-3. If the orchestrator reports a cycle, stop and report the error to the user.
+3. If the tool reports a cycle, stop and report the error to the user.
 
-If no specs have `depends-on` frontmatter, or if Python is not available, process in the existing order (this preserves backwards compatibility).
+If no specs have `depends-on` frontmatter, process in the existing order (this preserves backwards compatibility).
 
 **3c. Stage A: Process pending changes (Architect)**
 
@@ -96,7 +94,7 @@ Report the classification of every spec file before proceeding.
 If `--dry-run` was specified, run the ripple-effect analysis instead of dispatching Builders:
 
 1. Collect all spec paths classified as new, stale, modified, conflict, or old_format in Step 4.
-2. Call `python ${CLAUDE_PLUGIN_ROOT}/scripts/orchestrator.py ripple-check <spec-path>... --root .` with all affected spec paths.
+2. Call `prunejuice_ripple_check` with `{ specPaths: [...], cwd: "." }` passing all affected spec paths.
 3. Display the ripple report in three layers:
 
 ```
@@ -129,7 +127,7 @@ This gives the user a complete view of the "blast radius" before committing to a
 
 For each spec file classified as stale, modified, or conflict (i.e., files that will be regenerated), read the spec's frontmatter and check for a `needs-review` field.
 
-**Preferred:** If the MCP server is running and `check_freshness` was used, the `needs_review` field is already in the freshness output. Otherwise read the spec and call `parse_needs_review`.
+Use `prunejuice_check_freshness` -- the `needs_review` field is in the freshness output.
 
 For each spec with `needs-review`, present:
 
