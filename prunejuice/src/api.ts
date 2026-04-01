@@ -49,6 +49,7 @@ import type {
   MutationResult,
   DiscoveredItem,
   ResolvedDiscovery,
+  VerifyResult,
 } from "./types.js";
 
 // -- Logging -----------------------------------------------------------------
@@ -554,6 +555,46 @@ export async function weed(
   return report;
 }
 
+// -- Verify (single-file Saboteur) -------------------------------------------
+
+/**
+ * Run Saboteur verification on a single managed file.
+ * Loads existing pipeline artifacts (spec, tests, implementation) from the store.
+ * Returns a VerifyResult with kill rate, mutation results, and compliance violations.
+ */
+export async function verify(
+  cwd: string,
+  options: {
+    specPath: string;
+    managedFilePath: string;
+    log?: LogFn;
+  },
+): Promise<VerifyResult> {
+  const log = options.log ?? defaultLog;
+  await ensureStore(cwd);
+
+  const existing = await loadPipelineState(cwd);
+  const spec = requireDefined(existing.spec, "spec", "verify");
+  const tests = requireDefined(existing.tests, "tests", "verify");
+  const implementation = requireDefined(
+    existing.implementation,
+    "implementation",
+    "verify",
+  );
+
+  log("generate", `Verifying ${options.managedFilePath} against ${options.specPath}...`);
+
+  const rawReport = await runSaboteur(spec, tests, implementation, cwd);
+  const report = validateSaboteurReport(rawReport);
+
+  return {
+    status: report.verdict === "pass" ? "pass" : "fail",
+    killRate: report.killRate,
+    mutationResults: report.mutationResults,
+    complianceViolations: report.complianceViolations,
+  };
+}
+
 // -- Orchestrator: Takeover --------------------------------------------------
 
 /**
@@ -666,4 +707,5 @@ export type {
   SurvivorClassification,
   TruncatedHash,
   PipelinePhase,
+  VerifyResult,
 } from "./types.js";
