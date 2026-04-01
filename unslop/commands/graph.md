@@ -19,16 +19,15 @@ Check that `.unslop/` exists in the current working directory. If it does not ex
 
 **3. Generate the graph**
 
-Call the orchestrator:
+Call the MCP tools:
 
-```
-python ${CLAUDE_PLUGIN_ROOT}/scripts/orchestrator.py graph [--scope <spec-paths>...] [--no-code] [--stale-only] [--root .]
-```
+1. Call `prunejuice_build_order` with `{ cwd: "." }` to get topological spec ordering.
+2. Call `prunejuice_ripple_check` with `{ specPaths: [...], cwd: "." }` (use all discovered spec paths, or the `--scope` subset if provided) for dependency analysis.
 
-The orchestrator returns JSON with:
-- `mermaid`: The Mermaid graph source string
-- `stats`: Summary counts (abstract specs, concrete specs, managed files)
-- `nodes`: Per-node metadata for programmatic use
+The tools return data with:
+- Topological ordering of specs (from `prunejuice_build_order`)
+- Dependency relationships and ripple paths (from `prunejuice_ripple_check`)
+- Per-node metadata for programmatic use
 
 **4. Display the graph**
 
