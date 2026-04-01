@@ -5,7 +5,10 @@ import { z } from "zod";
 import { checkFreshnessAll, type FreshnessReport } from "./freshness.js";
 import { buildOrder, resolveDeps, type BuildOrderResult } from "./dag.js";
 import { rippleCheck } from "./ripple.js";
-import type { RippleResult } from "./types.js";
+import { deepSyncPlan, bulkSyncPlan, resumeSyncPlan } from "./sync.js";
+import { computeSpecDiff } from "./spec-diff.js";
+import { discoverFiles } from "./discover.js";
+import type { RippleResult, DeepSyncResult, BulkSyncResult, ResumeSyncResult, SpecDiffResult } from "./types.js";
 
 // -- Tool handler (exported for direct testing) --------------------------------
 
@@ -50,6 +53,26 @@ export async function handleRippleCheck({
   cwd: string;
 }): Promise<RippleResult> {
   return rippleCheck(specPaths, cwd);
+}
+
+export interface DeepSyncPlanParams { filePath: string; cwd: string; force?: boolean; }
+export async function handleDeepSyncPlan(params: DeepSyncPlanParams): Promise<DeepSyncResult> {
+  return deepSyncPlan(params.filePath, params.cwd, { force: params.force });
+}
+
+export interface BulkSyncPlanParams { cwd: string; force?: boolean; maxBatchSize?: number; }
+export async function handleBulkSyncPlan(params: BulkSyncPlanParams): Promise<BulkSyncResult> {
+  return bulkSyncPlan(params.cwd, { force: params.force, maxBatchSize: params.maxBatchSize });
+}
+
+export interface SpecDiffParams { oldSpec: string; newSpec: string; }
+export async function handleSpecDiff(params: SpecDiffParams): Promise<SpecDiffResult> {
+  return computeSpecDiff(params.oldSpec, params.newSpec);
+}
+
+export interface DiscoverFilesParams { directory: string; extensions?: string[]; extraExcludes?: string[]; }
+export async function handleDiscoverFiles(params: DiscoverFilesParams): Promise<string[]> {
+  return discoverFiles(params.directory, { extensions: params.extensions, extraExcludes: params.extraExcludes });
 }
 
 // -- Server factory ------------------------------------------------------------
@@ -223,6 +246,188 @@ export function createServer(): McpServer {
             {
               type: "text",
               text: `Unexpected error in prunejuice_ripple_check:\n${message}`,
+            },
+          ],
+        };
+      }
+
+      return {
+        content: [
+          {
+            type: "text",
+            text: JSON.stringify(result, null, 2),
+          },
+        ],
+      };
+    },
+  );
+
+  server.registerTool(
+    "prunejuice_deep_sync_plan",
+    {
+      description:
+        "Compute a sync plan for a single file with dependency ordering. Accepts spec or managed file path.",
+      inputSchema: {
+        filePath: z.string(),
+        cwd: z.string(),
+        force: z.boolean().optional(),
+      },
+    },
+    async (args) => {
+      let result: DeepSyncResult;
+      try {
+        result = await handleDeepSyncPlan({
+          filePath: args.filePath,
+          cwd: args.cwd,
+          force: args.force,
+        });
+      } catch (err: unknown) {
+        const message =
+          err instanceof Error
+            ? `${err.message}\n${err.stack ?? ""}`
+            : String(err);
+        return {
+          isError: true,
+          content: [
+            {
+              type: "text",
+              text: `Unexpected error in prunejuice_deep_sync_plan:\n${message}`,
+            },
+          ],
+        };
+      }
+
+      return {
+        content: [
+          {
+            type: "text",
+            text: JSON.stringify(result, null, 2),
+          },
+        ],
+      };
+    },
+  );
+
+  server.registerTool(
+    "prunejuice_bulk_sync_plan",
+    {
+      description:
+        "Compute a sync plan for all stale files with parallel batch grouping.",
+      inputSchema: {
+        cwd: z.string(),
+        force: z.boolean().optional(),
+        maxBatchSize: z.number().int().optional(),
+      },
+    },
+    async (args) => {
+      let result: BulkSyncResult;
+      try {
+        result = await handleBulkSyncPlan({
+          cwd: args.cwd,
+          force: args.force,
+          maxBatchSize: args.maxBatchSize,
+        });
+      } catch (err: unknown) {
+        const message =
+          err instanceof Error
+            ? `${err.message}\n${err.stack ?? ""}`
+            : String(err);
+        return {
+          isError: true,
+          content: [
+            {
+              type: "text",
+              text: `Unexpected error in prunejuice_bulk_sync_plan:\n${message}`,
+            },
+          ],
+        };
+      }
+
+      return {
+        content: [
+          {
+            type: "text",
+            text: JSON.stringify(result, null, 2),
+          },
+        ],
+      };
+    },
+  );
+
+  server.registerTool(
+    "prunejuice_spec_diff",
+    {
+      description:
+        "Compute section-level diff between two spec versions. Returns changed and unchanged section headings.",
+      inputSchema: {
+        oldSpec: z.string(),
+        newSpec: z.string(),
+      },
+    },
+    async (args) => {
+      let result: SpecDiffResult;
+      try {
+        result = await handleSpecDiff({
+          oldSpec: args.oldSpec,
+          newSpec: args.newSpec,
+        });
+      } catch (err: unknown) {
+        const message =
+          err instanceof Error
+            ? `${err.message}\n${err.stack ?? ""}`
+            : String(err);
+        return {
+          isError: true,
+          content: [
+            {
+              type: "text",
+              text: `Unexpected error in prunejuice_spec_diff:\n${message}`,
+            },
+          ],
+        };
+      }
+
+      return {
+        content: [
+          {
+            type: "text",
+            text: JSON.stringify(result, null, 2),
+          },
+        ],
+      };
+    },
+  );
+
+  server.registerTool(
+    "prunejuice_discover_files",
+    {
+      description:
+        "Find source files in a directory, excluding tests and build artifacts.",
+      inputSchema: {
+        directory: z.string(),
+        extensions: z.array(z.string()).optional(),
+        extraExcludes: z.array(z.string()).optional(),
+      },
+    },
+    async (args) => {
+      let result: string[];
+      try {
+        result = await handleDiscoverFiles({
+          directory: args.directory,
+          extensions: args.extensions,
+          extraExcludes: args.extraExcludes,
+        });
+      } catch (err: unknown) {
+        const message =
+          err instanceof Error
+            ? `${err.message}\n${err.stack ?? ""}`
+            : String(err);
+        return {
+          isError: true,
+          content: [
+            {
+              type: "text",
+              text: `Unexpected error in prunejuice_discover_files:\n${message}`,
             },
           ],
         };
