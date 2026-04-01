@@ -270,3 +270,55 @@ export interface RippleResult {
   };
   buildOrder: string[];
 }
+
+// -- Sync planning results ----------------------------------------------------
+
+export interface SyncPlanEntry {
+  managed: string;
+  spec: string;
+  state: string;
+  cause: "direct" | "transitive" | "ghost-stale" | "retry" | "downstream";
+  concrete?: string;
+}
+
+export interface SyncBatch {
+  batchIndex: number;
+  files: SyncPlanEntry[];
+  size: number;
+}
+
+export interface DeepSyncResult {
+  trigger: string;
+  plan: SyncPlanEntry[];
+  skipped: SyncPlanEntry[];
+  stats: {
+    totalAffected: number;
+    toRegenerate: number;
+    skippedNeedConfirm: number;
+    freshSkipped: number;
+  };
+  buildOrder: string[];
+}
+
+export interface BulkSyncResult {
+  batches: SyncBatch[];
+  skipped: SyncPlanEntry[];
+  stats: {
+    totalStale: number;
+    totalBatches: number;
+    toRegenerate: number;
+    skippedNeedConfirm: number;
+    freshSkipped: number;
+  };
+  buildOrder: string[];
+}
+
+export interface ResumeSyncResult extends BulkSyncResult {
+  resumedFrom: string[];
+  alreadyDone: number;
+}
+
+export interface SpecDiffResult {
+  changedSections: string[];
+  unchangedSections: string[];
+}
