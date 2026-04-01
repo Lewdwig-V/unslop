@@ -50,8 +50,9 @@ async function findSpecFiles(
     let entries;
     try {
       entries = await readdir(current, { withFileTypes: true });
-    } catch {
-      continue;
+    } catch (err: unknown) {
+      if (isEnoent(err)) continue;
+      throw err;
     }
     for (const entry of entries) {
       if (entry.isDirectory()) {
@@ -70,7 +71,7 @@ async function findSpecFiles(
 async function fullScan(absCwd: string): Promise<DAGCache> {
   const specPaths = await findSpecFiles(absCwd, EXCLUDE_DIRS);
   const dag: Record<string, string[]> = {};
-  const manifest: Record<string, string> = {};
+  const manifest: Record<string, TruncatedHash> = {};
 
   for (const absPath of specPaths) {
     const rel = relative(absCwd, absPath);
@@ -308,9 +309,16 @@ export async function ensureDAG(cwd: string): Promise<DAGCache> {
   let diskCache: DAGCache | null = null;
   try {
     const raw = await readFile(cachePath, "utf-8");
-    diskCache = JSON.parse(raw) as DAGCache;
-  } catch {
-    // No cache on disk
+    try {
+      diskCache = JSON.parse(raw) as DAGCache;
+    } catch {
+      // Corrupt cache -- fall through to full scan
+      process.stderr.write(
+        `prunejuice: corrupt dag-cache.json, rebuilding\n`,
+      );
+    }
+  } catch (err: unknown) {
+    if (!isEnoent(err)) throw err;
   }
 
   if (diskCache) {
@@ -392,7 +400,6 @@ export async function resolveDeps(
     if (inStack.has(node)) {
       throw new Error(`Cycle detected involving: ${node}`);
     }
-
     if (visited.has(node)) continue;
 
     visited.add(node);

@@ -224,7 +224,7 @@ export interface DAGCache {
   /** spec_path (relative to cwd) -> list of spec paths it depends on */
   dag: Record<string, string[]>;
   /** spec_path -> content hash of the spec file */
-  manifest: Record<string, string>;
+  manifest: Record<string, TruncatedHash>;
   /** ISO 8601 timestamp for debugging */
   builtAt: string;
 }
@@ -248,7 +248,7 @@ export interface RippleManagedEntry {
   spec: string;
   concrete?: string;
   exists: boolean;
-  currentState: string;
+  currentState: "fresh" | "stale" | "modified" | "conflict" | "pending" | "structural" | "ghost-stale" | "test-drifted" | "new" | "error";
   cause: "direct" | "transitive" | "ghost-stale";
   language?: string;
   error?: string;

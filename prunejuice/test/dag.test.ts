@@ -342,6 +342,27 @@ describe("resolveDeps", () => {
     expect(deps).toEqual([]);
   });
 
+  it("handles diamond dependencies without false cycle detection", async () => {
+    const tmp = await makeTmp();
+    dirs.push(tmp);
+
+    // Diamond: d depends on b and c, both depend on a
+    await writeAt(tmp, "a.spec.md", "---\n---\n# A");
+    await writeAt(tmp, "b.spec.md", "---\ndepends-on:\n  - a.spec.md\n---\n");
+    await writeAt(tmp, "c.spec.md", "---\ndepends-on:\n  - a.spec.md\n---\n");
+    await writeAt(
+      tmp,
+      "d.spec.md",
+      "---\ndepends-on:\n  - b.spec.md\n  - c.spec.md\n---\n",
+    );
+
+    const deps = await resolveDeps("d.spec.md", tmp);
+    expect(deps).toContain("a.spec.md");
+    expect(deps).toContain("b.spec.md");
+    expect(deps).toContain("c.spec.md");
+    expect(deps).not.toContain("d.spec.md");
+  });
+
   it("throws on cycle", async () => {
     const tmp = await makeTmp();
     dirs.push(tmp);

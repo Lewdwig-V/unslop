@@ -145,8 +145,9 @@ async function findImplFiles(
     let entries;
     try {
       entries = await readdir(current, { withFileTypes: true });
-    } catch {
-      continue;
+    } catch (err: unknown) {
+      if (isEnoent(err)) continue;
+      throw err;
     }
     for (const entry of entries) {
       if (entry.isDirectory()) {
@@ -166,7 +167,7 @@ async function classifyManagedFile(
   managedPath: string,
   specPath: string,
   cwd: string,
-): Promise<string> {
+): Promise<RippleManagedEntry["currentState"]> {
   const absCwd = resolve(cwd);
   const absSpec = join(absCwd, specPath);
   const absManaged = join(absCwd, managedPath);
@@ -333,8 +334,9 @@ export async function rippleCheck(
     let content: string;
     try {
       content = await readFile(absPath, "utf-8");
-    } catch {
-      continue;
+    } catch (err: unknown) {
+      if (isEnoent(err)) continue;
+      throw err;
     }
     const meta = parseConcreteSpecFrontmatter(content);
     implMeta.set(rel, meta);
@@ -426,7 +428,8 @@ export async function rippleCheck(
         let exists = true;
         try {
           await stat(absTarget);
-        } catch {
+        } catch (err: unknown) {
+          if (!isEnoent(err)) throw err;
           exists = false;
         }
 
@@ -447,7 +450,8 @@ export async function rippleCheck(
       let exists = true;
       try {
         await stat(absManaged);
-      } catch {
+      } catch (err: unknown) {
+        if (!isEnoent(err)) throw err;
         exists = false;
       }
 
@@ -477,7 +481,8 @@ export async function rippleCheck(
       let exists = true;
       try {
         await stat(absTarget);
-      } catch {
+      } catch (err: unknown) {
+        if (!isEnoent(err)) throw err;
         exists = false;
       }
 
