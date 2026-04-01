@@ -30,6 +30,7 @@ import {
   loadSpec,
   saveSpec,
   saveBehaviourContract,
+  saveConcreteSpec,
   saveTests,
   saveSaboteurReport,
 } from "./store.js";
@@ -357,6 +358,11 @@ async function runTestBuildVerify(
     "runTestBuildVerify",
   );
 
+  // Persist artifacts before writing managed files (managed file headers
+  // hash the stored artifact, so the artifact must exist on disk first).
+  await saveBehaviourContract(state.cwd, behaviourContract);
+  await saveConcreteSpec(state.cwd, concreteSpec);
+
   // Mason → tests (Chinese Wall)
   log("generate", "Mason generating tests from behaviour contract...");
   state.tests = await runMason(behaviourContract);
@@ -487,14 +493,15 @@ export async function cover(
       ...routing.masonTargets.map((t) => `[STRENGTHEN] Test gap: ${t}`),
     );
 
+    // Persist enriched contract BEFORE writing test files (test headers
+    // hash the stored contract artifact, so it must be current on disk).
+    await saveBehaviourContract(cwd, behaviourContract);
+
     // Re-run Mason
     const ts = currentTimestamp();
     tests = await runMason(behaviourContract);
     await writeTestFiles(cwd, tests, ts);
     await saveTests(cwd, tests);
-
-    // Persist enriched contract
-    await saveBehaviourContract(cwd, behaviourContract);
 
     // Re-run Saboteur
     rawReport = await runSaboteur(spec, tests, implementation, cwd);

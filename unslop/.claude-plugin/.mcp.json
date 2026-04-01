@@ -9,8 +9,8 @@
       }
     },
     "prunejuice": {
-      "command": "node",
-      "args": ["${CLAUDE_PLUGIN_ROOT}/../prunejuice/dist/mcp.js"],
+      "command": "npx",
+      "args": ["tsx", "${CLAUDE_PLUGIN_ROOT}/../prunejuice/src/mcp.ts"],
       "cwd": "${PROJECT_ROOT}"
     }
   }
