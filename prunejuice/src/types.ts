@@ -322,3 +322,42 @@ export interface SpecDiffResult {
   changedSections: string[];
   unchangedSections: string[];
 }
+
+// -- Pipeline MCP types -------------------------------------------------------
+
+export interface VerifyResult {
+  status: "pass" | "fail" | "error";
+  killRate: number;
+  mutationResults: MutationResult[];
+  complianceViolations: string[];
+}
+
+/**
+ * Serialised pipeline state for the two-call discovery flow.
+ * Round-trips through the MCP client as JSON.
+ * Contains everything needed to resume from Mason onward.
+ */
+export interface SerialisedPipelineState {
+  spec: Spec;
+  concreteSpec: ConcreteSpec;
+  behaviourContract: BehaviourContract;
+  cwd: string;
+}
+
+export interface GenerateMcpResult {
+  success: boolean;
+  result?: GenerateResult;
+  error?: string;
+}
+
+export interface GenerateDiscoveryPending {
+  status: "discovery_pending";
+  pipelineState: SerialisedPipelineState;
+  discoveries: DiscoveredItem[];
+}
+
+export interface DiscoveryResolutionInput {
+  discoveryId: string;
+  action: "promote" | "dismiss" | "defer";
+  specAmendment?: Partial<Spec>;
+}
