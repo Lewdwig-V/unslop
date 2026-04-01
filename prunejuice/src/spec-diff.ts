@@ -2,13 +2,16 @@ import type { SpecDiffResult } from "./types.js";
 
 function parseMdSections(text: string): Record<string, string> {
   const sections: Record<string, string> = {};
-  let currentHeading: string | null = null;
+  let currentHeading: string | null = "__preamble__";
   const currentLines: string[] = [];
 
   for (const line of text.split("\n")) {
     if (line.startsWith("## ")) {
       if (currentHeading !== null) {
-        sections[currentHeading] = currentLines.join("\n").trim();
+        const content = currentLines.join("\n").trim();
+        if (content || currentHeading !== "__preamble__") {
+          sections[currentHeading] = content;
+        }
       }
       currentHeading = line.slice(3).trim();
       currentLines.length = 0;
@@ -18,7 +21,10 @@ function parseMdSections(text: string): Record<string, string> {
   }
 
   if (currentHeading !== null) {
-    sections[currentHeading] = currentLines.join("\n").trim();
+    const content = currentLines.join("\n").trim();
+    if (content || currentHeading !== "__preamble__") {
+      sections[currentHeading] = content;
+    }
   }
 
   return sections;

@@ -34,7 +34,7 @@ describe("computeSpecDiff", () => {
 
   it("handles specs with no sections", () => {
     const diff = computeSpecDiff("Just text", "Different text");
-    expect(diff.changedSections).toEqual([]);
+    expect(diff.changedSections).toEqual(["__preamble__"]);
     expect(diff.unchangedSections).toEqual([]);
   });
 
@@ -42,5 +42,13 @@ describe("computeSpecDiff", () => {
     const diff = computeSpecDiff("", "");
     expect(diff.changedSections).toEqual([]);
     expect(diff.unchangedSections).toEqual([]);
+  });
+
+  it("detects changes in H1 preamble content", () => {
+    const old = "# Widget Spec\n\nOverview text\n\n## Requirements\n- Fast";
+    const updated = "# Widget Spec v2\n\nNew overview\n\n## Requirements\n- Fast";
+    const diff = computeSpecDiff(old, updated);
+    expect(diff.changedSections).toContain("__preamble__");
+    expect(diff.unchangedSections).toContain("Requirements");
   });
 });

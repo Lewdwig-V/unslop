@@ -65,6 +65,25 @@ export async function handleBulkSyncPlan(params: BulkSyncPlanParams): Promise<Bu
   return bulkSyncPlan(params.cwd, { force: params.force, maxBatchSize: params.maxBatchSize });
 }
 
+export interface ResumeSyncPlanParams {
+  cwd: string;
+  failedFiles: string[];
+  succeededFiles: string[];
+  force?: boolean;
+  maxBatchSize?: number;
+}
+
+export async function handleResumeSyncPlan(
+  params: ResumeSyncPlanParams,
+): Promise<ResumeSyncResult> {
+  return resumeSyncPlan(params.cwd, {
+    failedFiles: params.failedFiles,
+    succeededFiles: params.succeededFiles,
+    force: params.force,
+    maxBatchSize: params.maxBatchSize,
+  });
+}
+
 export interface SpecDiffParams { oldSpec: string; newSpec: string; }
 export async function handleSpecDiff(params: SpecDiffParams): Promise<SpecDiffResult> {
   return computeSpecDiff(params.oldSpec, params.newSpec);
@@ -351,6 +370,40 @@ export function createServer(): McpServer {
           },
         ],
       };
+    },
+  );
+
+  server.registerTool(
+    "prunejuice_resume_sync_plan",
+    {
+      description: "Resume a partial sync after failure. Includes failed files and downstream dependents, excludes succeeded files.",
+      inputSchema: {
+        cwd: z.string().describe("Absolute path to the project root"),
+        failedFiles: z.array(z.string()).describe("Managed file paths that failed"),
+        succeededFiles: z.array(z.string()).describe("Managed file paths that succeeded"),
+        force: z.boolean().optional().describe("Include modified/conflict files"),
+        maxBatchSize: z.number().int().optional().describe("Max files per batch (default 8)"),
+      },
+    },
+    async (args) => {
+      try {
+        const result = await handleResumeSyncPlan({
+          cwd: args.cwd,
+          failedFiles: args.failedFiles,
+          succeededFiles: args.succeededFiles,
+          force: args.force,
+          maxBatchSize: args.maxBatchSize,
+        });
+        return {
+          content: [{ type: "text", text: JSON.stringify(result, null, 2) }],
+        };
+      } catch (err: unknown) {
+        const message = err instanceof Error ? `${err.message}\n${err.stack ?? ""}` : String(err);
+        return {
+          isError: true,
+          content: [{ type: "text", text: `Unexpected error in prunejuice_resume_sync_plan:\n${message}` }],
+        };
+      }
     },
   );
 

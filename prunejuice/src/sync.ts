@@ -141,6 +141,17 @@ function computeParallelBatches(
     }
   }
 
+  // Cycle fallback: emit any specs not yet batched
+  const emittedSpecs = new Set(depthGroups.flatMap((g) => g));
+  const unbatched = entries.filter((e) => !emittedSpecs.has(e.spec));
+  if (unbatched.length > 0) {
+    for (let i = 0; i < unbatched.length; i += maxBatchSize) {
+      const chunk = unbatched.slice(i, i + maxBatchSize);
+      batches.push({ batchIndex, files: chunk, size: chunk.length });
+      batchIndex++;
+    }
+  }
+
   return batches;
 }
 
@@ -343,7 +354,8 @@ export async function resumeSyncPlan(
       try {
         await stat(absSpec);
         failedSpecs.push(specRel);
-      } catch {
+      } catch (err: unknown) {
+        if (!isEnoent(err)) throw err;
         // Spec doesn't exist -- skip
       }
     }
@@ -428,8 +440,12 @@ export async function resumeSyncPlan(
   let buildOrder: string[];
   try {
     buildOrder = topoSort(subgraph);
-  } catch {
-    buildOrder = [...downstreamClosure].sort();
+  } catch (err: unknown) {
+    if (err instanceof Error && err.message.startsWith("Cycle detected")) {
+      buildOrder = [...downstreamClosure].sort();
+    } else {
+      throw err;
+    }
   }
 
   return {
