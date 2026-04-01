@@ -57,6 +57,7 @@ function computeParallelBatches(
   graph: Record<string, string[]>,
   maxBatchSize: number,
 ): SyncBatch[] {
+  if (maxBatchSize < 1) maxBatchSize = 8;
   if (entries.length === 0) return [];
 
   // Build subgraph of only entries' specs
@@ -219,6 +220,16 @@ export async function deepSyncPlan(
     });
   }
 
+  for (const entry of ripple.layers.code.ghostStale) {
+    allEntries.push({
+      managed: entry.managed,
+      spec: entry.spec,
+      state: "ghost-stale",
+      cause: "ghost-stale",
+      concrete: entry.concrete,
+    });
+  }
+
   // Partition
   const { plan, skipped } = partitionPlan(allEntries, force);
 
@@ -291,6 +302,18 @@ export async function bulkSyncPlan(
       state: re.currentState,
       cause: re.cause,
       concrete: re.concrete,
+    });
+  }
+
+  for (const entry of ripple.layers.code.ghostStale) {
+    if (seen.has(entry.managed)) continue;
+    seen.add(entry.managed);
+    allEntries.push({
+      managed: entry.managed,
+      spec: entry.spec,
+      state: "ghost-stale",
+      cause: "ghost-stale",
+      concrete: entry.concrete,
     });
   }
 
@@ -414,6 +437,7 @@ export async function resumeSyncPlan(
 
     const fe = freshnessMap.get(managed);
     const state = fe?.state ?? "stale";
+    if (state === "fresh") continue;
     const cause = failedSet.has(spec) ? "retry" : "downstream";
 
     allEntries.push({

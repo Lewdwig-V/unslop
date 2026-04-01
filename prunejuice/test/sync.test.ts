@@ -114,6 +114,22 @@ describe("deepSyncPlan", () => {
     expect(result.stats.skippedNeedConfirm).toBe(1);
   });
 
+  it("includes modified files in plan when force=true", async () => {
+    const tmp = await makeTmp();
+    dirs.push(tmp);
+
+    const specContent = "---\n---\n# Widget";
+    const origBody = "original code";
+    await writeAt(tmp, "widget.ts.spec.md", specContent);
+    const managed = managedFile(specContent, origBody);
+    const editedManaged = managed.replace(origBody, "user edited code");
+    await writeAt(tmp, "widget.ts", editedManaged);
+
+    const result = await deepSyncPlan("widget.ts.spec.md", tmp, { force: true });
+    expect(result.plan.some((e) => e.managed === "widget.ts")).toBe(true);
+    expect(result.skipped).toEqual([]);
+  });
+
   it("throws for nonexistent spec", async () => {
     const tmp = await makeTmp();
     dirs.push(tmp);
@@ -218,7 +234,7 @@ describe("bulkSyncPlan", () => {
 
     expect(aBatchIdx).toBeGreaterThanOrEqual(0);
     expect(bBatchIdx).toBeGreaterThanOrEqual(0);
-    expect(aBatchIdx).toBeLessThanOrEqual(bBatchIdx);
+    expect(aBatchIdx).toBeLessThan(bBatchIdx);
   });
 });
 
