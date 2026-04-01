@@ -1,5 +1,6 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
+import { fileURLToPath } from "node:url";
 import { z } from "zod";
 import { checkFreshnessAll, type FreshnessReport } from "./freshness.js";
 
@@ -91,7 +92,7 @@ async function main(): Promise<void> {
 // Only run when executed directly (not when imported)
 const isMain =
   process.argv[1] !== undefined &&
-  (await import("node:url")).fileURLToPath(import.meta.url) === process.argv[1];
+  fileURLToPath(import.meta.url) === process.argv[1];
 
 if (isMain) {
   main().catch((err: unknown) => {

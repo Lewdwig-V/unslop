@@ -103,7 +103,7 @@ Output schemas match what the Python tools currently return. Where the Python to
 ```typescript
 // prunejuice_check_freshness
 Input:  { cwd: string, excludePatterns?: string[] }
-Output: { status: "ok" | "fail", files: FreshnessEntry[], summary: string }
+Output: { status: "ok" | "fail", files: FreshnessEntry[], summary: Record<FreshnessState, number> }
 
 // prunejuice_build_order
 Input:  { cwd: string }

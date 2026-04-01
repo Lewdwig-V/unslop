@@ -135,7 +135,10 @@ async function classifyEntry(
     }
   }
 
-  // Parse header from managed file
+  // Parse header from managed file.
+  // Note: "structural" state (codeFileExists=false, headerSpecHash!=null) is
+  // unreachable in Phase 1 because the header lives inside the managed file.
+  // Phase 2 (DAG cache) will track provenance externally to enable this state.
   const header = codeFileExists ? parseHeader(managedContent) : null;
   const headerSpecHash = header ? header.specHash : null;
   const headerOutputHash = header ? header.outputHash : null;
