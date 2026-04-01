@@ -21,7 +21,7 @@ interface ConcreteSpecMeta {
   sourceSpec: string | null;
   concreteDependencies: string[];
   extends: string | null;
-  targets: string[];
+  targets: Array<{ path: string; language?: string }>;
 }
 
 function parseConcreteSpecFrontmatter(content: string): ConcreteSpecMeta {
@@ -44,68 +44,87 @@ function parseConcreteSpecFrontmatter(content: string): ConcreteSpecMeta {
   }
   if (closingIdx === -1) return result;
 
-  const fmLines = lines.slice(1, closingIdx);
-  let currentList: string[] | null = null;
+  let currentField: "concrete-deps" | "targets" | null = null;
+  let currentTarget: { path: string; language?: string } | null = null;
 
-  for (const raw of fmLines) {
-    // Normalize snake_case to kebab-case for the key portion
+  for (let i = 1; i < closingIdx; i++) {
+    const raw = lines[i]!;
+    const stripped = raw.trim();
+    if (stripped === "") continue;
+
+    // Normalize snake_case key
     const colonIdx = raw.indexOf(":");
-    if (colonIdx === -1 && currentList !== null) {
-      const trimmed = raw.trim();
-      if (trimmed.startsWith("- ")) {
-        currentList.push(trimmed.slice(2).trim().replace(/^["']|["']$/g, ""));
-      } else {
-        currentList = null;
+    const key = colonIdx !== -1
+      ? raw.slice(0, colonIdx).trim().replace(/_/g, "-")
+      : "";
+    const value = colonIdx !== -1
+      ? raw.slice(colonIdx + 1).trim().replace(/^["']|["']$/g, "")
+      : "";
+
+    // Check if this is a top-level field (no leading whitespace)
+    if (!raw.startsWith(" ") && !raw.startsWith("\t")) {
+      // Flush any pending target
+      if (currentTarget?.path) {
+        result.targets.push(currentTarget);
+        currentTarget = null;
+      }
+      currentField = null;
+
+      if (key === "source-spec") {
+        result.sourceSpec = value || null;
+      } else if (key === "extends") {
+        result.extends = value || null;
+      } else if (key === "concrete-dependencies") {
+        if (value) {
+          result.concreteDependencies.push(value);
+        } else {
+          currentField = "concrete-deps";
+        }
+      } else if (key === "targets") {
+        currentField = "targets";
       }
       continue;
     }
 
-    const key =
-      colonIdx !== -1
-        ? raw
-            .slice(0, colonIdx)
-            .trim()
-            .replace(/_/g, "-")
-        : raw.trim().replace(/_/g, "-");
-    const value =
-      colonIdx !== -1
-        ? raw
-            .slice(colonIdx + 1)
-            .trim()
-            .replace(/^["']|["']$/g, "")
-        : "";
-
-    currentList = null;
-
-    if (key === "source-spec") {
-      result.sourceSpec = value || null;
-    } else if (key === "extends") {
-      result.extends = value || null;
-    } else if (key === "concrete-dependencies") {
-      if (value.startsWith("[")) {
-        const inner = value.slice(1, value.indexOf("]"));
-        for (const item of inner.split(",")) {
-          const trimmed = item.trim().replace(/^["']|["']$/g, "");
-          if (trimmed) result.concreteDependencies.push(trimmed);
+    // Indented line -- part of a list
+    if (currentField === "concrete-deps" && stripped.startsWith("- ")) {
+      result.concreteDependencies.push(
+        stripped.slice(2).trim().replace(/^["']|["']$/g, ""),
+      );
+    } else if (currentField === "targets") {
+      if (stripped.startsWith("- ")) {
+        // New target entry -- flush previous
+        if (currentTarget?.path) {
+          result.targets.push(currentTarget);
         }
-      } else if (value) {
-        result.concreteDependencies.push(value);
-      } else {
-        currentList = result.concreteDependencies;
-      }
-    } else if (key === "targets") {
-      if (value.startsWith("[")) {
-        const inner = value.slice(1, value.indexOf("]"));
-        for (const item of inner.split(",")) {
-          const trimmed = item.trim().replace(/^["']|["']$/g, "");
-          if (trimmed) result.targets.push(trimmed);
+        // Check for inline `- path: value`
+        const inlineMatch = stripped.match(/^- path:\s*(.+)$/);
+        if (inlineMatch) {
+          currentTarget = { path: inlineMatch[1]!.trim() };
+        } else {
+          // Simple string target (e.g. `- src/foo.py`)
+          const simpleValue = stripped.slice(2).trim().replace(/^["']|["']$/g, "");
+          currentTarget = { path: simpleValue };
         }
-      } else if (value) {
-        result.targets.push(value);
-      } else {
-        currentList = result.targets;
+      } else if (currentTarget && raw.startsWith("    ")) {
+        // Nested field under current target (4-space indent)
+        const fieldMatch = stripped.match(/^(\w[\w-]*):\s*(.+)$/);
+        if (fieldMatch) {
+          const fieldKey = fieldMatch[1]!.replace(/_/g, "-");
+          const fieldVal = fieldMatch[2]!.trim().replace(/^["']|["']$/g, "");
+          if (fieldKey === "language") {
+            currentTarget.language = fieldVal;
+          } else if (fieldKey === "path") {
+            currentTarget.path = fieldVal;
+          }
+        }
       }
     }
+  }
+
+  // Flush remaining target
+  if (currentTarget?.path) {
+    result.targets.push(currentTarget);
   }
 
   return result;
@@ -273,6 +292,14 @@ export async function rippleCheck(
       throw err;
     }
     const meta = parseConcreteSpecFrontmatter(content);
+
+    // Resolve source-spec relative to impl location (may be "../src/api.spec.md")
+    if (meta.sourceSpec) {
+      const implDir = join(absCwd, rel, "..");
+      const resolved = resolve(implDir, meta.sourceSpec);
+      meta.sourceSpec = relative(absCwd, resolved);
+    }
+
     implMeta.set(rel, meta);
 
     if (meta.sourceSpec) {
@@ -346,17 +373,17 @@ export async function rippleCheck(
     const cause = inputSet.has(spec) ? "direct" : "transitive";
 
     // Check if any impl has multi-target
-    let targets: string[] = [];
+    let targetPaths: string[] = [];
     for (const impl of impls) {
       const meta = implMeta.get(impl);
       if (meta && meta.targets.length > 0) {
-        targets = [...targets, ...meta.targets];
+        targetPaths = [...targetPaths, ...meta.targets.map((t) => t.path)];
       }
     }
 
-    if (targets.length > 0) {
+    if (targetPaths.length > 0) {
       // Multi-target: use targets from impl
-      for (const target of targets) {
+      for (const target of targetPaths) {
         const state = await classifyManagedFile(target, spec, cwd);
         const absTarget = join(absCwd, target);
         let exists = true;
@@ -405,12 +432,12 @@ export async function rippleCheck(
     const meta = implMeta.get(impl);
     if (!meta) continue;
 
-    const targets =
+    const targetPaths =
       meta.targets.length > 0
-        ? meta.targets
+        ? meta.targets.map((t) => t.path)
         : [impl.replace(/\.impl\.md$/, "")];
 
-    for (const target of targets) {
+    for (const target of targetPaths) {
       const absTarget = join(absCwd, target);
       let exists = true;
       try {
@@ -455,8 +482,17 @@ export async function rippleCheck(
     }
   }
 
+  // Collect ghost-stale specs for build order
+  const ghostStaleSpecs = new Set<string>();
+  for (const impl of ghostStaleImpls) {
+    const meta = implMeta.get(impl);
+    if (meta?.sourceSpec) ghostStaleSpecs.add(meta.sourceSpec);
+  }
+
+  const allForBuildOrder = new Set([...allAffected, ...ghostStaleSpecs]);
+
   const buildOrder = computeRippleBuildOrder(
-    allAffected,
+    allForBuildOrder,
     dag,
     concreteSpecEdges,
   );

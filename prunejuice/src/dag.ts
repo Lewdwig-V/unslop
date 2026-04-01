@@ -223,6 +223,12 @@ export interface BuildOrderResult {
 export async function ensureDAG(cwd: string): Promise<DAGCache> {
   const absCwd = resolve(cwd);
 
+  // Validate cwd is a readable directory
+  const cwdStat = await stat(absCwd); // let ENOENT/EACCES propagate
+  if (!cwdStat.isDirectory()) {
+    throw new Error(`cwd is not a directory: "${absCwd}"`);
+  }
+
   // Check in-memory cache
   const cached = memoryCache.get(absCwd);
   if (cached) {
