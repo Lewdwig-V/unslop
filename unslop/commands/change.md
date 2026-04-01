@@ -59,7 +59,7 @@ Wait for explicit user confirmation before proceeding. If the user declines, sto
 
 **HARD RULE:** The ripple check runs on every `/unslop:change` invocation. Do not skip it, even for tactical changes.
 
-Call `python ${CLAUDE_PLUGIN_ROOT}/scripts/orchestrator.py ripple-check <spec-path> --root .` (or use MCP `unslop_ripple_check` if available). The spec is guaranteed to exist (Step 1 verified this).
+Call MCP tool `prunejuice_ripple_check` with `{ specPaths: ["<spec-path>"], cwd: "." }`. The spec is guaranteed to exist (Step 1 verified this).
 
 Store the result for:
 - Downstream flagging after spec mutation (Step 5c)
@@ -155,7 +155,7 @@ Inject the failure report contents as "Previous Attempt Post-Mortem" context for
 
 **Stage A (Architect -- current session):**
 0. **Intent Lock (Phase 0a.0):** Draft an Intent Statement from the change description in product language: "I understand you want to [goal]. To achieve this, I'll update [spec] to [constraint]." Present to the user and wait for approval. If rejected: ask "Could you clarify the requirement? I misunderstood [X] as [Y]." and reformulate. The entry remains in `<file>.change.md` until an Intent Lock succeeds. Only proceed to step 1 after explicit approval.
-1. Read the current spec, `.unslop/principles.md` (if it exists), the file tree (`python ${CLAUDE_PLUGIN_ROOT}/scripts/orchestrator.py file-tree .`), and the previous failure report (if injected from Step 5a). Do NOT read the managed source file.
+1. Read the current spec, `.unslop/principles.md` (if it exists), the file tree (use Glob or LS to read the file tree), and the previous failure report (if injected from Step 5a). Do NOT read the managed source file.
 2. Based on the change intent, propose a spec update that captures the change in the spec's constraints/behavior language. Do not describe implementation -- describe intent.
 3. Present the draft spec update to the user for approval.
 
