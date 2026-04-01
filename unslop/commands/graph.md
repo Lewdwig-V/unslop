@@ -31,11 +31,13 @@ The tools return data with:
 
 **4. Display the graph**
 
+Synthesize a Mermaid flowchart from the build order and ripple check results. Use `graph TD` layout with arrows showing dependency direction.
+
 Display the Mermaid source in a fenced code block so the user can copy it to any Mermaid renderer:
 
 ````
 ```mermaid
-<mermaid source from orchestrator>
+<mermaid graph>
 ```
 ````
 

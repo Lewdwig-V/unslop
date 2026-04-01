@@ -198,10 +198,7 @@ jobs:
       - name: Set up Python
         run: uv python install 3.11
       - name: Check managed file freshness
-        uses: anthropics/prunejuice-action@v1
-        with:
-          tool: prunejuice_check_freshness
-          cwd: "."
+        run: uv run python -m unslop.scripts.orchestrator check-freshness .
 ```
 
 3. Write a `version.txt` file at `.unslop/scripts/version.txt` containing the current plugin version (e.g. `0.13.0`). This allows CI to warn if the vendored version is out of sync with the installed unslop plugin.

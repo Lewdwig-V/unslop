@@ -63,7 +63,7 @@ Note: N files are stale due to project principle changes.
 
 Use the `prunejuice_check_freshness` MCP tool with `{ cwd: "." }` to compute freshness for all managed files. This is the only supported path -- there is no CLI fallback.
 
-For files classified as fresh, check if any of their dependencies (from `depends-on` frontmatter in their spec) are stale or conflict. If so, reclassify as `stale*` with the note `(dependency stale)`. To detect transitive staleness, call `prunejuice_check_freshness` with `{ cwd: "." }` and check each dependency's classification using the hash-based method above.
+For files classified as fresh, check if any of their dependencies (from `depends-on` frontmatter in their spec) are stale or conflict. If so, reclassify as `stale*` with the note `(dependency stale)`. Use the freshness report from the initial `prunejuice_check_freshness` call -- look up each dependency's state in the already-returned `files` array.
 
 **Concrete spec ghost staleness.** For files classified as fresh, check if a permanent concrete spec (`*.impl.md`) exists with `concrete-dependencies` in its frontmatter. If any upstream concrete dependency has changed (call `prunejuice_ripple_check` targeting `layers.concrete.ghostStaleImpls`), reclassify as `ghost-stale` with the note indicating which upstream changed:
 
