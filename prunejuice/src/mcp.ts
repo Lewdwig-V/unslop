@@ -3,6 +3,9 @@ import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js"
 import { fileURLToPath } from "node:url";
 import { z } from "zod";
 import { checkFreshnessAll, type FreshnessReport } from "./freshness.js";
+import { buildOrder, resolveDeps, type BuildOrderResult } from "./dag.js";
+import { rippleCheck } from "./ripple.js";
+import type { RippleResult } from "./types.js";
 
 // -- Tool handler (exported for direct testing) --------------------------------
 
@@ -17,6 +20,36 @@ export async function handleCheckFreshness(
   return checkFreshnessAll(params.cwd, {
     excludePatterns: params.excludePatterns,
   });
+}
+
+// -- Tool handlers (exported for direct testing) -------------------------------
+
+export async function handleBuildOrder({
+  cwd,
+}: {
+  cwd: string;
+}): Promise<BuildOrderResult> {
+  return buildOrder(cwd);
+}
+
+export async function handleResolveDeps({
+  specPath,
+  cwd,
+}: {
+  specPath: string;
+  cwd: string;
+}): Promise<string[]> {
+  return resolveDeps(specPath, cwd);
+}
+
+export async function handleRippleCheck({
+  specPaths,
+  cwd,
+}: {
+  specPaths: string[];
+  cwd: string;
+}): Promise<RippleResult> {
+  return rippleCheck(specPaths, cwd);
 }
 
 // -- Server factory ------------------------------------------------------------
@@ -72,6 +105,134 @@ export function createServer(): McpServer {
           {
             type: "text",
             text: JSON.stringify(report, null, 2),
+          },
+        ],
+      };
+    },
+  );
+
+  server.registerTool(
+    "prunejuice_build_order",
+    {
+      description:
+        "Topological sort of spec dependency DAG. Returns specs in build order (leaves first).",
+      inputSchema: {
+        cwd: z.string(),
+      },
+    },
+    async (args) => {
+      let result: BuildOrderResult;
+      try {
+        result = await handleBuildOrder({ cwd: args.cwd });
+      } catch (err: unknown) {
+        const message =
+          err instanceof Error
+            ? `${err.message}\n${err.stack ?? ""}`
+            : String(err);
+        return {
+          isError: true,
+          content: [
+            {
+              type: "text",
+              text: `Unexpected error in prunejuice_build_order:\n${message}`,
+            },
+          ],
+        };
+      }
+
+      return {
+        content: [
+          {
+            type: "text",
+            text: JSON.stringify(result, null, 2),
+          },
+        ],
+      };
+    },
+  );
+
+  server.registerTool(
+    "prunejuice_resolve_deps",
+    {
+      description:
+        "Resolve transitive dependencies of a single spec file. Returns dependency specs in build order (leaves first), excluding the input spec.",
+      inputSchema: {
+        specPath: z.string(),
+        cwd: z.string(),
+      },
+    },
+    async (args) => {
+      let result: string[];
+      try {
+        result = await handleResolveDeps({
+          specPath: args.specPath,
+          cwd: args.cwd,
+        });
+      } catch (err: unknown) {
+        const message =
+          err instanceof Error
+            ? `${err.message}\n${err.stack ?? ""}`
+            : String(err);
+        return {
+          isError: true,
+          content: [
+            {
+              type: "text",
+              text: `Unexpected error in prunejuice_resolve_deps:\n${message}`,
+            },
+          ],
+        };
+      }
+
+      return {
+        content: [
+          {
+            type: "text",
+            text: JSON.stringify(result, null, 2),
+          },
+        ],
+      };
+    },
+  );
+
+  server.registerTool(
+    "prunejuice_ripple_check",
+    {
+      description:
+        "Compute blast radius of spec changes across abstract, concrete, and code layers. Returns affected specs, impls, managed files, and build order.",
+      inputSchema: {
+        specPaths: z.array(z.string()),
+        cwd: z.string(),
+      },
+    },
+    async (args) => {
+      let result: RippleResult;
+      try {
+        result = await handleRippleCheck({
+          specPaths: args.specPaths,
+          cwd: args.cwd,
+        });
+      } catch (err: unknown) {
+        const message =
+          err instanceof Error
+            ? `${err.message}\n${err.stack ?? ""}`
+            : String(err);
+        return {
+          isError: true,
+          content: [
+            {
+              type: "text",
+              text: `Unexpected error in prunejuice_ripple_check:\n${message}`,
+            },
+          ],
+        };
+      }
+
+      return {
+        content: [
+          {
+            type: "text",
+            text: JSON.stringify(result, null, 2),
           },
         ],
       };
