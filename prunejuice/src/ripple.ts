@@ -17,14 +17,14 @@ import type {
   TruncatedHash,
 } from "./types.js";
 
-interface ConcreteSpecMeta {
+export interface ConcreteSpecMeta {
   sourceSpec: string | null;
   concreteDependencies: string[];
   extends: string | null;
   targets: Array<{ path: string; language?: string }>;
 }
 
-function parseConcreteSpecFrontmatter(content: string): ConcreteSpecMeta {
+export function parseConcreteSpecFrontmatter(content: string): ConcreteSpecMeta {
   const lines = content.split("\n");
   const result: ConcreteSpecMeta = {
     sourceSpec: null,
