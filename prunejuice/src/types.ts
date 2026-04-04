@@ -271,6 +271,12 @@ export interface RippleResult {
     code: RippleCodeLayer;
   };
   buildOrder: string[];
+  /**
+   * Concrete spec edges projected to spec space for batch ordering.
+   * Key: spec path. Value: list of spec paths it depends on via extends or
+   * concrete-dependencies (resolved through its impl's source-spec).
+   */
+  concreteEdges: Record<string, string[]>;
 }
 
 // -- Sync planning results ----------------------------------------------------

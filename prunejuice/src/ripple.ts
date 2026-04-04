@@ -538,15 +538,24 @@ export async function rippleCheck(
   // -- Build order ------------------------------------------------------------
 
   const concreteSpecEdges = new Map<string, string[]>();
-  // Project concrete edges to spec space
-  for (const [implRel, meta] of implMeta) {
+  // Project concrete edges (concrete-dependencies + extends) to spec space.
+  // Both edge types mean "parent impl must build before child impl", so they
+  // translate to "parent source-spec must build before child source-spec".
+  for (const [, meta] of implMeta) {
     if (!meta.sourceSpec) continue;
-    for (const dep of meta.concreteDependencies) {
+
+    const upstreamImpls: string[] = [...meta.concreteDependencies];
+    if (meta.extends) upstreamImpls.push(meta.extends);
+
+    for (const dep of upstreamImpls) {
       const depMeta = implMeta.get(dep);
-      if (depMeta?.sourceSpec) {
+      if (depMeta?.sourceSpec && depMeta.sourceSpec !== meta.sourceSpec) {
         if (!concreteSpecEdges.has(meta.sourceSpec))
           concreteSpecEdges.set(meta.sourceSpec, []);
-        concreteSpecEdges.get(meta.sourceSpec)!.push(depMeta.sourceSpec);
+        const existing = concreteSpecEdges.get(meta.sourceSpec)!;
+        if (!existing.includes(depMeta.sourceSpec)) {
+          existing.push(depMeta.sourceSpec);
+        }
       }
     }
   }
@@ -566,6 +575,12 @@ export async function rippleCheck(
     concreteSpecEdges,
   );
 
+  // Convert concreteSpecEdges Map to a plain Record for the result.
+  const concreteEdgesObj: Record<string, string[]> = {};
+  for (const [spec, deps] of concreteSpecEdges) {
+    concreteEdgesObj[spec] = deps;
+  }
+
   return {
     inputSpecs: [...specPaths],
     layers: {
@@ -574,5 +589,6 @@ export async function rippleCheck(
       code: codeLayer,
     },
     buildOrder,
+    concreteEdges: concreteEdgesObj,
   };
 }
