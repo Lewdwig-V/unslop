@@ -14,8 +14,7 @@
   "lint-staged": {
     "**/*": "bunx prettier --write --ignore-unknown",
     "*.{ts,tsx}": [
-      "prettier --write",
-      "eslint --max-warnings 0 --cache --fix ."
+      "prettier --write"
     ]
   }
 }

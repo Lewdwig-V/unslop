@@ -1,2 +1,7 @@
 .worktrees/
 .claude/*.local.md
+
+# Node
+node_modules/
+dist/
+*.log
