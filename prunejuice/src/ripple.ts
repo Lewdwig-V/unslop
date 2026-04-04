@@ -6,8 +6,13 @@ import {
   parseHeader,
   getBodyBelowHeader,
   classifyFreshness,
+  parseManifestLine,
 } from "./hashchain.js";
 import { isEnoent, EXCLUDE_DIRS } from "./fs-utils.js";
+import {
+  diagnoseGhostStaleness,
+} from "./manifest.js";
+import type { GhostStaleDiagnostic } from "./types.js";
 import type {
   RippleResult,
   RippleAbstractLayer,
@@ -437,6 +442,9 @@ export async function rippleCheck(
         ? meta.targets.map((t) => t.path)
         : [impl.replace(/\.impl\.md$/, "")];
 
+    // Try to compute ghost diagnostic from stored manifest
+    let diagnostic: GhostStaleDiagnostic | undefined;
+
     for (const target of targetPaths) {
       const absTarget = join(absCwd, target);
       let exists = true;
@@ -447,6 +455,29 @@ export async function rippleCheck(
         exists = false;
       }
 
+      // Look for stored manifest in managed file header
+      if (exists && !diagnostic) {
+        try {
+          const managedContent = await readFile(absTarget, "utf-8");
+          const headerLines = managedContent.split("\n").slice(0, 10);
+          for (const line of headerLines) {
+            const storedManifest = parseManifestLine(line);
+            if (storedManifest && storedManifest.size > 0) {
+              const diagnostics = await diagnoseGhostStaleness(
+                storedManifest,
+                cwd,
+              );
+              if (diagnostics.length > 0) {
+                diagnostic = diagnostics[0];
+              }
+              break;
+            }
+          }
+        } catch {
+          // If we can't read the managed file, skip diagnostic
+        }
+      }
+
       const entry: RippleManagedEntry = {
         managed: target,
         spec: meta.sourceSpec ?? impl,
@@ -455,6 +486,7 @@ export async function rippleCheck(
         currentState: "ghost-stale",
         cause: "ghost-stale",
         ghostSource: impl,
+        diagnostic,
       };
       ghostStale.push(entry);
     }
