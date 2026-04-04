@@ -116,41 +116,34 @@ The concrete spec (*.impl.md) is an internal artifact of the generate pipeline. 
 ## File Layout
 
 ```
+prunejuice/
+  src/
+    api.ts                  # Library API: five phases + three orchestrators
+    types.ts                # Shared types, branded hashes, discriminated unions
+    pipeline.ts             # queryAgent(), convergence logic, survivor routing
+    hashchain.ts            # SHA-256/12 hashing, managed file headers, freshness
+    store.ts                # Artifact persistence to .prunejuice/
+    dag.ts                  # Dependency graph cache, topological sort, build order
+    ripple.ts               # Three-layer ripple check (abstract/concrete/code)
+    sync.ts                 # deepSync/bulkSync/resumeSync planning + batching
+    manifest.ts             # Concrete deps hashing + ghost staleness diagnostics
+    inheritance.ts          # Extends chain + flattening (STRICT_CHILD_ONLY rules)
+    freshness.ts            # Eight-state freshness classifier
+    discover.ts             # Source file discovery
+    spec-diff.ts            # Spec section diff
+    validators.ts           # Pseudocode lint (ported from Python)
+    mcp.ts                  # MCP server with 15+ tools
+    agents/                 # Architect, Archaeologist, Mason, Builder, Saboteur
+  test/
+    *.test.ts               # vitest unit tests (300+ tests)
+
 unslop/
-  .claude-plugin/plugin.json    # Plugin manifest (version, metadata)
-  commands/*.md                 # 20 command definitions (the execution surface)
-  skills/*/SKILL.md             # 6 skill reference files
-  scripts/
-    orchestrator.py             # Re-export facade for all Python modules
-    core/
-      frontmatter.py            # All frontmatter parsers
-      hashing.py                # SHA-256 hash computation
-      spec_discovery.py         # File discovery and spec parsing
-    freshness/
-      checker.py                # check_freshness() -- state classification
-      manifest.py               # Concrete manifest computation
-    dependencies/
-      graph.py                  # Dependency graph and topo sort
-      unified_dag.py            # Abstract + concrete DAG
-      concrete_graph.py         # Concrete spec inheritance
-    planning/
-      ripple.py                 # Ripple check for downstream impact
-      bulk_sync.py              # Bulk sync planning
-      deep_sync.py              # Deep sync planning
-      resume.py                 # Resume from failed sync
-      graph_renderer.py         # Mermaid graph output
-    validation/
-      spec_diff.py              # Spec diff computation
-    mcp_server.py               # MCP server (8 tools)
-  .unslop/                      # Project state directory
-    config.json                 # Test command, model overrides
-    principles.md               # Project-wide constraints
-    skills/*/SKILL.md           # Project-local domain skills
-    verification/               # Saboteur async results
-    absorbed/                   # Staged originals from absorb
-    exuded/                     # Staged originals from exude
-tests/
-  test_orchestrator.py          # 405 tests for all Python modules
+  commands/                 # Markdown slash commands
+  skills/                   # Domain reference skills
+  hooks/                    # Shell hook scripts (load-context, regenerate-summary)
+  .claude-plugin/
+    plugin.json             # Plugin manifest
+    .mcp.json               # MCP server config pointing to prunejuice
 ```
 
 ## Skill Discovery
@@ -172,11 +165,8 @@ Create project skills with `/unslop:crystallize` (extracts cross-cutting pattern
 ### Commands vs Skills
 Commands are the execution surface -- they define what happens step by step. Skills are reference material -- they define the rules agents follow during execution. Critical constraints must be in the command with HARD RULE format, not only in skills.
 
-### Parser Pattern
-All nested-list frontmatter parsers use `_parse_nested_list_field()` in frontmatter.py. To add a new field: call the helper with (content, field_name, first_key, required_fields). The helper handles frontmatter extraction, state machine parsing, indentation warnings, empty-value detection, and required-field validation.
-
 ### Test Pattern
-Tests are in tests/test_orchestrator.py. Flat functions (not classes). Naming: `test_<function>_<scenario>()`. Parsers import from `unslop.scripts.orchestrator` (the facade). Freshness tests use `tmp_path` fixtures and create `.unslop/` directories.
+Tests are in `prunejuice/test/*.test.ts` using vitest. Flat functions (not classes). Naming: `test('<function> <scenario>', ...)`. Freshness tests create `.unslop/` directories in a temp fixture.
 
 ### Version Bumps
 Always bump plugin.json version when changing commands, skills, or hooks.

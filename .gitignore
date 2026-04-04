@@ -1,5 +1,2 @@
-__pycache__/
-.pytest_cache/
 .worktrees/
-*.egg-info/
 .claude/*.local.md
