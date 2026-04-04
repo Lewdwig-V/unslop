@@ -254,6 +254,7 @@ export interface RippleManagedEntry {
   language?: string;
   error?: string;
   ghostSource?: string;
+  diagnostic?: GhostStaleDiagnostic;
 }
 
 export interface RippleCodeLayer {
@@ -361,4 +362,29 @@ export interface DiscoveryResolutionInput {
   discoveryId: string;
   action: "promote" | "dismiss" | "defer";
   specAmendment?: Partial<Spec>;
+}
+
+// -- Concrete manifest types --------------------------------------------------
+
+/** Sentinel hash for deps that don't exist on disk. */
+export const MISSING_SENTINEL = "000000000000" as TruncatedHash;
+
+/** Sentinel hash for deps that exist but can't be read. */
+export const UNREADABLE_SENTINEL = "ffffffffffff" as TruncatedHash;
+
+export interface ManifestDiff {
+  added: string[];
+  removed: string[];
+  changed: string[];
+}
+
+export interface GhostStaleDiagnostic {
+  /** The upstream spec whose content changed. */
+  changedSpec: string;
+  /** Current hash of the changed spec. */
+  changeHash: TruncatedHash;
+  /** Dependency path from root cause to this spec. */
+  chain: string[];
+  /** What specifically changed in the manifest. */
+  manifestDiff: ManifestDiff;
 }
