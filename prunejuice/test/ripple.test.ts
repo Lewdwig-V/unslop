@@ -4,7 +4,7 @@ import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { rippleCheck } from "../src/ripple.js";
 import { clearDAGCache } from "../src/dag.js";
-import { truncatedHash, formatHeader } from "../src/hashchain.js";
+import { truncatedHash, formatHeader, formatManifestLine } from "../src/hashchain.js";
 import type { TruncatedHash } from "../src/types.js";
 
 // -- Helpers ------------------------------------------------------------------
@@ -227,5 +227,99 @@ describe("rippleCheck", () => {
     const entry = result.layers.code.regenerate[0]!;
     expect(entry.exists).toBe(true);
     expect(entry.currentState).toBe("stale");
+  });
+
+  it("attaches GhostStaleDiagnostic to ghost-stale managed entries", async () => {
+    const tmp = await makeTmp();
+    dirs.push(tmp);
+
+    // Setup: a.spec.md changed, a.impl.md is directly affected
+    // b.impl.md depends on a.impl.md (concrete-dependency) but b.spec.md is not in input
+    // b.impl.md should be ghost-stale WITH a diagnostic
+
+    const aImplContent =
+      "---\nsource-spec: a.spec.md\n---\n## Strategy\nA strategy.";
+    await writeAt(tmp, "a.spec.md", "---\n---\n# A");
+    await writeAt(tmp, "b.spec.md", "---\n---\n# B");
+    await writeAt(tmp, "a.impl.md", aImplContent);
+
+    await writeAt(
+      tmp,
+      "b.impl.md",
+      [
+        "---",
+        "source-spec: b.spec.md",
+        "concrete-dependencies:",
+        "  - a.impl.md",
+        "---",
+        "",
+        "## Strategy",
+        "B strategy.",
+      ].join("\n"),
+    );
+
+    // Create a managed file for b with a stored manifest containing OLD a.impl.md hash
+    const oldAImplContent =
+      "---\nsource-spec: a.spec.md\n---\n## Strategy\nOLD A strategy.";
+    const bBody = "console.log('b')";
+    const bSpecContent = "---\n---\n# B";
+    const bSpecHash = truncatedHash(bSpecContent);
+    const bOutputHash = truncatedHash(bBody);
+    const bHeader = formatHeader("b.spec.md", {
+      specHash: bSpecHash,
+      outputHash: bOutputHash,
+      generated: "2026-01-01T00:00:00Z",
+    });
+    const oldManifest = new Map([
+      ["a.impl.md", truncatedHash(oldAImplContent)],
+    ]);
+    const manifestLine = formatManifestLine(oldManifest);
+
+    await writeAt(tmp, "b", `${bHeader}\n${manifestLine}\n\n${bBody}`);
+
+    const result = await rippleCheck(["a.spec.md"], tmp);
+
+    const ghostEntry = result.layers.code.ghostStale.find(
+      (e) => e.concrete === "b.impl.md",
+    );
+    expect(ghostEntry).toBeDefined();
+    expect(ghostEntry!.diagnostic).toBeDefined();
+    // Diagnostic content must reflect what actually changed, not just exist
+    expect(ghostEntry!.diagnostic!.changedSpec).toBe("a.impl.md");
+    expect(ghostEntry!.diagnostic!.changeHash).toBe(truncatedHash(aImplContent));
+    expect(ghostEntry!.diagnostic!.chain).toContain("a.impl.md");
+    expect(ghostEntry!.diagnostic!.manifestDiff.changed).toEqual(["a.impl.md"]);
+  });
+
+  it("ghost-stale managed entry without stored manifest has undefined diagnostic", async () => {
+    const tmp = await makeTmp();
+    dirs.push(tmp);
+
+    // Same setup as above but no managed file, so no stored manifest to diff against
+    await writeAt(tmp, "a.spec.md", "---\n---\n# A");
+    await writeAt(tmp, "b.spec.md", "---\n---\n# B");
+    await writeAt(
+      tmp,
+      "a.impl.md",
+      "---\nsource-spec: a.spec.md\n---\n## Strategy\nA.",
+    );
+    await writeAt(
+      tmp,
+      "b.impl.md",
+      [
+        "---",
+        "source-spec: b.spec.md",
+        "concrete-dependencies:",
+        "  - a.impl.md",
+        "---",
+      ].join("\n"),
+    );
+
+    const result = await rippleCheck(["a.spec.md"], tmp);
+    const ghostEntry = result.layers.code.ghostStale.find(
+      (e) => e.concrete === "b.impl.md",
+    );
+    expect(ghostEntry).toBeDefined();
+    expect(ghostEntry!.diagnostic).toBeUndefined();
   });
 });

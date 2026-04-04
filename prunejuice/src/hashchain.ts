@@ -178,3 +178,54 @@ export function actionForState(state: FreshnessState): FreshnessAction {
       };
   }
 }
+
+// -- Concrete manifest header line --------------------------------------------
+
+const MANIFEST_LINE_RE = /^[#/]+ concrete-manifest:(.*)$/;
+
+/**
+ * Format a concrete manifest Map as a header-safe line.
+ *
+ * Paths must not contain commas -- they are the entry delimiter. Throws if a
+ * path contains a comma (release-mode invariant: the roundtrip through
+ * `parseManifestLine` would be lossy).
+ */
+export function formatManifestLine(
+  manifest: Map<string, TruncatedHash>,
+  commentStyle: "#" | "//" = "#",
+): string {
+  for (const path of manifest.keys()) {
+    if (path.includes(",")) {
+      throw new Error(
+        `formatManifestLine: dep path contains comma, which is the entry delimiter: ${JSON.stringify(path)}`,
+      );
+    }
+  }
+  const entries = [...manifest.entries()]
+    .sort(([a], [b]) => a.localeCompare(b))
+    .map(([path, hash]) => `${path}:${hash}`)
+    .join(",");
+  return `${commentStyle} concrete-manifest:${entries}`;
+}
+
+/** Parse a concrete-manifest header line back to a Map. Returns null if not a manifest line. */
+export function parseManifestLine(
+  line: string,
+): Map<string, TruncatedHash> | null {
+  const match = line.replace(/^\/\//, "#").match(MANIFEST_LINE_RE);
+  if (!match) return null;
+
+  const body = match[1]!.trim();
+  const result = new Map<string, TruncatedHash>();
+  if (body === "") return result;
+
+  for (const entry of body.split(",")) {
+    const lastColon = entry.lastIndexOf(":");
+    if (lastColon === -1) continue;
+    const path = entry.slice(0, lastColon);
+    const hash = entry.slice(lastColon + 1) as TruncatedHash;
+    result.set(path, hash);
+  }
+
+  return result;
+}

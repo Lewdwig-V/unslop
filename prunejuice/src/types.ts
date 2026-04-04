@@ -254,6 +254,7 @@ export interface RippleManagedEntry {
   language?: string;
   error?: string;
   ghostSource?: string;
+  diagnostic?: GhostStaleDiagnostic;
 }
 
 export interface RippleCodeLayer {
@@ -361,4 +362,34 @@ export interface DiscoveryResolutionInput {
   discoveryId: string;
   action: "promote" | "dismiss" | "defer";
   specAmendment?: Partial<Spec>;
+}
+
+// -- Concrete manifest types --------------------------------------------------
+
+/**
+ * Sentinel hash indicating a dep that didn't exist on disk at manifest
+ * computation time. Distinguishable from real hashes because SHA-256/12
+ * collision with all-zeros is astronomically unlikely (~2^-48).
+ */
+export const MISSING_SENTINEL = "000000000000" as TruncatedHash;
+
+export interface ManifestDiff {
+  readonly added: readonly string[];
+  readonly removed: readonly string[];
+  readonly changed: readonly string[];
+}
+
+export interface GhostStaleDiagnostic {
+  /** The dep whose hash changed between stored manifest and current disk state. */
+  readonly changedSpec: string;
+  /** Current hash of the changed spec (MISSING_SENTINEL if the file was deleted). */
+  readonly changeHash: TruncatedHash;
+  /**
+   * Chain from `changedSpec` to the deepest changed upstream (the root cause).
+   * chain[0] === changedSpec. chain[chain.length-1] is the root cause.
+   * Only contains deps that actually changed -- unchanged intermediaries are skipped.
+   */
+  readonly chain: readonly string[];
+  /** Full structural diff of the manifest (same instance shared across all diagnostics from one call). */
+  readonly manifestDiff: ManifestDiff;
 }

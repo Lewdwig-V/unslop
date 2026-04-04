@@ -6,8 +6,13 @@ import {
   parseHeader,
   getBodyBelowHeader,
   classifyFreshness,
+  parseManifestLine,
 } from "./hashchain.js";
 import { isEnoent, EXCLUDE_DIRS } from "./fs-utils.js";
+import {
+  diagnoseGhostStaleness,
+} from "./manifest.js";
+import type { GhostStaleDiagnostic } from "./types.js";
 import type {
   RippleResult,
   RippleAbstractLayer,
@@ -17,14 +22,47 @@ import type {
   TruncatedHash,
 } from "./types.js";
 
-interface ConcreteSpecMeta {
+export interface ConcreteSpecMeta {
   sourceSpec: string | null;
   concreteDependencies: string[];
   extends: string | null;
   targets: Array<{ path: string; language?: string }>;
 }
 
-function parseConcreteSpecFrontmatter(content: string): ConcreteSpecMeta {
+/**
+ * Construct a ghost-stale RippleManagedEntry with a release-mode invariant
+ * check. A diagnostic may be absent (no stored manifest found) but when
+ * present it must describe this entry's ghost-stale cause.
+ */
+function makeGhostStaleEntry(args: {
+  managed: string;
+  spec: string;
+  concrete: string;
+  exists: boolean;
+  ghostSource: string;
+  diagnostic?: GhostStaleDiagnostic;
+}): RippleManagedEntry {
+  // Release-mode invariant: diagnostics are only valid on ghost-stale entries.
+  // This factory is the only path that sets diagnostic, so the invariant holds
+  // by construction -- the assertion is defensive against future refactors.
+  if (args.diagnostic !== undefined && args.diagnostic.chain.length === 0) {
+    throw new Error(
+      `makeGhostStaleEntry: diagnostic.chain must be non-empty (managed=${args.managed})`,
+    );
+  }
+  return {
+    managed: args.managed,
+    spec: args.spec,
+    concrete: args.concrete,
+    exists: args.exists,
+    currentState: "ghost-stale",
+    cause: "ghost-stale",
+    ghostSource: args.ghostSource,
+    diagnostic: args.diagnostic,
+  };
+}
+
+export function parseConcreteSpecFrontmatter(content: string): ConcreteSpecMeta {
   const lines = content.split("\n");
   const result: ConcreteSpecMeta = {
     sourceSpec: null,
@@ -437,6 +475,9 @@ export async function rippleCheck(
         ? meta.targets.map((t) => t.path)
         : [impl.replace(/\.impl\.md$/, "")];
 
+    // Try to compute ghost diagnostic from stored manifest
+    let diagnostic: GhostStaleDiagnostic | undefined;
+
     for (const target of targetPaths) {
       const absTarget = join(absCwd, target);
       let exists = true;
@@ -447,15 +488,43 @@ export async function rippleCheck(
         exists = false;
       }
 
-      const entry: RippleManagedEntry = {
+      // Look for stored manifest in managed file header.
+      // Narrow readFile errors to ENOENT only -- let diagnoseGhostStaleness
+      // errors propagate so real failures aren't masked.
+      if (exists && !diagnostic) {
+        let managedContent: string | null = null;
+        try {
+          managedContent = await readFile(absTarget, "utf-8");
+        } catch (err: unknown) {
+          if (!isEnoent(err)) throw err;
+        }
+
+        if (managedContent !== null) {
+          const headerLines = managedContent.split("\n").slice(0, 10);
+          for (const line of headerLines) {
+            const storedManifest = parseManifestLine(line);
+            if (storedManifest && storedManifest.size > 0) {
+              const diagnostics = await diagnoseGhostStaleness(
+                storedManifest,
+                cwd,
+              );
+              if (diagnostics.length > 0) {
+                diagnostic = diagnostics[0];
+              }
+              break;
+            }
+          }
+        }
+      }
+
+      const entry = makeGhostStaleEntry({
         managed: target,
         spec: meta.sourceSpec ?? impl,
         concrete: impl,
         exists,
-        currentState: "ghost-stale",
-        cause: "ghost-stale",
         ghostSource: impl,
-      };
+        diagnostic,
+      });
       ghostStale.push(entry);
     }
   }
