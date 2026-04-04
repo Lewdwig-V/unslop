@@ -6,9 +6,12 @@ import {
   getBodyBelowHeader,
   classifyFreshness,
   actionForState,
+  formatManifestLine,
+  parseManifestLine,
   type FreshnessInput,
   type FreshnessState,
 } from "../src/hashchain.js";
+import { MISSING_SENTINEL, UNREADABLE_SENTINEL } from "../src/types.js";
 import type { TruncatedHash } from "../src/types.js";
 
 const hash = (s: string) => truncatedHash(s);
@@ -252,5 +255,68 @@ describe("actionForState", () => {
 
   it("maps structural to error", () => {
     expect(actionForState("structural").kind).toBe("error");
+  });
+});
+
+// -- concrete-manifest header line -------------------------------------------
+
+describe("concrete-manifest header line", () => {
+  it("formats manifest as comma-separated path:hash pairs", () => {
+    const manifest = new Map<string, TruncatedHash>([
+      ["pool.impl.md", "a3f8c2e9b7d1" as TruncatedHash],
+      ["base.impl.md", "7f2e1b8a9c04" as TruncatedHash],
+    ]);
+    const line = formatManifestLine(manifest);
+    expect(line).toBe(
+      "# concrete-manifest:base.impl.md:7f2e1b8a9c04,pool.impl.md:a3f8c2e9b7d1",
+    );
+  });
+
+  it("parses manifest line back to Map", () => {
+    const line =
+      "# concrete-manifest:base.impl.md:7f2e1b8a9c04,pool.impl.md:a3f8c2e9b7d1";
+    const manifest = parseManifestLine(line);
+    expect(manifest).not.toBeNull();
+    expect(manifest!.get("base.impl.md")).toBe("7f2e1b8a9c04");
+    expect(manifest!.get("pool.impl.md")).toBe("a3f8c2e9b7d1");
+  });
+
+  it("roundtrips manifest through format and parse", () => {
+    const original = new Map<string, TruncatedHash>([
+      ["src/pool.impl.md", "a3f8c2e9b7d1" as TruncatedHash],
+      ["shared/base.impl.md", "b3d5a1f8e290" as TruncatedHash],
+    ]);
+    const line = formatManifestLine(original);
+    const parsed = parseManifestLine(line);
+    expect(parsed).not.toBeNull();
+    expect(parsed!.size).toBe(2);
+    expect(parsed!.get("src/pool.impl.md")).toBe("a3f8c2e9b7d1");
+    expect(parsed!.get("shared/base.impl.md")).toBe("b3d5a1f8e290");
+  });
+
+  it("roundtrips sentinel values (MISSING_SENTINEL, UNREADABLE_SENTINEL)", () => {
+    const original = new Map<string, TruncatedHash>([
+      ["pool.impl.md", "a3f8c2e9b7d1" as TruncatedHash],
+      ["missing.impl.md", MISSING_SENTINEL],
+      ["bad.impl.md", UNREADABLE_SENTINEL],
+    ]);
+    const line = formatManifestLine(original);
+    const parsed = parseManifestLine(line);
+    expect(parsed!.get("missing.impl.md")).toBe(MISSING_SENTINEL);
+    expect(parsed!.get("bad.impl.md")).toBe(UNREADABLE_SENTINEL);
+  });
+
+  it("returns null for non-manifest lines", () => {
+    expect(parseManifestLine("# just a comment")).toBeNull();
+    expect(parseManifestLine("// spec-hash:abc")).toBeNull();
+  });
+
+  it("handles empty manifest", () => {
+    const manifest = new Map<string, TruncatedHash>();
+    const line = formatManifestLine(manifest);
+    expect(line).toBe("# concrete-manifest:");
+    const parsed = parseManifestLine(line);
+    expect(parsed).not.toBeNull();
+    expect(parsed!.size).toBe(0);
   });
 });
