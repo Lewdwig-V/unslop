@@ -145,6 +145,32 @@ describe("diagnoseGhostStaleness", () => {
     expect(diagnostics[0]!.changedSpec).toBe("service.impl.md");
     expect(diagnostics[0]!.chain.length).toBeGreaterThanOrEqual(1);
   });
+
+  it("manifest diff is computed against full current state, not partial", async () => {
+    const tmp = await makeTmp();
+    dirs.push(tmp);
+
+    // Two deps: a changed, b unchanged. The manifestDiff must not report b as removed.
+    const aContentOld = "---\nsource-spec: a.spec.md\n---\n## Strategy\nA v1.";
+    const aContentNew = "---\nsource-spec: a.spec.md\n---\n## Strategy\nA v2.";
+    const bContent = "---\nsource-spec: b.spec.md\n---\n## Strategy\nB.";
+
+    await writeAt(tmp, "a.impl.md", aContentNew);
+    await writeAt(tmp, "b.impl.md", bContent);
+
+    const storedManifest = new Map<string, TruncatedHash>([
+      ["a.impl.md", truncatedHash(aContentOld)],
+      ["b.impl.md", truncatedHash(bContent)],
+    ]);
+
+    const diagnostics = await diagnoseGhostStaleness(storedManifest, tmp);
+
+    expect(diagnostics).toHaveLength(1);
+    expect(diagnostics[0]!.changedSpec).toBe("a.impl.md");
+    // The key assertion: b.impl.md must NOT appear in removed
+    expect(diagnostics[0]!.manifestDiff.removed).toEqual([]);
+    expect(diagnostics[0]!.manifestDiff.changed).toEqual(["a.impl.md"]);
+  });
 });
 
 describe("formatGhostDiagnostic", () => {

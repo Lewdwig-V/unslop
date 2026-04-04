@@ -184,9 +184,10 @@ export async function diagnoseGhostStaleness(
   cwd: string,
 ): Promise<GhostStaleDiagnostic[]> {
   const absCwd = resolve(cwd);
-  const diagnostics: GhostStaleDiagnostic[] = [];
 
+  // Pass 1: build full current manifest before computing any diffs
   const currentManifest = new Map<string, TruncatedHash>();
+  const changedDeps: Array<{ depPath: string; currentHash: TruncatedHash }> = [];
 
   for (const [depPath, storedHash] of [...storedManifest.entries()].sort(([a], [b]) => a.localeCompare(b))) {
     const absDep = join(absCwd, depPath);
@@ -196,18 +197,10 @@ export async function diagnoseGhostStaleness(
       depContent = await readFile(absDep, "utf-8");
     } catch (err) {
       if (isEnoent(err)) {
-        if (storedHash === MISSING_SENTINEL) {
-          // Was missing before, still missing -- no change
-          currentManifest.set(depPath, MISSING_SENTINEL);
-          continue;
-        }
         currentManifest.set(depPath, MISSING_SENTINEL);
-        diagnostics.push({
-          changedSpec: depPath,
-          changeHash: MISSING_SENTINEL,
-          chain: [depPath],
-          manifestDiff: diffConcreteManifests(storedManifest, currentManifest),
-        });
+        if (storedHash !== MISSING_SENTINEL) {
+          changedDeps.push({ depPath, currentHash: MISSING_SENTINEL });
+        }
         continue;
       }
       throw err;
@@ -216,16 +209,25 @@ export async function diagnoseGhostStaleness(
     const currentHash = truncatedHash(depContent);
     currentManifest.set(depPath, currentHash);
 
-    if (currentHash === storedHash) continue; // fresh
+    if (currentHash !== storedHash) {
+      changedDeps.push({ depPath, currentHash });
+    }
+  }
 
-    // Changed -- trace the chain for root cause
-    const chain = await traceChangeChain(depPath, cwd);
+  // Pass 2: compute diagnostics with complete manifest diff
+  const manifestDiff = diffConcreteManifests(storedManifest, currentManifest);
+  const diagnostics: GhostStaleDiagnostic[] = [];
+
+  for (const { depPath, currentHash } of changedDeps) {
+    const chain = currentHash === MISSING_SENTINEL
+      ? [depPath]
+      : await traceChangeChain(depPath, cwd);
 
     diagnostics.push({
       changedSpec: depPath,
       changeHash: currentHash,
       chain,
-      manifestDiff: diffConcreteManifests(storedManifest, currentManifest),
+      manifestDiff,
     });
   }
 
