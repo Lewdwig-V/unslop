@@ -3,7 +3,7 @@ import { join, resolve } from "node:path";
 import { truncatedHash } from "./hashchain.js";
 import { isEnoent } from "./fs-utils.js";
 import { parseConcreteSpecFrontmatter } from "./ripple.js";
-import type { TruncatedHash, ManifestDiff } from "./types.js";
+import type { TruncatedHash, ManifestDiff, GhostStaleDiagnostic } from "./types.js";
 import { MISSING_SENTINEL, UNREADABLE_SENTINEL } from "./types.js";
 
 // -- Manifest diffing (pure, no IO) ------------------------------------------
@@ -130,4 +130,123 @@ export async function computeConcreteDepsHash(
     .join("\n");
 
   return truncatedHash(combined);
+}
+
+// -- Ghost staleness chain tracing --------------------------------------------
+
+/**
+ * Walk upstream from a changed dep to find the deepest changed node.
+ * Returns the chain from the direct dep to the deepest upstream.
+ */
+async function traceChangeChain(
+  depPath: string,
+  cwd: string,
+): Promise<string[]> {
+  const absCwd = resolve(cwd);
+  const chain = [depPath];
+  const visited = new Set([depPath]);
+  let current = depPath;
+
+  while (true) {
+    const absPath = join(absCwd, current);
+    let content: string;
+    try {
+      content = await readFile(absPath, "utf-8");
+    } catch {
+      break;
+    }
+
+    const meta = parseConcreteSpecFrontmatter(content);
+    const upstreams = getAllStrategyProviders(meta);
+
+    let foundDeeper = false;
+    for (const up of upstreams) {
+      if (visited.has(up)) continue;
+      visited.add(up);
+      chain.push(up);
+      current = up;
+      foundDeeper = true;
+      break; // depth-first: follow first unvisited upstream
+    }
+
+    if (!foundDeeper) break;
+  }
+
+  return chain;
+}
+
+/**
+ * Compare stored manifest against current disk state.
+ * Returns diagnostics for each dependency that has changed.
+ */
+export async function diagnoseGhostStaleness(
+  storedManifest: Map<string, TruncatedHash>,
+  cwd: string,
+): Promise<GhostStaleDiagnostic[]> {
+  const absCwd = resolve(cwd);
+  const diagnostics: GhostStaleDiagnostic[] = [];
+
+  const currentManifest = new Map<string, TruncatedHash>();
+
+  for (const [depPath, storedHash] of [...storedManifest.entries()].sort(([a], [b]) => a.localeCompare(b))) {
+    const absDep = join(absCwd, depPath);
+    let depContent: string;
+
+    try {
+      depContent = await readFile(absDep, "utf-8");
+    } catch (err) {
+      if (isEnoent(err)) {
+        if (storedHash === MISSING_SENTINEL) {
+          // Was missing before, still missing -- no change
+          currentManifest.set(depPath, MISSING_SENTINEL);
+          continue;
+        }
+        currentManifest.set(depPath, MISSING_SENTINEL);
+        diagnostics.push({
+          changedSpec: depPath,
+          changeHash: MISSING_SENTINEL,
+          chain: [depPath],
+          manifestDiff: diffConcreteManifests(storedManifest, currentManifest),
+        });
+        continue;
+      }
+      throw err;
+    }
+
+    const currentHash = truncatedHash(depContent);
+    currentManifest.set(depPath, currentHash);
+
+    if (currentHash === storedHash) continue; // fresh
+
+    // Changed -- trace the chain for root cause
+    const chain = await traceChangeChain(depPath, cwd);
+
+    diagnostics.push({
+      changedSpec: depPath,
+      changeHash: currentHash,
+      chain,
+      manifestDiff: diffConcreteManifests(storedManifest, currentManifest),
+    });
+  }
+
+  return diagnostics;
+}
+
+/**
+ * Format a ghost staleness diagnostic into a human-readable string.
+ * This is the output the command layer surfaces directly.
+ */
+export function formatGhostDiagnostic(diagnostic: GhostStaleDiagnostic): string {
+  const { changedSpec, changeHash, chain } = diagnostic;
+
+  if (changeHash === MISSING_SENTINEL) {
+    return `upstream \`${changedSpec}\` not found`;
+  }
+
+  if (chain.length <= 1) {
+    return `upstream \`${changedSpec}\` changed`;
+  }
+
+  const via = chain.slice(1).join(" -> ");
+  return `upstream \`${changedSpec}\` changed (via ${via})`;
 }
