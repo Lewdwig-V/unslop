@@ -10,6 +10,7 @@ import {
   mergePatternSections,
   mergeLoweringNotes,
 } from "../src/inheritance.js";
+import { flattenInheritanceChain } from "../src/inheritance.js";
 
 async function makeTmp(): Promise<string> {
   return mkdtemp(join(tmpdir(), "inheritance-test-"));
@@ -268,5 +269,307 @@ describe("mergeLoweringNotes", () => {
     expect(merged).toContain("Use asyncio");
     expect(merged).toContain("### TypeScript");
     expect(merged).toContain("Use Promises");
+  });
+});
+
+describe("flattenInheritanceChain", () => {
+  const dirs2: string[] = [];
+
+  afterEach(async () => {
+    for (const d of dirs2.splice(0)) {
+      await rm(d, { recursive: true, force: true });
+    }
+  });
+
+  it("returns child-only sections when no extends", async () => {
+    const tmp = await makeTmp();
+    dirs2.push(tmp);
+
+    await writeAt(
+      tmp,
+      "a.impl.md",
+      [
+        "---",
+        "source-spec: a.spec.md",
+        "---",
+        "",
+        "## Strategy",
+        "Direct strategy.",
+      ].join("\n"),
+    );
+
+    const result = await flattenInheritanceChain("a.impl.md", tmp);
+
+    expect(result.chain).toEqual(["a.impl.md"]);
+    expect(result.sections.get("Strategy")?.content).toBe("Direct strategy.");
+    expect(result.sections.get("Strategy")?.source).toBe("a.impl.md");
+    expect(result.sections.get("Strategy")?.rule).toBe("strict_child_only");
+  });
+
+  it("STRICT_CHILD_ONLY: child Strategy completely replaces parent Strategy", async () => {
+    const tmp = await makeTmp();
+    dirs2.push(tmp);
+
+    await writeAt(
+      tmp,
+      "parent.impl.md",
+      [
+        "---",
+        "source-spec: parent.spec.md",
+        "---",
+        "",
+        "## Strategy",
+        "Parent strategy -- should NOT appear.",
+      ].join("\n"),
+    );
+    await writeAt(
+      tmp,
+      "child.impl.md",
+      [
+        "---",
+        "source-spec: child.spec.md",
+        "extends: parent.impl.md",
+        "---",
+        "",
+        "## Strategy",
+        "Child strategy -- wins.",
+      ].join("\n"),
+    );
+
+    const result = await flattenInheritanceChain("child.impl.md", tmp);
+
+    const strategy = result.sections.get("Strategy");
+    expect(strategy?.content).toBe("Child strategy -- wins.");
+    expect(strategy?.source).toBe("child.impl.md");
+    expect(strategy?.rule).toBe("strict_child_only");
+  });
+
+  it("STRICT_CHILD_ONLY: parent Strategy purged even when child has no Strategy", async () => {
+    const tmp = await makeTmp();
+    dirs2.push(tmp);
+
+    await writeAt(
+      tmp,
+      "parent.impl.md",
+      [
+        "---",
+        "source-spec: parent.spec.md",
+        "---",
+        "",
+        "## Strategy",
+        "Parent strategy -- should be purged.",
+      ].join("\n"),
+    );
+    await writeAt(
+      tmp,
+      "child.impl.md",
+      [
+        "---",
+        "source-spec: child.spec.md",
+        "extends: parent.impl.md",
+        "---",
+        "",
+        "## Pattern",
+        "- **Key**: Value",
+      ].join("\n"),
+    );
+
+    const result = await flattenInheritanceChain("child.impl.md", tmp);
+
+    // Strategy is STRICT_CHILD_ONLY: since child doesn't define it, it's absent from resolved
+    expect(result.sections.has("Strategy")).toBe(false);
+    // Pattern comes from child
+    expect(result.sections.get("Pattern")?.content).toBe("- **Key**: Value");
+  });
+
+  it("Overridable: child Pattern merges with parent Pattern by key", async () => {
+    const tmp = await makeTmp();
+    dirs2.push(tmp);
+
+    await writeAt(
+      tmp,
+      "parent.impl.md",
+      [
+        "---",
+        "source-spec: parent.spec.md",
+        "---",
+        "",
+        "## Pattern",
+        "- **Concurrency**: async",
+        "- **Backpressure**: bounded",
+      ].join("\n"),
+    );
+    await writeAt(
+      tmp,
+      "child.impl.md",
+      [
+        "---",
+        "source-spec: child.spec.md",
+        "extends: parent.impl.md",
+        "---",
+        "",
+        "## Pattern",
+        "- **Concurrency**: threaded",
+      ].join("\n"),
+    );
+
+    const result = await flattenInheritanceChain("child.impl.md", tmp);
+    const pattern = result.sections.get("Pattern")!;
+    expect(pattern.content).toContain("- **Concurrency**: threaded");
+    expect(pattern.content).toContain("- **Backpressure**: bounded");
+    expect(pattern.rule).toBe("overridable");
+  });
+
+  it("Overridable: Pattern inherited unchanged when child omits it", async () => {
+    const tmp = await makeTmp();
+    dirs2.push(tmp);
+
+    await writeAt(
+      tmp,
+      "parent.impl.md",
+      [
+        "---",
+        "source-spec: parent.spec.md",
+        "---",
+        "",
+        "## Pattern",
+        "- **Key**: Value",
+      ].join("\n"),
+    );
+    await writeAt(
+      tmp,
+      "child.impl.md",
+      [
+        "---",
+        "source-spec: child.spec.md",
+        "extends: parent.impl.md",
+        "---",
+        "",
+        "## Strategy",
+        "Child strategy.",
+      ].join("\n"),
+    );
+
+    const result = await flattenInheritanceChain("child.impl.md", tmp);
+    const pattern = result.sections.get("Pattern")!;
+    expect(pattern.content).toBe("- **Key**: Value");
+    expect(pattern.source).toBe("parent.impl.md");
+  });
+
+  it("Additive: Lowering Notes from child + parent merged with child language winning", async () => {
+    const tmp = await makeTmp();
+    dirs2.push(tmp);
+
+    await writeAt(
+      tmp,
+      "parent.impl.md",
+      [
+        "---",
+        "source-spec: parent.spec.md",
+        "---",
+        "",
+        "## Lowering Notes",
+        "",
+        "### Python",
+        "Use asyncio",
+        "",
+        "### Go",
+        "Use goroutines",
+      ].join("\n"),
+    );
+    await writeAt(
+      tmp,
+      "child.impl.md",
+      [
+        "---",
+        "source-spec: child.spec.md",
+        "extends: parent.impl.md",
+        "---",
+        "",
+        "## Lowering Notes",
+        "",
+        "### Python",
+        "Use trio",
+      ].join("\n"),
+    );
+
+    const result = await flattenInheritanceChain("child.impl.md", tmp);
+    const notes = result.sections.get("Lowering Notes")!;
+    // Child's Python wins
+    expect(notes.content).toContain("Use trio");
+    expect(notes.content).not.toContain("Use asyncio");
+    // Parent's Go preserved
+    expect(notes.content).toContain("Use goroutines");
+    expect(notes.rule).toBe("additive");
+  });
+
+  it("two-level chain: grandparent Pattern inherited to child through parent", async () => {
+    const tmp = await makeTmp();
+    dirs2.push(tmp);
+
+    await writeAt(
+      tmp,
+      "gp.impl.md",
+      [
+        "---",
+        "source-spec: gp.spec.md",
+        "---",
+        "",
+        "## Pattern",
+        "- **Base**: value",
+      ].join("\n"),
+    );
+    await writeAt(
+      tmp,
+      "parent.impl.md",
+      [
+        "---",
+        "source-spec: parent.spec.md",
+        "extends: gp.impl.md",
+        "---",
+        "",
+        "## Pattern",
+        "- **Middle**: value",
+      ].join("\n"),
+    );
+    await writeAt(
+      tmp,
+      "child.impl.md",
+      [
+        "---",
+        "source-spec: child.spec.md",
+        "extends: parent.impl.md",
+        "---",
+        "",
+        "## Strategy",
+        "Child.",
+      ].join("\n"),
+    );
+
+    const result = await flattenInheritanceChain("child.impl.md", tmp);
+    expect(result.chain).toEqual(["child.impl.md", "parent.impl.md", "gp.impl.md"]);
+    const pattern = result.sections.get("Pattern")!;
+    expect(pattern.content).toContain("- **Base**: value");
+    expect(pattern.content).toContain("- **Middle**: value");
+  });
+
+  it("throws InheritanceCycleError on cyclic extends", async () => {
+    const tmp = await makeTmp();
+    dirs2.push(tmp);
+
+    await writeAt(
+      tmp,
+      "a.impl.md",
+      "---\nsource-spec: a.spec.md\nextends: b.impl.md\n---\n",
+    );
+    await writeAt(
+      tmp,
+      "b.impl.md",
+      "---\nsource-spec: b.spec.md\nextends: a.impl.md\n---\n",
+    );
+
+    await expect(flattenInheritanceChain("a.impl.md", tmp)).rejects.toThrow(
+      InheritanceCycleError,
+    );
   });
 });
