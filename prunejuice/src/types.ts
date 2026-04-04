@@ -276,7 +276,7 @@ export interface RippleResult {
    * Key: spec path. Value: list of spec paths it depends on via extends or
    * concrete-dependencies (resolved through its impl's source-spec).
    */
-  concreteEdges: Record<string, string[]>;
+  concreteEdges: Readonly<Record<string, readonly string[]>>;
 }
 
 // -- Sync planning results ----------------------------------------------------
@@ -421,22 +421,42 @@ export interface FlattenedSection {
 
 export interface FlattenedConcreteSpec {
   readonly specPath: string;
-  /** Chain from child to root parent: [child, parent, grandparent, ...] */
-  readonly chain: readonly string[];
+  /**
+   * Non-empty chain from child to root parent: [child, parent, grandparent, ...].
+   * chain[0] is always the input spec; subsequent elements walk up through extends.
+   */
+  readonly chain: readonly [string, ...string[]];
   /** Resolved sections keyed by heading name (e.g. "Strategy", "Pattern"). */
   readonly sections: ReadonlyMap<string, FlattenedSection>;
 }
 
 // -- Collision detection types -----------------------------------------------
 
-export interface CollisionEntry {
-  readonly status: "collision";
-  /** The target file path that multiple specs claim. */
-  readonly targetPath: string;
-  /** Concrete spec paths that claim this target (at least 2). */
-  readonly claimants: readonly string[];
-  /** When set (via preferSpec + force), names the winning claimant. */
-  readonly preferSpec?: string;
-  /** When preferSpec is set, the losing claimants logged for audit. */
-  readonly skippedSpecs?: readonly string[];
-}
+/**
+ * A target path claimed by two or more distinct sources. Claimants identify
+ * the originating source of each claim -- a concrete impl path when the claim
+ * comes through a `.impl.md` file, or an abstract spec path when the claim
+ * comes from the default single-target convention (`foo.spec.md` -> `foo`).
+ *
+ * The discriminated union encodes whether a human ratification (`preferSpec`)
+ * has resolved the collision:
+ *   - `unresolved`: execution is blocked until the user picks a winner
+ *   - `resolved`: winner proceeds, losers are skipped with audit trail
+ */
+export type CollisionEntry =
+  | {
+      readonly status: "unresolved";
+      /** The target file path that multiple sources claim. */
+      readonly targetPath: string;
+      /** Claimant identifiers (impl paths or spec paths) at least 2 entries. */
+      readonly claimants: readonly [string, string, ...string[]];
+    }
+  | {
+      readonly status: "resolved";
+      readonly targetPath: string;
+      readonly claimants: readonly [string, string, ...string[]];
+      /** The winning claimant, must be a member of `claimants`. */
+      readonly preferSpec: string;
+      /** The losing claimants, logged for audit trail. */
+      readonly skippedSpecs: readonly string[];
+    };

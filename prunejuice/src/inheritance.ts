@@ -54,27 +54,14 @@ export class InheritanceCycleError extends Error {
 export async function resolveExtendsChain(
   specPath: string,
   cwd: string,
-): Promise<string[]> {
+): Promise<[string, ...string[]]> {
   const absCwd = resolve(cwd);
-  const chain: string[] = [];
-  const visited = new Set<string>();
+  const chain: [string, ...string[]] = [specPath];
+  const visited = new Set<string>([resolve(absCwd, specPath)]);
   let current: string | null = specPath;
 
   while (current !== null) {
     const absPath = resolve(absCwd, current);
-
-    if (visited.has(absPath)) {
-      throw new InheritanceCycleError([...chain, current]);
-    }
-
-    chain.push(current);
-    visited.add(absPath);
-
-    if (chain.length > MAX_EXTENDS_DEPTH) {
-      throw new Error(
-        `Extends chain exceeds maximum depth of ${MAX_EXTENDS_DEPTH}: ${chain.join(" -> ")}. Flatten the hierarchy.`,
-      );
-    }
 
     let content: string;
     try {
@@ -82,7 +69,7 @@ export async function resolveExtendsChain(
     } catch (err) {
       if (isEnoent(err)) {
         if (chain.length === 1) {
-          // Starting impl doesn't exist -- return chain as-is
+          // Starting impl doesn't exist -- return chain as-is (length 1)
           return chain;
         }
         throw new Error(
@@ -93,7 +80,24 @@ export async function resolveExtendsChain(
     }
 
     const meta = parseConcreteSpecFrontmatter(content);
-    current = meta.extends;
+    const next = meta.extends;
+    if (next === null) break;
+
+    const nextAbs = resolve(absCwd, next);
+    if (visited.has(nextAbs)) {
+      throw new InheritanceCycleError([...chain, next]);
+    }
+
+    chain.push(next);
+    visited.add(nextAbs);
+
+    if (chain.length > MAX_EXTENDS_DEPTH) {
+      throw new Error(
+        `Extends chain exceeds maximum depth of ${MAX_EXTENDS_DEPTH}: ${chain.join(" -> ")}. Flatten the hierarchy.`,
+      );
+    }
+
+    current = next;
   }
 
   return chain;
@@ -246,15 +250,14 @@ export async function flattenInheritanceChain(
   const absCwd = resolve(cwd);
   const chain = await resolveExtendsChain(specPath, cwd);
 
-  // Single-element chain: just return the child's own sections
+  // Single-element chain: just return the child's own sections.
+  // If the starting spec doesn't exist, resolveExtendsChain returns [specPath]
+  // without throwing, but we fail fast here -- a caller that wants to tolerate
+  // a missing starting spec must handle ENOENT explicitly. Empty sections vs.
+  // missing file is the kind of ambiguity that creates debugging disasters.
   if (chain.length <= 1) {
     const absPath = resolve(absCwd, specPath);
-    let content = "";
-    try {
-      content = await readFile(absPath, "utf-8");
-    } catch (err) {
-      if (!isEnoent(err)) throw err;
-    }
+    const content = await readFile(absPath, "utf-8");
 
     const childSections = extractSections(content);
     const sections = new Map<string, FlattenedSection>();
@@ -270,16 +273,15 @@ export async function flattenInheritanceChain(
 
   // Read each level of the chain. chain is [child, parent, grandparent, ...]
   // We process in reversed order (root -> child) so parent sections build up first.
+  //
+  // No ENOENT catch here: resolveExtendsChain already validated every file in
+  // the chain exists (it threw "Missing parent" otherwise). Any ENOENT at this
+  // point is a TOCTOU race or invariant violation and must propagate.
   type Level = { path: string; sections: Map<string, string> };
   const levels: Level[] = [];
   for (const path of [...chain].reverse()) {
     const absPath = resolve(absCwd, path);
-    let content = "";
-    try {
-      content = await readFile(absPath, "utf-8");
-    } catch (err) {
-      if (!isEnoent(err)) throw err;
-    }
+    const content = await readFile(absPath, "utf-8");
     levels.push({ path, sections: extractSections(content) });
   }
 

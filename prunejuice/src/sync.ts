@@ -86,24 +86,26 @@ function detectCollisions(
   for (const [targetPath, claimantSet] of byTarget) {
     if (claimantSet.size < 2) continue; // no collision
 
-    const claimants = [...claimantSet].sort();
+    const sorted = [...claimantSet].sort();
+    // Safe cast: claimantSet.size >= 2 guarantees at least 2 elements
+    const claimants = sorted as unknown as readonly [string, string, ...string[]];
     const winner = preferSpec[targetPath];
 
     if (winner && claimants.includes(winner)) {
       // Resolved: winner proceeds, losers skipped
-      const skipped = claimants.filter((c) => c !== winner);
+      const skippedSpecs = claimants.filter((c) => c !== winner);
       collisions.push({
-        status: "collision",
+        status: "resolved",
         targetPath,
         claimants,
         preferSpec: winner,
-        skippedSpecs: skipped,
+        skippedSpecs,
       });
       allowedClaimant.set(targetPath, winner);
     } else {
       // Unresolved: block all claimants
       collisions.push({
-        status: "collision",
+        status: "unresolved",
         targetPath,
         claimants,
       });
@@ -149,7 +151,7 @@ function partitionPlan(
 function computeParallelBatches(
   entries: SyncPlanEntry[],
   graph: Record<string, string[]>,
-  concreteEdges: Record<string, string[]>,
+  concreteEdges: Readonly<Record<string, readonly string[]>>,
   maxBatchSize: number,
 ): SyncBatch[] {
   if (maxBatchSize < 1) maxBatchSize = 8;

@@ -352,4 +352,39 @@ describe("rippleCheck", () => {
     // child.spec.md depends on parent.spec.md via the extends edge on the impl files
     expect(result.concreteEdges["child.spec.md"]).toContain("parent.spec.md");
   });
+
+  it("concreteEdges deduplicates when extends and concrete-dependencies point to same parent", async () => {
+    const tmp = await makeTmp();
+    dirs.push(tmp);
+
+    await writeAt(tmp, "parent.spec.md", "---\n---\n# Parent");
+    await writeAt(tmp, "child.spec.md", "---\n---\n# Child");
+    await writeAt(
+      tmp,
+      "parent.impl.md",
+      "---\nsource-spec: parent.spec.md\n---\n## Strategy\nP.",
+    );
+    // child extends parent.impl.md AND lists it in concrete-dependencies
+    await writeAt(
+      tmp,
+      "child.impl.md",
+      [
+        "---",
+        "source-spec: child.spec.md",
+        "extends: parent.impl.md",
+        "concrete-dependencies:",
+        "  - parent.impl.md",
+        "---",
+        "## Strategy",
+        "C.",
+      ].join("\n"),
+    );
+
+    const result = await rippleCheck(["parent.spec.md"], tmp);
+
+    // Should appear exactly once, not twice
+    const childDeps = result.concreteEdges["child.spec.md"];
+    expect(childDeps).toBeDefined();
+    expect(childDeps!.filter((d) => d === "parent.spec.md")).toHaveLength(1);
+  });
 });

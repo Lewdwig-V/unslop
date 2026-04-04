@@ -140,6 +140,32 @@ describe("resolveExtendsChain", () => {
     );
   });
 
+  it("throws InheritanceCycleError on three-node cycle a -> b -> c -> a", async () => {
+    const tmp = await makeTmp();
+    dirs.push(tmp);
+
+    await writeAt(
+      tmp,
+      "a.impl.md",
+      "---\nsource-spec: a.spec.md\nextends: b.impl.md\n---\n",
+    );
+    await writeAt(
+      tmp,
+      "b.impl.md",
+      "---\nsource-spec: b.spec.md\nextends: c.impl.md\n---\n",
+    );
+    await writeAt(
+      tmp,
+      "c.impl.md",
+      "---\nsource-spec: c.spec.md\nextends: a.impl.md\n---\n",
+    );
+
+    // Must throw cycle error, NOT depth error -- cycle is the more specific diagnosis
+    await expect(resolveExtendsChain("a.impl.md", tmp)).rejects.toThrow(
+      InheritanceCycleError,
+    );
+  });
+
   it("throws when parent in extends chain does not exist", async () => {
     const tmp = await makeTmp();
     dirs.push(tmp);
@@ -551,6 +577,111 @@ describe("flattenInheritanceChain", () => {
     const pattern = result.sections.get("Pattern")!;
     expect(pattern.content).toContain("- **Base**: value");
     expect(pattern.content).toContain("- **Middle**: value");
+  });
+
+  it("attribution in 3-level chain: Pattern source is most specific contributor", async () => {
+    const tmp = await makeTmp();
+    dirs2.push(tmp);
+
+    // gp defines Pattern with one key, parent adds another, child doesn't touch it
+    await writeAt(
+      tmp,
+      "gp.impl.md",
+      [
+        "---",
+        "source-spec: gp.spec.md",
+        "---",
+        "",
+        "## Pattern",
+        "- **GPKey**: gpvalue",
+      ].join("\n"),
+    );
+    await writeAt(
+      tmp,
+      "parent.impl.md",
+      [
+        "---",
+        "source-spec: parent.spec.md",
+        "extends: gp.impl.md",
+        "---",
+        "",
+        "## Pattern",
+        "- **ParentKey**: parentvalue",
+      ].join("\n"),
+    );
+    await writeAt(
+      tmp,
+      "child.impl.md",
+      [
+        "---",
+        "source-spec: child.spec.md",
+        "extends: parent.impl.md",
+        "---",
+        "",
+        "## Strategy",
+        "Child-only section.",
+      ].join("\n"),
+    );
+
+    const result = await flattenInheritanceChain("child.impl.md", tmp);
+    const pattern = result.sections.get("Pattern")!;
+    // Both keys merged
+    expect(pattern.content).toContain("- **GPKey**: gpvalue");
+    expect(pattern.content).toContain("- **ParentKey**: parentvalue");
+    // Source attribution: parent is the most specific contributor, since child didn't add to Pattern
+    expect(pattern.source).toBe("parent.impl.md");
+  });
+
+  it("STRICT_CHILD_ONLY at depth 3: parent Strategy purged even when grandparent and parent both define it", async () => {
+    const tmp = await makeTmp();
+    dirs2.push(tmp);
+
+    // gp and parent both define Strategy. Child defines a different section.
+    // Strategy must be ABSENT from the flattened result (STRICT_CHILD_ONLY purge).
+    await writeAt(
+      tmp,
+      "gp.impl.md",
+      [
+        "---",
+        "source-spec: gp.spec.md",
+        "---",
+        "",
+        "## Strategy",
+        "GP strategy -- must be purged.",
+      ].join("\n"),
+    );
+    await writeAt(
+      tmp,
+      "parent.impl.md",
+      [
+        "---",
+        "source-spec: parent.spec.md",
+        "extends: gp.impl.md",
+        "---",
+        "",
+        "## Strategy",
+        "Parent strategy -- must also be purged.",
+      ].join("\n"),
+    );
+    await writeAt(
+      tmp,
+      "child.impl.md",
+      [
+        "---",
+        "source-spec: child.spec.md",
+        "extends: parent.impl.md",
+        "---",
+        "",
+        "## Pattern",
+        "- **Key**: value",
+      ].join("\n"),
+    );
+
+    const result = await flattenInheritanceChain("child.impl.md", tmp);
+    // Strategy is STRICT_CHILD_ONLY: child doesn't define it, parent/gp's versions are both purged
+    expect(result.sections.has("Strategy")).toBe(false);
+    // Pattern from child is present
+    expect(result.sections.get("Pattern")?.content).toBe("- **Key**: value");
   });
 
   it("throws InheritanceCycleError on cyclic extends", async () => {

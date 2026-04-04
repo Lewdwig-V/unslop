@@ -270,4 +270,79 @@ describe("collision detection", () => {
     // The winner is the abstract spec (no concrete field)
     expect(sharedEntries[0]!.concrete).toBeUndefined();
   });
+
+  it("accumulates multiple independent collisions in one plan", async () => {
+    const tmp = await makeTmp();
+    dirs.push(tmp);
+
+    // Two independent collisions on different targets
+    for (const name of ["a1", "a2"]) {
+      await writeAt(tmp, `${name}.spec.md`, "---\n---\n# X");
+      await writeAt(
+        tmp,
+        `${name}.impl.md`,
+        `---\nsource-spec: ${name}.spec.md\ntargets:\n  - path: src/shared1.ts\n    language: typescript\n---`,
+      );
+    }
+    for (const name of ["b1", "b2"]) {
+      await writeAt(tmp, `${name}.spec.md`, "---\n---\n# X");
+      await writeAt(
+        tmp,
+        `${name}.impl.md`,
+        `---\nsource-spec: ${name}.spec.md\ntargets:\n  - path: src/shared2.ts\n    language: typescript\n---`,
+      );
+    }
+
+    const result = await bulkSyncPlan(tmp);
+
+    // Both collisions recorded
+    expect(result.collisions).toHaveLength(2);
+    const paths = result.collisions.map((c) => c.targetPath).sort();
+    expect(paths).toEqual(["src/shared1.ts", "src/shared2.ts"]);
+
+    // Both targets blocked from plan
+    const allPlanEntries = result.batches.flatMap((b) => b.files);
+    expect(
+      allPlanEntries.filter((e) => e.managed === "src/shared1.ts"),
+    ).toHaveLength(0);
+    expect(
+      allPlanEntries.filter((e) => e.managed === "src/shared2.ts"),
+    ).toHaveLength(0);
+  });
+
+  it("preferSpec with claimant not in the set falls through to unresolved", async () => {
+    const tmp = await makeTmp();
+    dirs.push(tmp);
+
+    await writeAt(tmp, "a.spec.md", "---\n---\n# A");
+    await writeAt(tmp, "b.spec.md", "---\n---\n# B");
+    await writeAt(
+      tmp,
+      "a.impl.md",
+      "---\nsource-spec: a.spec.md\ntargets:\n  - path: src/shared.ts\n    language: typescript\n---",
+    );
+    await writeAt(
+      tmp,
+      "b.impl.md",
+      "---\nsource-spec: b.spec.md\ntargets:\n  - path: src/shared.ts\n    language: typescript\n---",
+    );
+
+    // User typo'd the winner -- "c.impl.md" isn't in the claimants
+    const result = await bulkSyncPlan(tmp, {
+      force: true,
+      preferSpec: { "src/shared.ts": "c.impl.md" },
+    });
+
+    // Must fall through to unresolved (safe default) -- not silently accept the typo
+    expect(result.collisions).toHaveLength(1);
+    expect(result.collisions[0]!.status).toBe("unresolved");
+    expect(result.collisions[0]!.preferSpec).toBeUndefined();
+
+    // Both entries still blocked
+    const allPlanEntries = result.batches.flatMap((b) => b.files);
+    const sharedEntries = allPlanEntries.filter(
+      (e) => e.managed === "src/shared.ts",
+    );
+    expect(sharedEntries).toHaveLength(0);
+  });
 });
