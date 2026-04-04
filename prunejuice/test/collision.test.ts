@@ -200,4 +200,74 @@ describe("collision detection", () => {
     expect(result.collisions).toHaveLength(1);
     expect(result.collisions[0]!.claimants).toHaveLength(3);
   });
+
+  it("detects collision between abstract single-target and concrete multi-target", async () => {
+    const tmp = await makeTmp();
+    dirs.push(tmp);
+
+    // Abstract spec A uses default single-target convention: src/shared.ts.spec.md -> src/shared.ts
+    // No impl file for A -- pure abstract single-target.
+    await writeAt(tmp, "src/shared.ts.spec.md", "---\n---\n# A");
+
+    // Concrete spec B explicitly targets the same file via its impl
+    await writeAt(tmp, "b.spec.md", "---\n---\n# B");
+    await writeAt(
+      tmp,
+      "b.impl.md",
+      [
+        "---",
+        "source-spec: b.spec.md",
+        "targets:",
+        "  - path: src/shared.ts",
+        "    language: typescript",
+        "---",
+      ].join("\n"),
+    );
+
+    const result = await bulkSyncPlan(tmp);
+
+    // Both should be detected as claiming src/shared.ts
+    expect(result.collisions).toHaveLength(1);
+    expect(result.collisions[0]!.targetPath).toBe("src/shared.ts");
+    expect(result.collisions[0]!.claimants).toContain("src/shared.ts.spec.md");
+    expect(result.collisions[0]!.claimants).toContain("b.impl.md");
+
+    // Neither entry should be in the plan (unresolved collision blocks both)
+    const allPlanEntries = result.batches.flatMap((b) => b.files);
+    const sharedEntries = allPlanEntries.filter(
+      (e) => e.managed === "src/shared.ts",
+    );
+    expect(sharedEntries).toHaveLength(0);
+  });
+
+  it("preferSpec resolves abstract-vs-concrete collision when winner is the abstract spec", async () => {
+    const tmp = await makeTmp();
+    dirs.push(tmp);
+
+    await writeAt(tmp, "src/shared.ts.spec.md", "---\n---\n# A");
+    await writeAt(tmp, "b.spec.md", "---\n---\n# B");
+    await writeAt(
+      tmp,
+      "b.impl.md",
+      "---\nsource-spec: b.spec.md\ntargets:\n  - path: src/shared.ts\n    language: typescript\n---",
+    );
+
+    const result = await bulkSyncPlan(tmp, {
+      force: true,
+      preferSpec: { "src/shared.ts": "src/shared.ts.spec.md" },
+    });
+
+    expect(result.collisions).toHaveLength(1);
+    expect(result.collisions[0]!.preferSpec).toBe("src/shared.ts.spec.md");
+    expect(result.collisions[0]!.skippedSpecs).toContain("b.impl.md");
+
+    // The abstract spec's entry should proceed
+    const allPlanEntries = result.batches.flatMap((b) => b.files);
+    const sharedEntries = allPlanEntries.filter(
+      (e) => e.managed === "src/shared.ts",
+    );
+    expect(sharedEntries).toHaveLength(1);
+    // The winner is the abstract spec (no concrete field)
+    expect(sharedEntries[0]!.concrete).toBeUndefined();
+  });
 });

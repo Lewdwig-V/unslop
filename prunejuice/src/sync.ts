@@ -39,17 +39,28 @@ export interface ResumeSyncOptions {
 // -- Internal helpers ---------------------------------------------------------
 
 /**
- * Detect target collisions across concrete specs.
+ * Identify the claimant for a sync plan entry. Concrete-spec-backed entries
+ * use the impl path; plain abstract single-target entries use the spec path.
+ * This lets collision detection see conflicts across both styles.
+ */
+function claimantOf(entry: SyncPlanEntry): string {
+  return entry.concrete ?? entry.spec;
+}
+
+/**
+ * Detect target collisions across concrete and abstract specs.
  *
  * Scans all plan entries and groups them by managed target path. Any target
- * claimed by more than one concrete spec produces a CollisionEntry. If
- * `preferSpec` names a winner for a given target, the collision is marked
- * resolved -- the winner proceeds normally and losers are skipped with audit.
+ * claimed by more than one source (concrete impl OR abstract spec) produces a
+ * CollisionEntry. If `preferSpec` names a winner for a given target, the
+ * collision is marked resolved -- the winner proceeds normally and losers are
+ * skipped with audit.
  *
  * Returns:
  *   - `collisions`: list of collision records (one per conflicting target)
  *   - `blockedTargets`: set of target paths with unresolved collisions
- *   - `allowedByConcrete`: for resolved collisions, targetPath -> winning concrete
+ *   - `allowedClaimant`: for resolved collisions, targetPath -> winning claimant
+ *     (matches the result of `claimantOf` on the winning entry)
  */
 function detectCollisions(
   entries: SyncPlanEntry[],
@@ -57,19 +68,20 @@ function detectCollisions(
 ): {
   collisions: CollisionEntry[];
   blockedTargets: Set<string>;
-  allowedByConcrete: Map<string, string>;
+  allowedClaimant: Map<string, string>;
 } {
-  // Group entries by target path, tracking unique concrete specs per target
+  // Group entries by target path, tracking unique claimants per target.
+  // Claimant identity = concrete impl path when present, otherwise spec path.
   const byTarget = new Map<string, Set<string>>();
   for (const entry of entries) {
-    if (!entry.concrete) continue; // only collisions between concrete specs
+    const key = claimantOf(entry);
     if (!byTarget.has(entry.managed)) byTarget.set(entry.managed, new Set());
-    byTarget.get(entry.managed)!.add(entry.concrete);
+    byTarget.get(entry.managed)!.add(key);
   }
 
   const collisions: CollisionEntry[] = [];
   const blockedTargets = new Set<string>();
-  const allowedByConcrete = new Map<string, string>();
+  const allowedClaimant = new Map<string, string>();
 
   for (const [targetPath, claimantSet] of byTarget) {
     if (claimantSet.size < 2) continue; // no collision
@@ -87,7 +99,7 @@ function detectCollisions(
         preferSpec: winner,
         skippedSpecs: skipped,
       });
-      allowedByConcrete.set(targetPath, winner);
+      allowedClaimant.set(targetPath, winner);
     } else {
       // Unresolved: block all claimants
       collisions.push({
@@ -99,14 +111,14 @@ function detectCollisions(
     }
   }
 
-  return { collisions, blockedTargets, allowedByConcrete };
+  return { collisions, blockedTargets, allowedClaimant };
 }
 
 function partitionPlan(
   entries: SyncPlanEntry[],
   force: boolean,
   blockedTargets: Set<string>,
-  allowedByConcrete: Map<string, string>,
+  allowedClaimant: Map<string, string>,
 ): { plan: SyncPlanEntry[]; skipped: SyncPlanEntry[] } {
   const plan: SyncPlanEntry[] = [];
   const skipped: SyncPlanEntry[] = [];
@@ -117,8 +129,8 @@ function partitionPlan(
       // Unresolved collision -- block this entry
       continue;
     }
-    const winner = allowedByConcrete.get(entry.managed);
-    if (winner !== undefined && entry.concrete !== winner) {
+    const winner = allowedClaimant.get(entry.managed);
+    if (winner !== undefined && claimantOf(entry) !== winner) {
       // Resolved collision, this entry is the loser -- skip it
       continue;
     }
@@ -320,7 +332,7 @@ export async function deepSyncPlan(
 
   // Collision detection
   const preferSpec = options?.preferSpec ?? {};
-  const { collisions, blockedTargets, allowedByConcrete } = detectCollisions(
+  const { collisions, blockedTargets, allowedClaimant } = detectCollisions(
     allEntries,
     preferSpec,
   );
@@ -329,7 +341,7 @@ export async function deepSyncPlan(
     allEntries,
     force,
     blockedTargets,
-    allowedByConcrete,
+    allowedClaimant,
   );
 
   // Sort plan by ripple's buildOrder
@@ -425,7 +437,7 @@ export async function bulkSyncPlan(
 
   // Collision detection
   const preferSpec = options?.preferSpec ?? {};
-  const { collisions, blockedTargets, allowedByConcrete } = detectCollisions(
+  const { collisions, blockedTargets, allowedClaimant } = detectCollisions(
     allEntries,
     preferSpec,
   );
@@ -435,7 +447,7 @@ export async function bulkSyncPlan(
     allEntries,
     force,
     blockedTargets,
-    allowedByConcrete,
+    allowedClaimant,
   );
 
   // Get DAG for batching
@@ -575,7 +587,7 @@ export async function resumeSyncPlan(
 
   // Collision detection
   const preferSpec = options.preferSpec ?? {};
-  const { collisions, blockedTargets, allowedByConcrete } = detectCollisions(
+  const { collisions, blockedTargets, allowedClaimant } = detectCollisions(
     allEntries,
     preferSpec,
   );
@@ -584,7 +596,7 @@ export async function resumeSyncPlan(
     allEntries,
     force,
     blockedTargets,
-    allowedByConcrete,
+    allowedClaimant,
   );
 
   // Batch. Resume doesn't have a ripple result, so we compute one for its
