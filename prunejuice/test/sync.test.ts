@@ -236,6 +236,45 @@ describe("bulkSyncPlan", () => {
     expect(bBatchIdx).toBeGreaterThanOrEqual(0);
     expect(aBatchIdx).toBeLessThan(bBatchIdx);
   });
+  it("extends edge enforces parent-before-child in batch ordering", async () => {
+    const tmp = await makeTmp();
+    dirs.push(tmp);
+
+    // parent.spec.md and child.spec.md are both stale (no managed files)
+    // child.impl.md extends parent.impl.md -> parent must batch before child
+    await writeAt(tmp, "parent.spec.md", "---\n---\n# Parent");
+    await writeAt(tmp, "child.spec.md", "---\n---\n# Child");
+    await writeAt(
+      tmp,
+      "parent.impl.md",
+      "---\nsource-spec: parent.spec.md\n---\n## Strategy\nP.",
+    );
+    await writeAt(
+      tmp,
+      "child.impl.md",
+      [
+        "---",
+        "source-spec: child.spec.md",
+        "extends: parent.impl.md",
+        "---",
+      ].join("\n"),
+    );
+
+    const result = await bulkSyncPlan(tmp);
+
+    // Find the batch index for each spec
+    const parentBatch = result.batches.findIndex((b) =>
+      b.files.some((f) => f.spec === "parent.spec.md"),
+    );
+    const childBatch = result.batches.findIndex((b) =>
+      b.files.some((f) => f.spec === "child.spec.md"),
+    );
+
+    expect(parentBatch).toBeGreaterThanOrEqual(0);
+    expect(childBatch).toBeGreaterThanOrEqual(0);
+    // parent must come before child
+    expect(parentBatch).toBeLessThan(childBatch);
+  });
 });
 
 describe("resumeSyncPlan", () => {

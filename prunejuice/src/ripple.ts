@@ -411,17 +411,21 @@ export async function rippleCheck(
     const cause = inputSet.has(spec) ? "direct" : "transitive";
 
     // Check if any impl has multi-target
-    let targetPaths: string[] = [];
+    // Build a list of (impl, targetPath) pairs so we can track which concrete
+    // spec claims each target (needed for collision detection in sync planning).
+    const implTargetPairs: Array<{ impl: string; target: string }> = [];
     for (const impl of impls) {
       const meta = implMeta.get(impl);
       if (meta && meta.targets.length > 0) {
-        targetPaths = [...targetPaths, ...meta.targets.map((t) => t.path)];
+        for (const t of meta.targets) {
+          implTargetPairs.push({ impl, target: t.path });
+        }
       }
     }
 
-    if (targetPaths.length > 0) {
-      // Multi-target: use targets from impl
-      for (const target of targetPaths) {
+    if (implTargetPairs.length > 0) {
+      // Multi-target: emit one entry per (impl, target) pair with concrete set
+      for (const { impl, target } of implTargetPairs) {
         const state = await classifyManagedFile(target, spec, cwd);
         const absTarget = join(absCwd, target);
         let exists = true;
@@ -435,6 +439,7 @@ export async function rippleCheck(
         const entry: RippleManagedEntry = {
           managed: target,
           spec,
+          concrete: impl,
           exists,
           currentState: exists ? state : "new",
           cause: cause as "direct" | "transitive",

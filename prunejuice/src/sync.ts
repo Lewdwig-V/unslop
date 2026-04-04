@@ -11,17 +11,21 @@ import type {
   ResumeSyncResult,
   SyncPlanEntry,
   SyncBatch,
+  CollisionEntry,
 } from "./types.js";
 
 // -- Option types -------------------------------------------------------------
 
 export interface DeepSyncOptions {
   force?: boolean;
+  /** Map from target path to the concrete spec that should win a collision. */
+  preferSpec?: Record<string, string>;
 }
 
 export interface BulkSyncOptions {
   force?: boolean;
   maxBatchSize?: number;
+  preferSpec?: Record<string, string>;
 }
 
 export interface ResumeSyncOptions {
@@ -29,42 +33,126 @@ export interface ResumeSyncOptions {
   succeededFiles: string[];
   force?: boolean;
   maxBatchSize?: number;
+  preferSpec?: Record<string, string>;
 }
 
 // -- Internal helpers ---------------------------------------------------------
 
+/**
+ * Detect target collisions across concrete specs.
+ *
+ * Scans all plan entries and groups them by managed target path. Any target
+ * claimed by more than one concrete spec produces a CollisionEntry. If
+ * `preferSpec` names a winner for a given target, the collision is marked
+ * resolved -- the winner proceeds normally and losers are skipped with audit.
+ *
+ * Returns:
+ *   - `collisions`: list of collision records (one per conflicting target)
+ *   - `blockedTargets`: set of target paths with unresolved collisions
+ *   - `allowedByConcrete`: for resolved collisions, targetPath -> winning concrete
+ */
+function detectCollisions(
+  entries: SyncPlanEntry[],
+  preferSpec: Record<string, string>,
+): {
+  collisions: CollisionEntry[];
+  blockedTargets: Set<string>;
+  allowedByConcrete: Map<string, string>;
+} {
+  // Group entries by target path, tracking unique concrete specs per target
+  const byTarget = new Map<string, Set<string>>();
+  for (const entry of entries) {
+    if (!entry.concrete) continue; // only collisions between concrete specs
+    if (!byTarget.has(entry.managed)) byTarget.set(entry.managed, new Set());
+    byTarget.get(entry.managed)!.add(entry.concrete);
+  }
+
+  const collisions: CollisionEntry[] = [];
+  const blockedTargets = new Set<string>();
+  const allowedByConcrete = new Map<string, string>();
+
+  for (const [targetPath, claimantSet] of byTarget) {
+    if (claimantSet.size < 2) continue; // no collision
+
+    const claimants = [...claimantSet].sort();
+    const winner = preferSpec[targetPath];
+
+    if (winner && claimants.includes(winner)) {
+      // Resolved: winner proceeds, losers skipped
+      const skipped = claimants.filter((c) => c !== winner);
+      collisions.push({
+        status: "collision",
+        targetPath,
+        claimants,
+        preferSpec: winner,
+        skippedSpecs: skipped,
+      });
+      allowedByConcrete.set(targetPath, winner);
+    } else {
+      // Unresolved: block all claimants
+      collisions.push({
+        status: "collision",
+        targetPath,
+        claimants,
+      });
+      blockedTargets.add(targetPath);
+    }
+  }
+
+  return { collisions, blockedTargets, allowedByConcrete };
+}
+
 function partitionPlan(
   entries: SyncPlanEntry[],
   force: boolean,
+  blockedTargets: Set<string>,
+  allowedByConcrete: Map<string, string>,
 ): { plan: SyncPlanEntry[]; skipped: SyncPlanEntry[] } {
-  if (force) {
-    return { plan: entries, skipped: [] };
-  }
   const plan: SyncPlanEntry[] = [];
   const skipped: SyncPlanEntry[] = [];
+
   for (const entry of entries) {
-    if (entry.state === "modified" || entry.state === "conflict") {
+    // Collision filtering: applies regardless of force
+    if (blockedTargets.has(entry.managed)) {
+      // Unresolved collision -- block this entry
+      continue;
+    }
+    const winner = allowedByConcrete.get(entry.managed);
+    if (winner !== undefined && entry.concrete !== winner) {
+      // Resolved collision, this entry is the loser -- skip it
+      continue;
+    }
+
+    // Standard partitioning: modified/conflict need coordinator confirmation
+    if (!force && (entry.state === "modified" || entry.state === "conflict")) {
       skipped.push(entry);
     } else {
       plan.push(entry);
     }
   }
+
   return { plan, skipped };
 }
 
 function computeParallelBatches(
   entries: SyncPlanEntry[],
   graph: Record<string, string[]>,
+  concreteEdges: Record<string, string[]>,
   maxBatchSize: number,
 ): SyncBatch[] {
   if (maxBatchSize < 1) maxBatchSize = 8;
   if (entries.length === 0) return [];
 
-  // Build subgraph of only entries' specs
+  // Build subgraph of only entries' specs, merging abstract depends-on edges
+  // with concrete extends/concrete-dependencies edges projected to spec space.
   const specSet = new Set(entries.map((e) => e.spec));
   const subgraph: Record<string, string[]> = {};
   for (const spec of specSet) {
-    subgraph[spec] = (graph[spec] ?? []).filter((d) => specSet.has(d));
+    const abstractDeps = (graph[spec] ?? []).filter((d) => specSet.has(d));
+    const concreteDeps = (concreteEdges[spec] ?? []).filter((d) =>
+      specSet.has(d),
+    );
+    subgraph[spec] = [...new Set([...abstractDeps, ...concreteDeps])];
   }
 
   // Kahn's algorithm with depth grouping
@@ -230,8 +318,19 @@ export async function deepSyncPlan(
     });
   }
 
-  // Partition
-  const { plan, skipped } = partitionPlan(allEntries, force);
+  // Collision detection
+  const preferSpec = options?.preferSpec ?? {};
+  const { collisions, blockedTargets, allowedByConcrete } = detectCollisions(
+    allEntries,
+    preferSpec,
+  );
+
+  const { plan, skipped } = partitionPlan(
+    allEntries,
+    force,
+    blockedTargets,
+    allowedByConcrete,
+  );
 
   // Sort plan by ripple's buildOrder
   const orderMap = new Map<string, number>();
@@ -246,6 +345,7 @@ export async function deepSyncPlan(
     trigger: specRel,
     plan,
     skipped,
+    collisions,
     stats: {
       totalAffected: allEntries.length + freshSkipped,
       toRegenerate: plan.length,
@@ -274,6 +374,7 @@ export async function bulkSyncPlan(
     return {
       batches: [],
       skipped: [],
+      collisions: [],
       stats: {
         totalStale: 0,
         totalBatches: 0,
@@ -288,13 +389,17 @@ export async function bulkSyncPlan(
   const staleSpecs = staleEntries.map((e) => e.spec);
   const ripple = await rippleCheck(staleSpecs, cwd);
 
-  // Collect entries from ripple, deduplicate by managed path
+  // Collect entries from ripple.
+  // Deduplication is keyed on (managed, concrete) so that multiple concrete
+  // specs claiming the same target path are all preserved for collision
+  // detection. Within the same concrete spec, the first entry wins.
   const seen = new Set<string>();
   const allEntries: SyncPlanEntry[] = [];
 
   for (const re of ripple.layers.code.regenerate) {
-    if (seen.has(re.managed)) continue;
-    seen.add(re.managed);
+    const key = `${re.managed}\0${re.concrete ?? ""}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
 
     allEntries.push({
       managed: re.managed,
@@ -306,8 +411,9 @@ export async function bulkSyncPlan(
   }
 
   for (const entry of ripple.layers.code.ghostStale) {
-    if (seen.has(entry.managed)) continue;
-    seen.add(entry.managed);
+    const key = `${entry.managed}\0${entry.concrete ?? ""}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
     allEntries.push({
       managed: entry.managed,
       spec: entry.spec,
@@ -317,12 +423,29 @@ export async function bulkSyncPlan(
     });
   }
 
-  // Partition
-  const { plan, skipped } = partitionPlan(allEntries, force);
+  // Collision detection
+  const preferSpec = options?.preferSpec ?? {};
+  const { collisions, blockedTargets, allowedByConcrete } = detectCollisions(
+    allEntries,
+    preferSpec,
+  );
+
+  // Partition (applies collision filtering inside)
+  const { plan, skipped } = partitionPlan(
+    allEntries,
+    force,
+    blockedTargets,
+    allowedByConcrete,
+  );
 
   // Get DAG for batching
   const dag = await ensureDAG(cwd);
-  const batches = computeParallelBatches(plan, dag.dag, maxBatchSize);
+  const batches = computeParallelBatches(
+    plan,
+    dag.dag,
+    ripple.concreteEdges,
+    maxBatchSize,
+  );
 
   // Build order from ripple
   const buildOrder = ripple.buildOrder;
@@ -330,6 +453,7 @@ export async function bulkSyncPlan(
   return {
     batches,
     skipped,
+    collisions,
     stats: {
       totalStale: staleEntries.length,
       totalBatches: batches.length,
@@ -390,6 +514,7 @@ export async function resumeSyncPlan(
       alreadyDone: succeededFiles.length,
       batches: [],
       skipped: [],
+      collisions: [],
       stats: {
         totalStale: 0,
         totalBatches: 0,
@@ -448,11 +573,29 @@ export async function resumeSyncPlan(
     });
   }
 
-  // Partition
-  const { plan, skipped } = partitionPlan(allEntries, force);
+  // Collision detection
+  const preferSpec = options.preferSpec ?? {};
+  const { collisions, blockedTargets, allowedByConcrete } = detectCollisions(
+    allEntries,
+    preferSpec,
+  );
 
-  // Batch
-  const batches = computeParallelBatches(plan, dag.dag, maxBatchSize);
+  const { plan, skipped } = partitionPlan(
+    allEntries,
+    force,
+    blockedTargets,
+    allowedByConcrete,
+  );
+
+  // Batch. Resume doesn't have a ripple result, so we compute one for its
+  // failed specs to get concreteEdges.
+  const resumeRipple = await rippleCheck(failedSpecs, cwd);
+  const batches = computeParallelBatches(
+    plan,
+    dag.dag,
+    resumeRipple.concreteEdges,
+    maxBatchSize,
+  );
 
   // Build order via topoSort on the downstream closure subgraph
   const subgraph: Record<string, string[]> = {};
@@ -477,6 +620,7 @@ export async function resumeSyncPlan(
     alreadyDone: succeededFiles.length,
     batches,
     skipped,
+    collisions,
     stats: {
       totalStale: allEntries.length,
       totalBatches: batches.length,
