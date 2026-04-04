@@ -236,6 +236,89 @@ describe("bulkSyncPlan", () => {
     expect(bBatchIdx).toBeGreaterThanOrEqual(0);
     expect(aBatchIdx).toBeLessThan(bBatchIdx);
   });
+  it("extends edge enforces parent-before-child in batch ordering", async () => {
+    const tmp = await makeTmp();
+    dirs.push(tmp);
+
+    // parent.spec.md and child.spec.md are both stale (no managed files)
+    // child.impl.md extends parent.impl.md -> parent must batch before child
+    await writeAt(tmp, "parent.spec.md", "---\n---\n# Parent");
+    await writeAt(tmp, "child.spec.md", "---\n---\n# Child");
+    await writeAt(
+      tmp,
+      "parent.impl.md",
+      "---\nsource-spec: parent.spec.md\n---\n## Strategy\nP.",
+    );
+    await writeAt(
+      tmp,
+      "child.impl.md",
+      [
+        "---",
+        "source-spec: child.spec.md",
+        "extends: parent.impl.md",
+        "---",
+      ].join("\n"),
+    );
+
+    const result = await bulkSyncPlan(tmp);
+
+    // Find the batch index for each spec
+    const parentBatch = result.batches.findIndex((b) =>
+      b.files.some((f) => f.spec === "parent.spec.md"),
+    );
+    const childBatch = result.batches.findIndex((b) =>
+      b.files.some((f) => f.spec === "child.spec.md"),
+    );
+
+    expect(parentBatch).toBeGreaterThanOrEqual(0);
+    expect(childBatch).toBeGreaterThanOrEqual(0);
+    // parent must come before child
+    expect(parentBatch).toBeLessThan(childBatch);
+  });
+
+  it("diamond batching: two children of same parent land in same batch depth", async () => {
+    const tmp = await makeTmp();
+    dirs.push(tmp);
+
+    // base.impl.md is extended by both childA.impl.md and childB.impl.md
+    // Expected: base in batch 0, childA and childB BOTH in batch 1 (parallel)
+    await writeAt(tmp, "base.spec.md", "---\n---\n# Base");
+    await writeAt(tmp, "childA.spec.md", "---\n---\n# ChildA");
+    await writeAt(tmp, "childB.spec.md", "---\n---\n# ChildB");
+    await writeAt(
+      tmp,
+      "base.impl.md",
+      "---\nsource-spec: base.spec.md\n---\n## Strategy\nBase.",
+    );
+    await writeAt(
+      tmp,
+      "childA.impl.md",
+      "---\nsource-spec: childA.spec.md\nextends: base.impl.md\n---\n",
+    );
+    await writeAt(
+      tmp,
+      "childB.impl.md",
+      "---\nsource-spec: childB.spec.md\nextends: base.impl.md\n---\n",
+    );
+
+    const result = await bulkSyncPlan(tmp);
+
+    const baseBatch = result.batches.findIndex((b) =>
+      b.files.some((f) => f.spec === "base.spec.md"),
+    );
+    const childABatch = result.batches.findIndex((b) =>
+      b.files.some((f) => f.spec === "childA.spec.md"),
+    );
+    const childBBatch = result.batches.findIndex((b) =>
+      b.files.some((f) => f.spec === "childB.spec.md"),
+    );
+
+    expect(baseBatch).toBeGreaterThanOrEqual(0);
+    expect(childABatch).toBeGreaterThan(baseBatch);
+    expect(childBBatch).toBeGreaterThan(baseBatch);
+    // Both children should be in the same batch (parallelizable)
+    expect(childABatch).toBe(childBBatch);
+  });
 });
 
 describe("resumeSyncPlan", () => {

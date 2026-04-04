@@ -271,6 +271,12 @@ export interface RippleResult {
     code: RippleCodeLayer;
   };
   buildOrder: string[];
+  /**
+   * Concrete spec edges projected to spec space for batch ordering.
+   * Key: spec path. Value: list of spec paths it depends on via extends or
+   * concrete-dependencies (resolved through its impl's source-spec).
+   */
+  concreteEdges: Readonly<Record<string, readonly string[]>>;
 }
 
 // -- Sync planning results ----------------------------------------------------
@@ -293,6 +299,7 @@ export interface DeepSyncResult {
   trigger: string;
   plan: SyncPlanEntry[];
   skipped: SyncPlanEntry[];
+  collisions: CollisionEntry[];
   stats: {
     totalAffected: number;
     toRegenerate: number;
@@ -305,6 +312,7 @@ export interface DeepSyncResult {
 export interface BulkSyncResult {
   batches: SyncBatch[];
   skipped: SyncPlanEntry[];
+  collisions: CollisionEntry[];
   stats: {
     totalStale: number;
     totalBatches: number;
@@ -393,3 +401,62 @@ export interface GhostStaleDiagnostic {
   /** Full structural diff of the manifest (same instance shared across all diagnostics from one call). */
   readonly manifestDiff: ManifestDiff;
 }
+
+// -- Inheritance flattening types --------------------------------------------
+
+export type SectionMergeRule = "strict_child_only" | "additive" | "overridable";
+
+export interface FlattenedSection {
+  /** Resolved section content after merging. */
+  readonly content: string;
+  /**
+   * Which spec in the chain provided this section.
+   * For "overridable" sections, the most specific spec that defines the section.
+   * For "additive" sections, the spec of the most specific contributor.
+   * For "strict_child_only" sections, always the child.
+   */
+  readonly source: string;
+  readonly rule: SectionMergeRule;
+}
+
+export interface FlattenedConcreteSpec {
+  readonly specPath: string;
+  /**
+   * Non-empty chain from child to root parent: [child, parent, grandparent, ...].
+   * chain[0] is always the input spec; subsequent elements walk up through extends.
+   */
+  readonly chain: readonly [string, ...string[]];
+  /** Resolved sections keyed by heading name (e.g. "Strategy", "Pattern"). */
+  readonly sections: ReadonlyMap<string, FlattenedSection>;
+}
+
+// -- Collision detection types -----------------------------------------------
+
+/**
+ * A target path claimed by two or more distinct sources. Claimants identify
+ * the originating source of each claim -- a concrete impl path when the claim
+ * comes through a `.impl.md` file, or an abstract spec path when the claim
+ * comes from the default single-target convention (`foo.spec.md` -> `foo`).
+ *
+ * The discriminated union encodes whether a human ratification (`preferSpec`)
+ * has resolved the collision:
+ *   - `unresolved`: execution is blocked until the user picks a winner
+ *   - `resolved`: winner proceeds, losers are skipped with audit trail
+ */
+export type CollisionEntry =
+  | {
+      readonly status: "unresolved";
+      /** The target file path that multiple sources claim. */
+      readonly targetPath: string;
+      /** Claimant identifiers (impl paths or spec paths) at least 2 entries. */
+      readonly claimants: readonly [string, string, ...string[]];
+    }
+  | {
+      readonly status: "resolved";
+      readonly targetPath: string;
+      readonly claimants: readonly [string, string, ...string[]];
+      /** The winning claimant, must be a member of `claimants`. */
+      readonly preferSpec: string;
+      /** The losing claimants, logged for audit trail. */
+      readonly skippedSpecs: readonly string[];
+    };
