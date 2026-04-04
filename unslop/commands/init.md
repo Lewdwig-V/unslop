@@ -194,11 +194,9 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: astral-sh/setup-uv@v6
-      - name: Set up Python
-        run: uv python install 3.11
-      - name: Check managed file freshness
-        run: uv run python -m unslop.scripts.orchestrator check-freshness .
+      # Freshness gate for CI is not yet available in TypeScript.
+      # For now, skip the freshness check and rely on prunejuice tests.
+      # To re-add: invoke prunejuice_check_freshness via MCP client or add a CLI entry to prunejuice/src/index.ts.
 ```
 
 3. Write a `version.txt` file at `.unslop/scripts/version.txt` containing the current plugin version (e.g. `0.13.0`). This allows CI to warn if the vendored version is out of sync with the installed unslop plugin.

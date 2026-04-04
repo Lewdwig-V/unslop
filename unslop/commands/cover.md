@@ -209,13 +209,7 @@ def test_<descriptive_name>():
     ...
 ```
 
-Run mock budget validation on each new test:
-
-```
-python ${CLAUDE_PLUGIN_ROOT}/scripts/validate_mocks.py <test-file> --project-root .
-```
-
-If mock budget violations are detected: Mason retries without the offending mock (max 2 rewrite attempts). If still violating after retries, discard the test and log the failure.
+Rely on Saboteur's compliance checks in the SaboteurReport to catch internal mocking violations. Boundary manifest enforcement as a dedicated linter was removed in Phase 8; Saboteur reports mocking issues as `complianceViolations[]` entries. If compliance violations are reported: Mason retries without the offending mock (max 2 rewrite attempts). If still violating after retries, discard the test and log the failure.
 
 **5. Validator -- runs in the Architect session**
 
