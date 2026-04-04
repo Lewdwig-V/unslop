@@ -1,0 +1,62 @@
+name: TypeScript tests
+
+permissions:
+  contents: read
+
+on:
+  push:
+    branches: ["main"]
+  pull_request:
+    branches: ["main"]
+
+jobs:
+  prunejuice:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: prunejuice
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Type check
+        run: npx tsc --noEmit
+
+      - name: Run tests
+        run: npx vitest run
+
+  plugin-structure:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Validate plugin.json exists
+        run: test -f unslop/.claude-plugin/plugin.json
+
+      - name: Validate plugin.json is valid JSON
+        run: node -e "JSON.parse(require('fs').readFileSync('unslop/.claude-plugin/plugin.json','utf8'))"
+
+      - name: Validate .mcp.json exists and references prunejuice
+        run: |
+          test -f unslop/.claude-plugin/.mcp.json
+          grep -q "prunejuice" unslop/.claude-plugin/.mcp.json
+
+      - name: Validate no stale Python references
+        run: |
+          if grep -rn "orchestrator\.py\|validate_behaviour\.py\|validate_mocks\.py\|validate_spec\.py\|validate_pseudocode\.py" unslop/commands/ unslop/skills/ 2>&1; then
+            echo "Stale Python references found in unslop plugin files"
+            exit 1
+          fi
+
+      - name: Validate command files exist
+        run: |
+          for cmd in generate status change elicit sync graph coherence init takeover cover weed adversarial distill harden promote crystallize absorb exude verify spec; do
+            test -f "unslop/commands/${cmd}.md" || (echo "Missing command: ${cmd}.md" && exit 1)
+          done
