@@ -6,6 +6,9 @@ import {
   resolveExtendsChain,
   InheritanceCycleError,
   MAX_EXTENDS_DEPTH,
+  extractSections,
+  mergePatternSections,
+  mergeLoweringNotes,
 } from "../src/inheritance.js";
 
 async function makeTmp(): Promise<string> {
@@ -161,5 +164,109 @@ describe("resolveExtendsChain", () => {
 
   it("exports MAX_EXTENDS_DEPTH=3", () => {
     expect(MAX_EXTENDS_DEPTH).toBe(3);
+  });
+});
+
+describe("extractSections", () => {
+  it("extracts sections under ## headings", () => {
+    const content = [
+      "---",
+      "source-spec: a.spec.md",
+      "---",
+      "",
+      "## Strategy",
+      "Use connection pooling.",
+      "",
+      "## Pattern",
+      "- **Concurrency**: async",
+    ].join("\n");
+
+    const sections = extractSections(content);
+    expect(sections.get("Strategy")).toBe("Use connection pooling.");
+    expect(sections.get("Pattern")).toBe("- **Concurrency**: async");
+  });
+
+  it("returns empty map when no sections present", () => {
+    const content = "---\nsource-spec: a.spec.md\n---\n\nJust prose.";
+    const sections = extractSections(content);
+    expect(sections.size).toBe(0);
+  });
+
+  it("strips frontmatter before extracting", () => {
+    const content = [
+      "---",
+      "source-spec: a.spec.md",
+      "## not-a-section-heading-in-frontmatter",
+      "---",
+      "",
+      "## Real Section",
+      "Content.",
+    ].join("\n");
+
+    const sections = extractSections(content);
+    expect(sections.size).toBe(1);
+    expect(sections.get("Real Section")).toBe("Content.");
+  });
+
+  it("handles content without frontmatter", () => {
+    const content = "## Strategy\nPool.\n\n## Pattern\n- **Key**: Value";
+    const sections = extractSections(content);
+    expect(sections.get("Strategy")).toBe("Pool.");
+    expect(sections.get("Pattern")).toBe("- **Key**: Value");
+  });
+});
+
+describe("mergePatternSections", () => {
+  it("child overrides parent keys by name", () => {
+    const parent = "- **Concurrency**: async\n- **DI**: annotated";
+    const child = "- **Concurrency**: threaded";
+    const merged = mergePatternSections(parent, child);
+    expect(merged).toContain("- **Concurrency**: threaded");
+    expect(merged).toContain("- **DI**: annotated");
+  });
+
+  it("parent keys preserved when child omits them", () => {
+    const parent = "- **Concurrency**: async\n- **Backpressure**: bounded";
+    const child = "- **Concurrency**: threaded";
+    const merged = mergePatternSections(parent, child);
+    expect(merged).toContain("- **Backpressure**: bounded");
+  });
+
+  it("handles empty child (all parent preserved)", () => {
+    const parent = "- **A**: 1\n- **B**: 2";
+    const child = "";
+    const merged = mergePatternSections(parent, child);
+    expect(merged).toContain("- **A**: 1");
+    expect(merged).toContain("- **B**: 2");
+  });
+});
+
+describe("mergeLoweringNotes", () => {
+  it("merges language blocks, child overrides matching languages", () => {
+    const parent = [
+      "### Python",
+      "Use asyncio",
+      "",
+      "### Go",
+      "Use goroutines",
+    ].join("\n");
+    const child = ["### Python", "Use trio instead"].join("\n");
+
+    const merged = mergeLoweringNotes(parent, child);
+    expect(merged).toContain("### Python");
+    expect(merged).toContain("Use trio instead");
+    expect(merged).not.toContain("Use asyncio");
+    expect(merged).toContain("### Go");
+    expect(merged).toContain("Use goroutines");
+  });
+
+  it("child adds new language blocks", () => {
+    const parent = "### Python\nUse asyncio";
+    const child = "### TypeScript\nUse Promises";
+    const merged = mergeLoweringNotes(parent, child);
+    expect(merged).toContain("### Python");
+    expect(merged).toContain("Use asyncio");
+    expect(merged).toContain("### TypeScript");
+    expect(merged).toContain("Use Promises");
   });
 });

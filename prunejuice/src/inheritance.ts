@@ -93,3 +93,117 @@ export async function resolveExtendsChain(
 
   return chain;
 }
+
+// -- Section extraction ------------------------------------------------------
+
+/**
+ * Extract `## ` sections from a markdown file into a Map.
+ * Strips frontmatter before scanning for headings. The map key is the heading
+ * text (trimmed); the value is the section body joined with newlines and
+ * stripped of leading/trailing whitespace.
+ */
+export function extractSections(content: string): Map<string, string> {
+  const sections = new Map<string, string>();
+  const lines = content.split("\n");
+
+  // Skip frontmatter
+  let bodyStart = 0;
+  if (lines.length > 0 && lines[0]!.trim() === "---") {
+    for (let i = 1; i < lines.length; i++) {
+      if (lines[i]!.trim() === "---") {
+        bodyStart = i + 1;
+        break;
+      }
+    }
+  }
+
+  let currentName: string | null = null;
+  let currentLines: string[] = [];
+
+  for (let i = bodyStart; i < lines.length; i++) {
+    const line = lines[i]!;
+    const match = line.match(/^## (.+)$/);
+    if (match) {
+      if (currentName !== null) {
+        sections.set(currentName, currentLines.join("\n").trim());
+      }
+      currentName = match[1]!.trim();
+      currentLines = [];
+    } else if (currentName !== null) {
+      currentLines.push(line);
+    }
+  }
+
+  if (currentName !== null) {
+    sections.set(currentName, currentLines.join("\n").trim());
+  }
+
+  return sections;
+}
+
+// -- Merge rules -------------------------------------------------------------
+
+/** Parse `- **Key**: Value` bullet lines into a Map. */
+function parsePatternEntries(content: string): Map<string, string> {
+  const entries = new Map<string, string>();
+  for (const line of content.split("\n")) {
+    const match = line.match(/^\s*-\s+\*\*(.+?)\*\*:\s*(.+)$/);
+    if (match) {
+      entries.set(match[1]!.trim(), match[2]!.trim());
+    }
+  }
+  return entries;
+}
+
+/**
+ * Merge two Pattern sections. Child keys override parent keys with the same name.
+ * Keys only in parent are preserved.
+ */
+export function mergePatternSections(parent: string, child: string): string {
+  const parentEntries = parsePatternEntries(parent);
+  const childEntries = parsePatternEntries(child);
+  const merged = new Map([...parentEntries, ...childEntries]);
+  return [...merged.entries()].map(([k, v]) => `- **${k}**: ${v}`).join("\n");
+}
+
+/** Parse `### Language` blocks into a Map. */
+function parseLanguageBlocks(content: string): Map<string, string> {
+  const blocks = new Map<string, string>();
+  let currentLang: string | null = null;
+  let currentLines: string[] = [];
+
+  for (const line of content.split("\n")) {
+    const match = line.match(/^### (.+)$/);
+    if (match) {
+      if (currentLang !== null) {
+        blocks.set(currentLang, currentLines.join("\n").trim());
+      }
+      currentLang = match[1]!.trim();
+      currentLines = [];
+    } else if (currentLang !== null) {
+      currentLines.push(line);
+    }
+  }
+
+  if (currentLang !== null) {
+    blocks.set(currentLang, currentLines.join("\n").trim());
+  }
+
+  return blocks;
+}
+
+/**
+ * Merge two Lowering Notes sections. Child language blocks override matching
+ * parent language blocks by heading name.
+ */
+export function mergeLoweringNotes(parent: string, child: string): string {
+  const parentLangs = parseLanguageBlocks(parent);
+  const childLangs = parseLanguageBlocks(child);
+  const merged = new Map([...parentLangs, ...childLangs]);
+  const parts: string[] = [];
+  for (const [lang, langContent] of merged) {
+    parts.push(`### ${lang}`);
+    parts.push(langContent);
+  }
+  return parts.join("\n\n");
+}
