@@ -97,7 +97,7 @@ Total: N files to regenerate, M skipped.
 
 4. **If skipped files exist** and `--force` was not passed: Ask the user whether to proceed without the skipped files, or abort so they can re-run with `--force`.
 
-5. **Process each file in the plan**, in the order returned by the orchestrator:
+5. **Process each file in the plan**, in the order returned by `prunejuice_deep_sync_plan`:
    - For each file, check for its diagnostic cache entry at `.unslop/last-failure/<cache-key>.md`. If found, inject `{previous_failure}` into the Builder prompt.
    - For each file, run the normal sync Steps 3-6 (classify, dispatch Builder, verify, update alignment, commit).
    - **Critical**: After each successful regeneration, the downstream files in the plan may now have updated concrete-manifests. This is expected — they will be regenerated in their turn.
@@ -151,7 +151,7 @@ Total: N files to regenerate across B batches, M skipped.
 
 4. **If skipped files exist** and `--force` was not passed: Ask the user whether to proceed without the skipped files, or abort so they can re-run with `--force`.
 
-5. **Process each batch sequentially**, in the order returned by the orchestrator:
+5. **Process each batch sequentially**, in the order returned by `prunejuice_bulk_sync_plan`:
    - Before starting a batch, report: `Starting batch K/N (M files)...`
    - For each file in the batch, check for its diagnostic cache entry at `.unslop/last-failure/<cache-key>.md`. If found, inject `{previous_failure}` into the Builder prompt.
    - For each file in the batch, run the normal sync Steps 3-6 (classify, dispatch Builder, verify, update alignment, commit).
@@ -323,7 +323,7 @@ Dispatch a Builder Agent using the generation skill's two-stage execution model:
      - Rust/JS/TS/Go/Java/C: `// @unslop-managed -- Edit <spec-path> instead` + `// spec-hash:<hash> output-hash:<hash> generated:<ISO8601>`
      - HTML/XML: `<!-- @unslop-managed -- Edit <spec-path> instead -->` + `<!-- spec-hash:<hash> output-hash:<hash> generated:<ISO8601> -->`
      - SQL/Lua: `-- @unslop-managed -- Edit <spec-path> instead` + `-- spec-hash:<hash> output-hash:<hash> generated:<ISO8601>`
-     Compute hashes using the same canonical method as `compute_hash()` in the orchestrator: read content, strip leading/trailing whitespace, encode as UTF-8, SHA-256, take first 12 hex chars. `spec-hash` = hash of full spec file content. `output-hash` = hash of file body below the header (everything after the 2 header lines). Set `generated` to current ISO 8601 UTC timestamp via `date -u +%Y-%m-%dT%H:%M:%SZ`.
+     Compute hashes using prunejuice's canonical method (`prunejuice/src/hashchain.ts`): read content, strip leading/trailing whitespace, encode as UTF-8, SHA-256, take first 12 hex chars. prunejuice computes `specHash` and `outputHash` via SHA-256 truncated to 12 hex chars; see `prunejuice/src/hashchain.ts`. `spec-hash` = hash of full spec file content. `output-hash` = hash of file body below the header (everything after the 2 header lines). Set `generated` to current ISO 8601 UTC timestamp via `date -u +%Y-%m-%dT%H:%M:%SZ`.
   4. **Delete `.unslop/last-failure/<cache-key>.md`** if it exists.
   5. **Delete ephemeral concrete specs:** If `<file>.impl.md` exists and its frontmatter has `ephemeral: true`, delete it. Do NOT delete permanent concrete specs (`ephemeral: false` or no `ephemeral` field).
 - If BLOCKED or tests fail: discard worktree (`rm -rf <worktree-path> && git worktree prune`), revert any staged spec update (`git checkout HEAD -- <spec_path>`). Report the Builder's failure report and stop. Do not attempt to fix or retry.

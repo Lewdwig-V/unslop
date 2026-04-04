@@ -5,10 +5,11 @@ Read `AGENTS.md` for architecture, invariants, conventions, and file layout.
 ## Build & Test
 
 ```bash
-python -m pytest tests/test_orchestrator.py -q    # 405 tests, Python 3.8-3.14
+cd prunejuice && npx vitest run    # prunejuice test suite
+cd prunejuice && npx tsc --noEmit  # type check
 ```
 
-No build step. Plugin is pure markdown commands/skills + Python orchestrator scripts.
+The plugin is markdown commands/skills; prunejuice is the TypeScript MCP server that handles orchestration.
 
 ## Process Rules
 

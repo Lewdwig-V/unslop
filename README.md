@@ -57,6 +57,17 @@ Records the intent, opens a Socratic dialogue to amend the spec, then regenerate
 
 ---
 
+## Architecture
+
+unslop is a Claude Code plugin that ships two coordinated pieces:
+
+- **unslop/** -- the plugin: markdown commands and skills, agent prompts, hooks
+- **prunejuice/** -- the TypeScript orchestrator (MCP server): freshness classification, dependency graph, ripple check, sync planning, agent dispatch, convergence loop
+
+The plugin is the user-facing command layer. Prunejuice is the coordination mechanism -- commands invoke prunejuice via MCP tools to avoid reimplementing orchestration logic in markdown prompts.
+
+---
+
 ## The Five-Phase Model
 
 unslop decomposes development into five independent phases. Each can be run standalone or composed by orchestrators.
@@ -240,12 +251,11 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: astral-sh/setup-uv@v6
-      - run: uv python install 3.11
-      - run: uv run python .unslop/scripts/orchestrator.py check-freshness .
+      # Freshness gate via prunejuice -- invoke prunejuice_check_freshness via MCP client
+      # or add a CLI entry to prunejuice/src/index.ts.
 ```
 
-The orchestrator is vendored into `.unslop/scripts/` so CI doesn't need the plugin installed.
+The freshness check runs via prunejuice MCP tools; no vendored Python scripts are required.
 
 ---
 
@@ -259,7 +269,7 @@ Code where the implementation *is* the semantics -- performance-critical algorit
 
 ## Under the Hood
 
-For a deep dive into the generation pipeline, quality gates, and architectural constraints, read the skill files in `unslop/skills/`. The agent model -- roles, boundaries, and model assignments -- is defined in `AGENTS.md`. The `unslop/scripts/` directory contains the deterministic infrastructure (dependency resolution, staleness detection, mutation testing) that enforces these rules mechanically.
+For a deep dive into the generation pipeline, quality gates, and architectural constraints, read the skill files in `unslop/skills/`. The agent model -- roles, boundaries, and model assignments -- is defined in `AGENTS.md`. The `prunejuice/src/` directory contains the deterministic infrastructure (dependency resolution, staleness detection, sync planning) that enforces these rules mechanically.
 
 ---
 

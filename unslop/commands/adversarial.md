@@ -64,7 +64,7 @@ The behaviour file must:
 - List invariants that must hold across all invocations
 - List dependencies from the spec's `depends-on` frontmatter
 
-**Validation:** Run `validate_behaviour.py` on the output. If validation fails, fix the behaviour file and retry (max 2 attempts).
+**Validation:** prunejuice's BehaviourContract TS interface enforces the schema at construction time; no separate validator needed.
 
 If `--dry-run`, print the behaviour YAML to stdout instead of writing it.
 
@@ -92,7 +92,7 @@ Generate a test file at the standard test location (e.g., `tests/test_retry.py` 
 - Use ONLY boundary-approved mocks (stdlib + boundaries.json entries)
 - Include a header comment: `# @unslop-adversarial — generated from behaviour spec, not source code`
 
-**Mock Budget Validation:** Run `validate_mocks.py` on the generated test. If it fails (internal mocks detected), rewrite the test to remove internal mock violations. Maximum 2 rewrite attempts.
+**Mock Budget Validation:** Saboteur reports mocking issues as `complianceViolations[]` entries in its SaboteurReport. If compliance violations are reported, the test must be regenerated. Maximum 2 rewrite attempts.
 
 If `--dry-run`, print the test file to stdout instead of writing it.
 

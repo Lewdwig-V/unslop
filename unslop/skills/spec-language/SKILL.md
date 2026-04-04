@@ -489,7 +489,7 @@ Do NOT declare dependencies on:
 - Third-party libraries (not managed by unslop)
 - Files that are not under unslop management
 
-Paths are relative to the project root. Only list direct dependencies — the orchestrator resolves transitive dependencies automatically.
+Paths are relative to the project root. Only list direct dependencies — prunejuice resolves transitive dependencies automatically.
 
 ## Deferred Constraints in Concrete Specs
 

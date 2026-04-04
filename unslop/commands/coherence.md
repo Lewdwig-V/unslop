@@ -17,7 +17,7 @@ Find all `*.spec.md` files in the project tree (excluding `.unslop/` and `node_m
 
 Also collect all `*.unit.spec.md` files separately for intra-unit checking.
 
-If the orchestrator reports a cycle during dependency resolution, stop and report the error.
+If `prunejuice_ripple_check` or `prunejuice_build_order` reports a cycle during dependency resolution, stop and report the error.
 
 **3. Run coherence checks**
 
