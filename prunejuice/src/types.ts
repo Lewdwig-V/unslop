@@ -293,6 +293,7 @@ export interface DeepSyncResult {
   trigger: string;
   plan: SyncPlanEntry[];
   skipped: SyncPlanEntry[];
+  collisions: CollisionEntry[];
   stats: {
     totalAffected: number;
     toRegenerate: number;
@@ -305,6 +306,7 @@ export interface DeepSyncResult {
 export interface BulkSyncResult {
   batches: SyncBatch[];
   skipped: SyncPlanEntry[];
+  collisions: CollisionEntry[];
   stats: {
     totalStale: number;
     totalBatches: number;
@@ -392,4 +394,43 @@ export interface GhostStaleDiagnostic {
   readonly chain: readonly string[];
   /** Full structural diff of the manifest (same instance shared across all diagnostics from one call). */
   readonly manifestDiff: ManifestDiff;
+}
+
+// -- Inheritance flattening types --------------------------------------------
+
+export type SectionMergeRule = "strict_child_only" | "additive" | "overridable";
+
+export interface FlattenedSection {
+  /** Resolved section content after merging. */
+  readonly content: string;
+  /**
+   * Which spec in the chain provided this section.
+   * For "overridable" sections, the most specific spec that defines the section.
+   * For "additive" sections, the spec of the most specific contributor.
+   * For "strict_child_only" sections, always the child.
+   */
+  readonly source: string;
+  readonly rule: SectionMergeRule;
+}
+
+export interface FlattenedConcreteSpec {
+  readonly specPath: string;
+  /** Chain from child to root parent: [child, parent, grandparent, ...] */
+  readonly chain: readonly string[];
+  /** Resolved sections keyed by heading name (e.g. "Strategy", "Pattern"). */
+  readonly sections: ReadonlyMap<string, FlattenedSection>;
+}
+
+// -- Collision detection types -----------------------------------------------
+
+export interface CollisionEntry {
+  readonly status: "collision";
+  /** The target file path that multiple specs claim. */
+  readonly targetPath: string;
+  /** Concrete spec paths that claim this target (at least 2). */
+  readonly claimants: readonly string[];
+  /** When set (via preferSpec + force), names the winning claimant. */
+  readonly preferSpec?: string;
+  /** When preferSpec is set, the losing claimants logged for audit. */
+  readonly skippedSpecs?: readonly string[];
 }
