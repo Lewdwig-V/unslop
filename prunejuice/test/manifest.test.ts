@@ -425,4 +425,61 @@ describe("computeConcreteDepsHash", () => {
 
     expect(hash1).not.toBe(hash2);
   });
+
+  it("is deterministic: same inputs produce same hash", async () => {
+    const tmp = await makeTmp();
+    dirs.push(tmp);
+
+    await writeAt(
+      tmp,
+      "a.impl.md",
+      "---\nsource-spec: a.spec.md\n---\n## Strategy\nA.",
+    );
+    await writeAt(
+      tmp,
+      "b.impl.md",
+      "---\nsource-spec: b.spec.md\n---\n## Strategy\nB.",
+    );
+    await writeAt(
+      tmp,
+      "handler.impl.md",
+      "---\nsource-spec: handler.spec.md\nconcrete-dependencies:\n  - a.impl.md\n  - b.impl.md\n---",
+    );
+
+    const hash1 = await computeConcreteDepsHash("handler.impl.md", tmp);
+    const hash2 = await computeConcreteDepsHash("handler.impl.md", tmp);
+
+    expect(hash1).toBe(hash2);
+  });
+
+  it("is order-independent: deps declared in different order produce same hash", async () => {
+    const tmp1 = await makeTmp();
+    const tmp2 = await makeTmp();
+    dirs.push(tmp1, tmp2);
+
+    const aContent = "---\nsource-spec: a.spec.md\n---\n## Strategy\nA.";
+    const bContent = "---\nsource-spec: b.spec.md\n---\n## Strategy\nB.";
+
+    // Same deps, different declared order
+    await writeAt(tmp1, "a.impl.md", aContent);
+    await writeAt(tmp1, "b.impl.md", bContent);
+    await writeAt(
+      tmp1,
+      "handler.impl.md",
+      "---\nsource-spec: handler.spec.md\nconcrete-dependencies:\n  - a.impl.md\n  - b.impl.md\n---",
+    );
+
+    await writeAt(tmp2, "a.impl.md", aContent);
+    await writeAt(tmp2, "b.impl.md", bContent);
+    await writeAt(
+      tmp2,
+      "handler.impl.md",
+      "---\nsource-spec: handler.spec.md\nconcrete-dependencies:\n  - b.impl.md\n  - a.impl.md\n---",
+    );
+
+    const hash1 = await computeConcreteDepsHash("handler.impl.md", tmp1);
+    const hash2 = await computeConcreteDepsHash("handler.impl.md", tmp2);
+
+    expect(hash1).toBe(hash2);
+  });
 });

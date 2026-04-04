@@ -284,6 +284,42 @@ describe("rippleCheck", () => {
     );
     expect(ghostEntry).toBeDefined();
     expect(ghostEntry!.diagnostic).toBeDefined();
+    // Diagnostic content must reflect what actually changed, not just exist
     expect(ghostEntry!.diagnostic!.changedSpec).toBe("a.impl.md");
+    expect(ghostEntry!.diagnostic!.changeHash).toBe(truncatedHash(aImplContent));
+    expect(ghostEntry!.diagnostic!.chain).toContain("a.impl.md");
+    expect(ghostEntry!.diagnostic!.manifestDiff.changed).toEqual(["a.impl.md"]);
+  });
+
+  it("ghost-stale managed entry without stored manifest has undefined diagnostic", async () => {
+    const tmp = await makeTmp();
+    dirs.push(tmp);
+
+    // Same setup as above but no managed file, so no stored manifest to diff against
+    await writeAt(tmp, "a.spec.md", "---\n---\n# A");
+    await writeAt(tmp, "b.spec.md", "---\n---\n# B");
+    await writeAt(
+      tmp,
+      "a.impl.md",
+      "---\nsource-spec: a.spec.md\n---\n## Strategy\nA.",
+    );
+    await writeAt(
+      tmp,
+      "b.impl.md",
+      [
+        "---",
+        "source-spec: b.spec.md",
+        "concrete-dependencies:",
+        "  - a.impl.md",
+        "---",
+      ].join("\n"),
+    );
+
+    const result = await rippleCheck(["a.spec.md"], tmp);
+    const ghostEntry = result.layers.code.ghostStale.find(
+      (e) => e.concrete === "b.impl.md",
+    );
+    expect(ghostEntry).toBeDefined();
+    expect(ghostEntry!.diagnostic).toBeUndefined();
   });
 });

@@ -29,6 +29,39 @@ export interface ConcreteSpecMeta {
   targets: Array<{ path: string; language?: string }>;
 }
 
+/**
+ * Construct a ghost-stale RippleManagedEntry with a release-mode invariant
+ * check. A diagnostic may be absent (no stored manifest found) but when
+ * present it must describe this entry's ghost-stale cause.
+ */
+function makeGhostStaleEntry(args: {
+  managed: string;
+  spec: string;
+  concrete: string;
+  exists: boolean;
+  ghostSource: string;
+  diagnostic?: GhostStaleDiagnostic;
+}): RippleManagedEntry {
+  // Release-mode invariant: diagnostics are only valid on ghost-stale entries.
+  // This factory is the only path that sets diagnostic, so the invariant holds
+  // by construction -- the assertion is defensive against future refactors.
+  if (args.diagnostic !== undefined && args.diagnostic.chain.length === 0) {
+    throw new Error(
+      `makeGhostStaleEntry: diagnostic.chain must be non-empty (managed=${args.managed})`,
+    );
+  }
+  return {
+    managed: args.managed,
+    spec: args.spec,
+    concrete: args.concrete,
+    exists: args.exists,
+    currentState: "ghost-stale",
+    cause: "ghost-stale",
+    ghostSource: args.ghostSource,
+    diagnostic: args.diagnostic,
+  };
+}
+
 export function parseConcreteSpecFrontmatter(content: string): ConcreteSpecMeta {
   const lines = content.split("\n");
   const result: ConcreteSpecMeta = {
@@ -455,10 +488,18 @@ export async function rippleCheck(
         exists = false;
       }
 
-      // Look for stored manifest in managed file header
+      // Look for stored manifest in managed file header.
+      // Narrow readFile errors to ENOENT only -- let diagnoseGhostStaleness
+      // errors propagate so real failures aren't masked.
       if (exists && !diagnostic) {
+        let managedContent: string | null = null;
         try {
-          const managedContent = await readFile(absTarget, "utf-8");
+          managedContent = await readFile(absTarget, "utf-8");
+        } catch (err: unknown) {
+          if (!isEnoent(err)) throw err;
+        }
+
+        if (managedContent !== null) {
           const headerLines = managedContent.split("\n").slice(0, 10);
           for (const line of headerLines) {
             const storedManifest = parseManifestLine(line);
@@ -473,21 +514,17 @@ export async function rippleCheck(
               break;
             }
           }
-        } catch {
-          // If we can't read the managed file, skip diagnostic
         }
       }
 
-      const entry: RippleManagedEntry = {
+      const entry = makeGhostStaleEntry({
         managed: target,
         spec: meta.sourceSpec ?? impl,
         concrete: impl,
         exists,
-        currentState: "ghost-stale",
-        cause: "ghost-stale",
         ghostSource: impl,
         diagnostic,
-      };
+      });
       ghostStale.push(entry);
     }
   }

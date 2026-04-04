@@ -183,11 +183,24 @@ export function actionForState(state: FreshnessState): FreshnessAction {
 
 const MANIFEST_LINE_RE = /^[#/]+ concrete-manifest:(.*)$/;
 
-/** Format a concrete manifest Map as a header-safe line. */
+/**
+ * Format a concrete manifest Map as a header-safe line.
+ *
+ * Paths must not contain commas -- they are the entry delimiter. Throws if a
+ * path contains a comma (release-mode invariant: the roundtrip through
+ * `parseManifestLine` would be lossy).
+ */
 export function formatManifestLine(
   manifest: Map<string, TruncatedHash>,
   commentStyle: "#" | "//" = "#",
 ): string {
+  for (const path of manifest.keys()) {
+    if (path.includes(",")) {
+      throw new Error(
+        `formatManifestLine: dep path contains comma, which is the entry delimiter: ${JSON.stringify(path)}`,
+      );
+    }
+  }
   const entries = [...manifest.entries()]
     .sort(([a], [b]) => a.localeCompare(b))
     .map(([path, hash]) => `${path}:${hash}`)

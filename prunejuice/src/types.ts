@@ -366,25 +366,30 @@ export interface DiscoveryResolutionInput {
 
 // -- Concrete manifest types --------------------------------------------------
 
-/** Sentinel hash for deps that don't exist on disk. */
+/**
+ * Sentinel hash indicating a dep that didn't exist on disk at manifest
+ * computation time. Distinguishable from real hashes because SHA-256/12
+ * collision with all-zeros is astronomically unlikely (~2^-48).
+ */
 export const MISSING_SENTINEL = "000000000000" as TruncatedHash;
 
-/** Sentinel hash for deps that exist but can't be read. */
-export const UNREADABLE_SENTINEL = "ffffffffffff" as TruncatedHash;
-
 export interface ManifestDiff {
-  added: string[];
-  removed: string[];
-  changed: string[];
+  readonly added: readonly string[];
+  readonly removed: readonly string[];
+  readonly changed: readonly string[];
 }
 
 export interface GhostStaleDiagnostic {
-  /** The upstream spec whose content changed. */
-  changedSpec: string;
-  /** Current hash of the changed spec. */
-  changeHash: TruncatedHash;
-  /** Dependency path from root cause to this spec. */
-  chain: string[];
-  /** What specifically changed in the manifest. */
-  manifestDiff: ManifestDiff;
+  /** The dep whose hash changed between stored manifest and current disk state. */
+  readonly changedSpec: string;
+  /** Current hash of the changed spec (MISSING_SENTINEL if the file was deleted). */
+  readonly changeHash: TruncatedHash;
+  /**
+   * Chain from `changedSpec` to the deepest changed upstream (the root cause).
+   * chain[0] === changedSpec. chain[chain.length-1] is the root cause.
+   * Only contains deps that actually changed -- unchanged intermediaries are skipped.
+   */
+  readonly chain: readonly string[];
+  /** Full structural diff of the manifest (same instance shared across all diagnostics from one call). */
+  readonly manifestDiff: ManifestDiff;
 }

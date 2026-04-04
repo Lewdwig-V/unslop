@@ -11,7 +11,7 @@ import {
   type FreshnessInput,
   type FreshnessState,
 } from "../src/hashchain.js";
-import { MISSING_SENTINEL, UNREADABLE_SENTINEL } from "../src/types.js";
+import { MISSING_SENTINEL } from "../src/types.js";
 import type { TruncatedHash } from "../src/types.js";
 
 const hash = (s: string) => truncatedHash(s);
@@ -294,16 +294,15 @@ describe("concrete-manifest header line", () => {
     expect(parsed!.get("shared/base.impl.md")).toBe("b3d5a1f8e290");
   });
 
-  it("roundtrips sentinel values (MISSING_SENTINEL, UNREADABLE_SENTINEL)", () => {
+  it("roundtrips MISSING_SENTINEL alongside real hashes", () => {
     const original = new Map<string, TruncatedHash>([
       ["pool.impl.md", "a3f8c2e9b7d1" as TruncatedHash],
       ["missing.impl.md", MISSING_SENTINEL],
-      ["bad.impl.md", UNREADABLE_SENTINEL],
     ]);
     const line = formatManifestLine(original);
     const parsed = parseManifestLine(line);
     expect(parsed!.get("missing.impl.md")).toBe(MISSING_SENTINEL);
-    expect(parsed!.get("bad.impl.md")).toBe(UNREADABLE_SENTINEL);
+    expect(parsed!.get("pool.impl.md")).toBe("a3f8c2e9b7d1");
   });
 
   it("returns null for non-manifest lines", () => {
@@ -318,5 +317,12 @@ describe("concrete-manifest header line", () => {
     const parsed = parseManifestLine(line);
     expect(parsed).not.toBeNull();
     expect(parsed!.size).toBe(0);
+  });
+
+  it("throws when a dep path contains a comma (ambiguous roundtrip)", () => {
+    const manifest = new Map<string, TruncatedHash>([
+      ["path,with,comma.impl.md", "a3f8c2e9b7d1" as TruncatedHash],
+    ]);
+    expect(() => formatManifestLine(manifest)).toThrow(/contains comma/);
   });
 });

@@ -4,7 +4,7 @@ import { truncatedHash } from "./hashchain.js";
 import { isEnoent } from "./fs-utils.js";
 import { parseConcreteSpecFrontmatter } from "./ripple.js";
 import type { TruncatedHash, ManifestDiff, GhostStaleDiagnostic } from "./types.js";
-import { MISSING_SENTINEL, UNREADABLE_SENTINEL } from "./types.js";
+import { MISSING_SENTINEL } from "./types.js";
 
 // -- Manifest diffing (pure, no IO) ------------------------------------------
 
@@ -56,7 +56,10 @@ function getAllStrategyProviders(meta: {
 /**
  * Compute per-dependency manifest for a concrete spec.
  * BFS through concrete-dependencies + extends, hashing each file's content.
- * Returns null if the spec has no providers.
+ * Returns null if the spec file doesn't exist or has no providers.
+ *
+ * Throws on any non-ENOENT read error (permission denied, I/O failure, etc.)
+ * to avoid poisoning the manifest with bogus hashes.
  */
 export async function computeConcreteManifest(
   specPath: string,
@@ -95,8 +98,7 @@ export async function computeConcreteManifest(
         manifest.set(depPath, MISSING_SENTINEL);
         continue;
       }
-      manifest.set(depPath, UNREADABLE_SENTINEL);
-      continue;
+      throw err;
     }
 
     manifest.set(depPath, truncatedHash(depContent));
@@ -135,38 +137,50 @@ export async function computeConcreteDepsHash(
 // -- Ghost staleness chain tracing --------------------------------------------
 
 /**
- * Walk upstream from a changed dep to find the deepest changed node.
- * Returns the chain from the direct dep to the deepest upstream.
+ * Walk upstream from a changed dep, following only edges to other changed deps,
+ * to find the deepest changed node (the root cause).
+ *
+ * Returns a chain from `startPath` to the deepest changed upstream. If `startPath`
+ * has no changed upstream, returns `[startPath]`. The chain only contains deps
+ * that actually differ from their stored hash -- unchanged intermediaries are
+ * not traversed.
+ *
+ * Throws on non-ENOENT read errors to avoid silently truncating chains.
  */
 async function traceChangeChain(
-  depPath: string,
+  startPath: string,
+  changedPaths: Set<string>,
   cwd: string,
 ): Promise<string[]> {
   const absCwd = resolve(cwd);
-  const chain = [depPath];
-  const visited = new Set([depPath]);
-  let current = depPath;
+  const chain = [startPath];
+  const visited = new Set([startPath]);
+  let current = startPath;
 
   while (true) {
     const absPath = join(absCwd, current);
     let content: string;
     try {
       content = await readFile(absPath, "utf-8");
-    } catch {
-      break;
+    } catch (err) {
+      if (isEnoent(err)) break; // missing spec terminates chain
+      throw err;
     }
 
     const meta = parseConcreteSpecFrontmatter(content);
     const upstreams = getAllStrategyProviders(meta);
 
+    // Only follow upstreams that are themselves in the changed set.
+    // Pick deterministically (first alphabetically) among unvisited changed upstreams.
     let foundDeeper = false;
     for (const up of upstreams) {
       if (visited.has(up)) continue;
+      if (!changedPaths.has(up)) continue;
       visited.add(up);
       chain.push(up);
       current = up;
       foundDeeper = true;
-      break; // depth-first: follow first unvisited upstream
+      break;
     }
 
     if (!foundDeeper) break;
@@ -177,7 +191,8 @@ async function traceChangeChain(
 
 /**
  * Compare stored manifest against current disk state.
- * Returns diagnostics for each dependency that has changed.
+ * Returns one diagnostic per dependency that has changed, with a chain tracing
+ * back to the root cause within the changed set.
  */
 export async function diagnoseGhostStaleness(
   storedManifest: Map<string, TruncatedHash>,
@@ -216,12 +231,13 @@ export async function diagnoseGhostStaleness(
 
   // Pass 2: compute diagnostics with complete manifest diff
   const manifestDiff = diffConcreteManifests(storedManifest, currentManifest);
+  const changedPaths = new Set(changedDeps.map((d) => d.depPath));
   const diagnostics: GhostStaleDiagnostic[] = [];
 
   for (const { depPath, currentHash } of changedDeps) {
     const chain = currentHash === MISSING_SENTINEL
       ? [depPath]
-      : await traceChangeChain(depPath, cwd);
+      : await traceChangeChain(depPath, changedPaths, cwd);
 
     diagnostics.push({
       changedSpec: depPath,
