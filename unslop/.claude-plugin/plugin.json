@@ -1,7 +1,7 @@
 {
   "name": "unslop",
-  "version": "0.53.0",
-  "description": "Spec-driven development harness for Claude Code -- 20 commands, five-phase model, five agents, three-tier domain skills, crystallize, constitutional principles, 405 tests",
+  "version": "0.54.0",
+  "description": "Spec-driven development harness for Claude Code -- 20 commands, five-phase model, five agents, three-tier domain skills, crystallize, constitutional principles. TypeScript orchestration via prunejuice MCP server.",
   "author": {
     "name": "lewdwig"
   },
