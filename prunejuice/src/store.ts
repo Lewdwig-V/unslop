@@ -1,8 +1,9 @@
 import { readFile, mkdir, rename, open, unlink, stat } from "node:fs/promises";
 import { resolve, dirname, basename } from "node:path";
 import { randomBytes } from "node:crypto";
-import { truncatedHash, formatHeader } from "./hashchain.js";
+import { truncatedHash, formatHeader, formatManifestLine } from "./hashchain.js";
 import { isEnoent } from "./fs-utils.js";
+import { computeConcreteManifest } from "./manifest.js";
 import type {
   Spec,
   ConcreteSpec,
@@ -296,12 +297,24 @@ export function commentStyleForPath(path: string): "#" | "//" {
 
 // -- Managed file writing (adds hash chain headers) -------------------------
 
+/**
+ * Options for writing a managed file. `concreteManifest` is the per-dependency
+ * hash map for the concrete spec this file derives from, if one exists. When
+ * present, it is emitted as a `concrete-manifest:` line in the header so the
+ * ghost staleness diagnostic in ripple check can diff it against the current
+ * disk state on subsequent runs.
+ */
+export interface WriteManagedFileOptions {
+  concreteManifest?: Map<string, TruncatedHash>;
+}
+
 export async function writeManagedFile(
   cwd: string,
   filePath: string,
   content: string,
   specArtifactName: string,
   timestamp: string,
+  options?: WriteManagedFileOptions,
 ): Promise<void> {
   const specHash = await artifactHash(cwd, specArtifactName);
   if (!specHash) {
@@ -311,15 +324,51 @@ export async function writeManagedFile(
   }
 
   const outputHash = truncatedHash(content);
+  const commentStyle = commentStyleForPath(filePath);
   const header = formatHeader(
     `.prunejuice/artifacts/${specArtifactName}.json`,
     { specHash, outputHash, generated: timestamp },
-    commentStyleForPath(filePath),
+    commentStyle,
   );
 
-  const fullContent = `${header}\n\n${content}`;
+  // Append a concrete-manifest line when the caller provided a non-empty
+  // manifest. This is the write side of the ghost staleness diagnostic --
+  // ripple.ts scans managed headers for this line and diffs it against the
+  // current manifest to explain WHY a downstream file is ghost-stale.
+  const manifestLine =
+    options?.concreteManifest && options.concreteManifest.size > 0
+      ? `\n${formatManifestLine(options.concreteManifest, commentStyle)}`
+      : "";
+
+  const fullContent = `${header}${manifestLine}\n\n${content}`;
   const absPath = resolve(cwd, filePath);
   await atomicWriteFile(absPath, fullContent);
+}
+
+/**
+ * Locate a conventional `.impl.md` file for a managed output, if one exists.
+ * Tries `<managed-file-path>.impl.md` in the same directory. Returns the path
+ * (relative to cwd) if found, otherwise null.
+ *
+ * This is the bridge between prunejuice's runtime ConcreteSpec model (a TS
+ * object with no dependency edges) and the filesystem `.impl.md` convention
+ * used by the unslop plugin for hand-authored concrete specs with deps.
+ * Users in the dual workflow get ghost staleness diagnostics; prunejuice-only
+ * users get no `.impl.md` lookup and no manifest line, which is correct.
+ */
+async function findConventionalImplMd(
+  cwd: string,
+  managedFilePath: string,
+): Promise<string | null> {
+  const candidate = `${managedFilePath}.impl.md`;
+  const absCandidate = resolve(cwd, candidate);
+  try {
+    await stat(absCandidate);
+    return candidate;
+  } catch (err) {
+    if (isEnoent(err)) return null;
+    throw err;
+  }
 }
 
 export async function writeImplementationFiles(
@@ -328,12 +377,21 @@ export async function writeImplementationFiles(
   timestamp: string,
 ): Promise<void> {
   for (const file of implementation.files) {
+    // Opportunistically look up a conventional .impl.md for this output.
+    // If found, compute its concrete manifest and include it in the header
+    // so ghost staleness diagnostics work on subsequent ripple checks.
+    const implPath = await findConventionalImplMd(cwd, file.path);
+    const concreteManifest = implPath
+      ? (await computeConcreteManifest(implPath, cwd)) ?? undefined
+      : undefined;
+
     await writeManagedFile(
       cwd,
       file.path,
       file.content,
       "concrete-spec",
       timestamp,
+      concreteManifest ? { concreteManifest } : undefined,
     );
   }
 }

@@ -1,8 +1,17 @@
 import { describe, it, expect, afterEach } from "vitest";
-import { mkdtemp, readFile, readdir, writeFile, chmod, stat, rm } from "node:fs/promises";
+import { mkdtemp, readFile, readdir, writeFile, mkdir, chmod, stat, rm } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
-import { commentStyleForPath, atomicWriteFile } from "../src/store.js";
+import {
+  commentStyleForPath,
+  atomicWriteFile,
+  writeManagedFile,
+  writeImplementationFiles,
+  ensureStore,
+  saveConcreteSpec,
+} from "../src/store.js";
+import { truncatedHash } from "../src/hashchain.js";
+import type { ConcreteSpec, Implementation, TruncatedHash } from "../src/types.js";
 
 describe("commentStyleForPath", () => {
   it("returns # for Python files", () => {
@@ -212,5 +221,225 @@ describe("atomicWriteFile", () => {
     const result = await readFile(target, "utf-8");
     expect(result.length).toBe(large.length);
     expect(result).toBe(large);
+  });
+});
+
+// Helper: seed a minimal ConcreteSpec artifact so writeManagedFile can
+// compute its specHash during tests.
+async function seedConcreteSpec(cwd: string): Promise<void> {
+  await ensureStore(cwd);
+  const concreteSpec: ConcreteSpec = {
+    existingPatterns: [],
+    integrationPoints: [],
+    fileTargets: [],
+    strategyProjection: "test",
+    refinedSpec: {
+      intent: "test",
+      requirements: [],
+      constraints: [],
+      acceptanceCriteria: [],
+    },
+    behaviourContract: {
+      name: "test",
+      preconditions: [],
+      postconditions: [],
+      invariants: [],
+      scenarios: [],
+    },
+    discovered: [],
+  };
+  await saveConcreteSpec(cwd, concreteSpec);
+}
+
+describe("writeManagedFile concrete-manifest option", () => {
+  const dirs: string[] = [];
+
+  afterEach(async () => {
+    for (const d of dirs.splice(0)) {
+      await rm(d, { recursive: true, force: true });
+    }
+  });
+
+  async function makeTmp(): Promise<string> {
+    const d = await mkdtemp(join(tmpdir(), "manifest-write-test-"));
+    dirs.push(d);
+    return d;
+  }
+
+  it("emits concrete-manifest line when option is provided", async () => {
+    const tmp = await makeTmp();
+    await seedConcreteSpec(tmp);
+
+    const manifest = new Map<string, TruncatedHash>([
+      ["src/base.impl.md", "a3f8c2e9b7d1" as TruncatedHash],
+      ["shared/util.impl.md", "7f2e1b8a9c04" as TruncatedHash],
+    ]);
+
+    await writeManagedFile(
+      tmp,
+      "src/retry.py",
+      "def retry(): pass\n",
+      "concrete-spec",
+      "2026-04-05T00:00:00Z",
+      { concreteManifest: manifest },
+    );
+
+    const written = await readFile(join(tmp, "src/retry.py"), "utf-8");
+    expect(written).toContain("# concrete-manifest:");
+    expect(written).toContain("src/base.impl.md:a3f8c2e9b7d1");
+    expect(written).toContain("shared/util.impl.md:7f2e1b8a9c04");
+    // Manifest line must come BEFORE the body (inside the header block).
+    const manifestIdx = written.indexOf("concrete-manifest:");
+    const bodyIdx = written.indexOf("def retry():");
+    expect(manifestIdx).toBeLessThan(bodyIdx);
+  });
+
+  it("does NOT emit concrete-manifest line when option is absent", async () => {
+    const tmp = await makeTmp();
+    await seedConcreteSpec(tmp);
+
+    await writeManagedFile(
+      tmp,
+      "src/simple.py",
+      "def simple(): pass\n",
+      "concrete-spec",
+      "2026-04-05T00:00:00Z",
+    );
+
+    const written = await readFile(join(tmp, "src/simple.py"), "utf-8");
+    expect(written).not.toContain("concrete-manifest:");
+  });
+
+  it("does NOT emit concrete-manifest line when manifest is empty", async () => {
+    const tmp = await makeTmp();
+    await seedConcreteSpec(tmp);
+
+    await writeManagedFile(
+      tmp,
+      "src/empty.py",
+      "def empty(): pass\n",
+      "concrete-spec",
+      "2026-04-05T00:00:00Z",
+      { concreteManifest: new Map() },
+    );
+
+    const written = await readFile(join(tmp, "src/empty.py"), "utf-8");
+    expect(written).not.toContain("concrete-manifest:");
+  });
+
+  it("uses the comment style of the target file (// for TypeScript)", async () => {
+    const tmp = await makeTmp();
+    await seedConcreteSpec(tmp);
+
+    const manifest = new Map<string, TruncatedHash>([
+      ["src/base.impl.md", "a3f8c2e9b7d1" as TruncatedHash],
+    ]);
+
+    await writeManagedFile(
+      tmp,
+      "src/retry.ts",
+      "export function retry() {}\n",
+      "concrete-spec",
+      "2026-04-05T00:00:00Z",
+      { concreteManifest: manifest },
+    );
+
+    const written = await readFile(join(tmp, "src/retry.ts"), "utf-8");
+    // TypeScript uses // comment style, so the manifest line should too.
+    expect(written).toContain("// concrete-manifest:");
+    expect(written).not.toContain("# concrete-manifest:");
+  });
+});
+
+describe("writeImplementationFiles .impl.md lookup", () => {
+  const dirs: string[] = [];
+
+  afterEach(async () => {
+    for (const d of dirs.splice(0)) {
+      await rm(d, { recursive: true, force: true });
+    }
+  });
+
+  async function makeTmp(): Promise<string> {
+    const d = await mkdtemp(join(tmpdir(), "impl-lookup-test-"));
+    dirs.push(d);
+    return d;
+  }
+
+  it("includes concrete-manifest when a conventional .impl.md exists with deps", async () => {
+    const tmp = await makeTmp();
+    await seedConcreteSpec(tmp);
+
+    // Create an upstream impl file
+    const basePath = join(tmp, "src", "base.impl.md");
+    await mkdir(join(tmp, "src"), { recursive: true });
+    const baseContent =
+      "---\nsource-spec: src/base.spec.md\n---\n## Strategy\nBase strategy.";
+    await writeFile(basePath, baseContent, "utf-8");
+
+    // Create the downstream .impl.md with a concrete-dependency on base
+    const retryImplPath = join(tmp, "src", "retry.py.impl.md");
+    await writeFile(
+      retryImplPath,
+      [
+        "---",
+        "source-spec: src/retry.py.spec.md",
+        "concrete-dependencies:",
+        "  - src/base.impl.md",
+        "---",
+        "",
+        "## Strategy",
+        "Retry wraps base.",
+      ].join("\n"),
+      "utf-8",
+    );
+
+    // Now write the implementation -- writeImplementationFiles should find
+    // the .impl.md file conventionally at src/retry.py.impl.md and compute
+    // the manifest from it.
+    const implementation: Implementation = {
+      files: [{ path: "src/retry.py", content: "def retry(): pass\n" }],
+      summary: "test",
+    };
+    await writeImplementationFiles(tmp, implementation, "2026-04-05T00:00:00Z");
+
+    const written = await readFile(join(tmp, "src/retry.py"), "utf-8");
+    expect(written).toContain("# concrete-manifest:");
+    expect(written).toContain(`src/base.impl.md:${truncatedHash(baseContent)}`);
+  });
+
+  it("omits concrete-manifest when no .impl.md file exists (prunejuice-pure workflow)", async () => {
+    const tmp = await makeTmp();
+    await seedConcreteSpec(tmp);
+
+    const implementation: Implementation = {
+      files: [{ path: "src/alone.py", content: "def alone(): pass\n" }],
+      summary: "test",
+    };
+    await writeImplementationFiles(tmp, implementation, "2026-04-05T00:00:00Z");
+
+    const written = await readFile(join(tmp, "src/alone.py"), "utf-8");
+    expect(written).not.toContain("concrete-manifest:");
+  });
+
+  it("omits concrete-manifest when .impl.md exists but declares no deps", async () => {
+    const tmp = await makeTmp();
+    await seedConcreteSpec(tmp);
+
+    await mkdir(join(tmp, "src"), { recursive: true });
+    await writeFile(
+      join(tmp, "src", "noDeps.py.impl.md"),
+      "---\nsource-spec: src/noDeps.py.spec.md\n---\n## Strategy\nStandalone.",
+      "utf-8",
+    );
+
+    const implementation: Implementation = {
+      files: [{ path: "src/noDeps.py", content: "def no_deps(): pass\n" }],
+      summary: "test",
+    };
+    await writeImplementationFiles(tmp, implementation, "2026-04-05T00:00:00Z");
+
+    const written = await readFile(join(tmp, "src/noDeps.py"), "utf-8");
+    expect(written).not.toContain("concrete-manifest:");
   });
 });
