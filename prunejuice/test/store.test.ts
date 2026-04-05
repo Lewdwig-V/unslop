@@ -10,7 +10,11 @@ import {
   ensureStore,
   saveConcreteSpec,
 } from "../src/store.js";
-import { truncatedHash } from "../src/hashchain.js";
+import {
+  truncatedHash,
+  parseHeader,
+  getBodyBelowHeader,
+} from "../src/hashchain.js";
 import type { ConcreteSpec, Implementation, TruncatedHash } from "../src/types.js";
 
 describe("commentStyleForPath", () => {
@@ -441,5 +445,72 @@ describe("writeImplementationFiles .impl.md lookup", () => {
 
     const written = await readFile(join(tmp, "src/noDeps.py"), "utf-8");
     expect(written).not.toContain("concrete-manifest:");
+  });
+
+  // -- Round-trip regression guard -----------------------------------------
+  //
+  // When writeImplementationFiles emits a concrete-manifest line, the
+  // output-hash in the header is computed from the BODY only (not body +
+  // manifest line). getBodyBelowHeader must recognize the manifest line as
+  // part of the header so the rehash on readback matches the stored hash;
+  // otherwise every affected file reports as "modified" on the next
+  // freshness check.
+  //
+  // This test writes via the real writeImplementationFiles pipeline, reads
+  // the file back, and asserts that:
+  //   - parseHeader extracts the stored output-hash
+  //   - truncatedHash(getBodyBelowHeader(written)) === headerOutputHash
+  //
+  // If they don't match, the freshness classifier will mark the file as
+  // modified immediately after it was written -- a false drift regression.
+
+  it("round-trips: output-hash in header matches rehash of body after writeImplementationFiles with manifest", async () => {
+    const tmp = await makeTmp();
+    await seedConcreteSpec(tmp);
+
+    await mkdir(join(tmp, "src"), { recursive: true });
+    await writeFile(
+      join(tmp, "src", "base.impl.md"),
+      "---\nsource-spec: src/base.spec.md\n---\n## Strategy\nBase.",
+      "utf-8",
+    );
+    await writeFile(
+      join(tmp, "src", "retry.py.impl.md"),
+      [
+        "---",
+        "source-spec: src/retry.py.spec.md",
+        "concrete-dependencies:",
+        "  - src/base.impl.md",
+        "---",
+        "",
+        "## Strategy",
+        "Retry wraps base.",
+      ].join("\n"),
+      "utf-8",
+    );
+
+    const originalBody = "def retry(): pass\n";
+    const implementation: Implementation = {
+      files: [{ path: "src/retry.py", content: originalBody }],
+      summary: "test",
+    };
+    await writeImplementationFiles(tmp, implementation, "2026-04-05T00:00:00Z");
+
+    // Read the written file back and verify it actually has a manifest line
+    // (if not, this test isn't exercising the regression path).
+    const written = await readFile(join(tmp, "src/retry.py"), "utf-8");
+    expect(written).toContain("concrete-manifest:");
+
+    // Parse the header to get the stored output-hash
+    const header = parseHeader(written);
+    expect(header).not.toBeNull();
+
+    // THE CRITICAL ASSERTION: getBodyBelowHeader must strip ALL header lines
+    // (including concrete-manifest) so the rehashed body matches the stored
+    // output-hash. If this fails, files are marked modified immediately
+    // after being written.
+    const extractedBody = getBodyBelowHeader(written);
+    expect(extractedBody).toBe(originalBody);
+    expect(truncatedHash(extractedBody)).toBe(header!.outputHash);
   });
 });
