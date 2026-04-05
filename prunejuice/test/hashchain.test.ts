@@ -106,6 +106,39 @@ describe("getBodyBelowHeader", () => {
     const content = "just code\nno header";
     expect(getBodyBelowHeader(content)).toBe(content);
   });
+
+  it("strips an optional concrete-manifest line between header and body", () => {
+    // Regression: the writer appends a concrete-manifest line to the header
+    // when the target has a conventional .impl.md with deps. getBodyBelowHeader
+    // must recognize that line as header, not body -- otherwise the rehashed
+    // body differs from the output-hash computed at write time, and every
+    // affected file reports as "modified" on the next freshness check.
+    const formatted = formatHeader("spec.md", header, "#");
+    const manifest = new Map<string, TruncatedHash>([
+      ["src/base.impl.md", "a3f8c2e9b7d1" as TruncatedHash],
+    ]);
+    const manifestLine = formatManifestLine(manifest, "#");
+    const body = "def retry(): pass\n";
+    const fullFile = `${formatted}\n${manifestLine}\n\n${body}`;
+
+    expect(getBodyBelowHeader(fullFile)).toBe(body);
+    // And the critical invariant: rehashing the returned body must match
+    // truncatedHash of the original body (what the writer hashed).
+    expect(truncatedHash(getBodyBelowHeader(fullFile))).toBe(truncatedHash(body));
+  });
+
+  it("strips concrete-manifest line with // comment style", () => {
+    const formatted = formatHeader("spec.md", header, "//");
+    const manifest = new Map<string, TruncatedHash>([
+      ["src/base.impl.md", "a3f8c2e9b7d1" as TruncatedHash],
+    ]);
+    const manifestLine = formatManifestLine(manifest, "//");
+    const body = "export function retry() {}\n";
+    const fullFile = `${formatted}\n${manifestLine}\n\n${body}`;
+
+    expect(getBodyBelowHeader(fullFile)).toBe(body);
+    expect(truncatedHash(getBodyBelowHeader(fullFile))).toBe(truncatedHash(body));
+  });
 });
 
 // -- classifyFreshness -------------------------------------------------------

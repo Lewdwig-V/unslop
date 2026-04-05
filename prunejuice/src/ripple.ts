@@ -331,13 +331,13 @@ export async function rippleCheck(
     }
     const meta = parseConcreteSpecFrontmatter(content);
 
-    // Resolve source-spec relative to impl location (may be "../src/api.spec.md")
-    if (meta.sourceSpec) {
-      const implDir = join(absCwd, rel, "..");
-      const resolved = resolve(implDir, meta.sourceSpec);
-      meta.sourceSpec = relative(absCwd, resolved);
-    }
-
+    // source-spec is cwd-relative (the convention for all path-valued frontmatter
+    // fields in the concrete spec ecosystem -- concrete-dependencies, extends,
+    // targets, and depends-on all use cwd-relative paths). We deliberately do
+    // NOT resolve source-spec relative to the impl file's directory: an earlier
+    // implementation did that, but it was inconsistent with every other field,
+    // silently mis-resolved paths in nested impl files, and contradicted the
+    // documented examples in concrete-spec/SKILL.md.
     implMeta.set(rel, meta);
 
     if (meta.sourceSpec) {

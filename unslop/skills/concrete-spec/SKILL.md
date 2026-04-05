@@ -75,18 +75,20 @@ targets:
 
 | Field | Required | Description |
 |---|---|---|
-| `source-spec` | yes | Path to the abstract spec this concretizes |
+| `source-spec` | yes | Cwd-relative path to the abstract spec this concretizes |
 | `target-language` | yes* | Target language/platform for lowering. *Mutually exclusive with `targets` |
 | `targets` | no* | List of target files for multi-target lowering. *Mutually exclusive with `target-language` |
-| `targets[].path` | yes | Path to the managed file this target produces |
+| `targets[].path` | yes | Cwd-relative path to the managed file this target produces |
 | `targets[].language` | yes | Language for this target (e.g., `python`, `typescript`, `go`) |
 | `targets[].notes` | no | Target-specific lowering hints (supplements `## Lowering Notes`) |
 | `ephemeral` | no | Default `true`. Set `false` when promoted via `/unslop:promote` or when complexity meets the project's `promote-threshold` |
 | `complexity` | no | `low`, `medium`, or `high`. Compared against the project's `promote-threshold` for auto-promotion |
-| `extends` | no | Path to a base `*.impl.md` whose sections are inherited. Child sections override parent sections. See Strategy Inheritance |
-| `concrete-dependencies` | no | Paths to upstream `*.impl.md` files whose strategy choices affect this spec's lowering. Changes in upstream concrete specs trigger ghost staleness |
+| `extends` | no | Cwd-relative path to a base `*.impl.md` whose sections are inherited. Child sections override parent sections. See Strategy Inheritance |
+| `concrete-dependencies` | no | Cwd-relative paths to upstream `*.impl.md` files whose strategy choices affect this spec's lowering. Changes in upstream concrete specs trigger ghost staleness |
 | `blocked-by` | no | List of deferred constraints -- symbol-level blockers the spec wants to express but can't fulfill yet. Each entry requires `symbol`, `reason`, `resolution`, `affects`. Only meaningful on permanent specs (`ephemeral: false`) |
 | `protected-regions` | no | List of contiguous tail blocks the Builder preserves verbatim. Each entry requires `marker`, `position` (always `tail`), `semantics` (`test-suite`, `entry-point`, `examples`, `benchmarks`), `starts-at` (1-indexed line reference). No mid-file regions -- split the file first |
+
+**Path convention:** every path-valued frontmatter field (`source-spec`, `concrete-dependencies`, `extends`, `targets[].path`) is **cwd-relative**: paths are interpreted relative to the project root regardless of where the `.impl.md` file itself lives. An impl at `src/nested/foo.impl.md` that concretizes `src/nested/foo.spec.md` writes `source-spec: src/nested/foo.spec.md` -- the full cwd-relative path, not just `foo.spec.md`. This matches `depends-on` in abstract specs and keeps cross-file refactoring simple (grep the repo for the path).
 
 **Ephemeral restriction:** `blocked-by` is only meaningful on permanent concrete specs. If present on an ephemeral spec, entries are parsed but ignored by the freshness checker and coherence command. Promote to permanent first via `/unslop:promote`.
 

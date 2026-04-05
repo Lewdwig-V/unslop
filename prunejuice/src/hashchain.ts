@@ -55,10 +55,20 @@ export function parseHeader(fileContent: string): ManagedHeader | null {
 export function getBodyBelowHeader(fileContent: string): string {
   const lines = fileContent.split("\n");
   let bodyStart = 0;
-  for (let i = 0; i < Math.min(lines.length, 5); i++) {
+  // Recognize ALL known header-comment lines so the body we return matches
+  // exactly what was passed to truncatedHash() at write time:
+  //   - @prunejuice-managed marker line
+  //   - spec-hash/output-hash/generated line
+  //   - concrete-manifest line (optional, only when the writer emitted one)
+  // If new header lines get added in the future, they MUST be recognized here
+  // or the round-trip hash check will desync and report every file as modified.
+  // Scan up to 8 lines to accommodate future header growth.
+  for (let i = 0; i < Math.min(lines.length, 8); i++) {
+    const normalized = lines[i]!.replace(/^\/\//, "#");
     if (
       lines[i]!.includes("@prunejuice-managed") ||
-      HASH_LINE_RE.test(lines[i]!.replace(/^\/\//, "#"))
+      HASH_LINE_RE.test(normalized) ||
+      MANIFEST_LINE_RE.test(normalized)
     ) {
       bodyStart = i + 1;
     }
