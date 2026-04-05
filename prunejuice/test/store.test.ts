@@ -1,5 +1,5 @@
 import { describe, it, expect, afterEach } from "vitest";
-import { mkdtemp, readFile, readdir, writeFile, chmod, rm } from "node:fs/promises";
+import { mkdtemp, readFile, readdir, writeFile, chmod, stat, rm } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { commentStyleForPath, atomicWriteFile } from "../src/store.js";
@@ -128,25 +128,40 @@ describe("atomicWriteFile", () => {
     expect(entries).toEqual(["out.txt"]);
   });
 
-  it("preserves previous target content when write fails", async () => {
+  it("preserves existing file when a neighboring atomic write fails", async () => {
     const tmp = await makeTmp();
-    const target = join(tmp, "out.txt");
-    await writeFile(target, "original", "utf-8");
+    // Create an existing file with known content. We want to verify that
+    // a FAILING atomic write nearby does not touch this file.
+    const preserved = join(tmp, "preserved.txt");
+    await writeFile(preserved, "original content", "utf-8");
 
-    // Make the directory read-only so the temp file write fails.
-    await chmod(tmp, 0o555);
+    // Trigger a UID-independent failure: try to atomic-write to a path
+    // whose parent component is a file, not a directory. This fails with
+    // ENOTDIR during mkdir -- a filesystem type constraint that holds for
+    // all users including root, so the test is stable in containerized CI.
+    const badTarget = join(preserved, "child.txt");
+    await expect(atomicWriteFile(badTarget, "new content")).rejects.toThrow();
 
-    try {
-      await expect(
-        atomicWriteFile(target, "should not replace"),
-      ).rejects.toThrow();
-    } finally {
-      // Restore permissions so cleanup can run.
-      await chmod(tmp, 0o755);
-    }
+    // The existing file was never touched.
+    expect(await readFile(preserved, "utf-8")).toBe("original content");
+  });
 
-    // Original content is still there (target was never touched).
-    expect(await readFile(target, "utf-8")).toBe("original");
+  it("preserves file mode when overwriting an existing executable", async () => {
+    const tmp = await makeTmp();
+    const target = join(tmp, "script.sh");
+    await writeFile(target, "#!/bin/sh\necho original\n", "utf-8");
+    // Mark the existing file executable (the mode bits atomicWriteFile must preserve).
+    await chmod(target, 0o755);
+
+    await atomicWriteFile(target, "#!/bin/sh\necho regenerated\n");
+
+    const st = await stat(target);
+    // Mask to just the permission bits (strip file-type bits).
+    // The executable bit for owner (0o100) must still be set.
+    expect(st.mode & 0o777).toBe(0o755);
+    expect(await readFile(target, "utf-8")).toBe(
+      "#!/bin/sh\necho regenerated\n",
+    );
   });
 
   it("cleans up temp file on write failure", async () => {

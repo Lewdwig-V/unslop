@@ -1,4 +1,4 @@
-import { readFile, mkdir, rename, open, unlink } from "node:fs/promises";
+import { readFile, mkdir, rename, open, unlink, stat } from "node:fs/promises";
 import { resolve, dirname, basename } from "node:path";
 import { randomBytes } from "node:crypto";
 import { truncatedHash, formatHeader } from "./hashchain.js";
@@ -54,6 +54,12 @@ export async function ensureStore(cwd: string): Promise<void> {
  * the kernel flushing the page cache can leave an empty file at the new path
  * on some filesystems.
  *
+ * Permission preservation: `rename(2)` swaps inodes, which would otherwise
+ * replace the target's mode bits with the temp file's umask-derived defaults.
+ * Before rename we `fchmod` the temp file to match the existing target's
+ * mode so managed files keep their `+x` and other mode bits across rewrites.
+ * For new files (target does not exist), the default mode is used.
+ *
  * If any step fails, we best-effort remove the temp file so we don't leak
  * stale siblings; the original error propagates.
  */
@@ -62,6 +68,18 @@ export async function atomicWriteFile(
   content: string,
 ): Promise<void> {
   await mkdir(dirname(targetPath), { recursive: true });
+
+  // Capture existing target's mode so we can preserve it across the rename.
+  // `fchmod` on the temp file is race-free relative to rename; `chmod` after
+  // rename would leave a window where the file has wrong permissions.
+  let existingMode: number | null = null;
+  try {
+    const st = await stat(targetPath);
+    existingMode = st.mode;
+  } catch (err) {
+    if (!isEnoent(err)) throw err;
+    // Target does not exist yet -- use umask-derived default for new files.
+  }
 
   // Temp sibling in the SAME directory so the rename is on the same filesystem
   // (cross-filesystem rename is not atomic on POSIX -- it falls back to copy).
@@ -72,6 +90,9 @@ export async function atomicWriteFile(
   try {
     fh = await open(tmpPath, "w");
     await fh.writeFile(content, "utf-8");
+    if (existingMode !== null) {
+      await fh.chmod(existingMode);
+    }
     await fh.sync();
   } catch (err) {
     if (fh) {
