@@ -451,21 +451,19 @@ describe("rippleCheck", () => {
     await writeAt(tmp, "src/retry.py.spec.md", "---\n---\n# Retry spec");
 
     // 3. Create upstream .impl.md file with initial content.
-    //    Note: source-spec is resolved relative to the impl file's directory
-    //    (not cwd), so an impl at src/base.impl.md uses source-spec: base.spec.md
-    //    to reference src/base.spec.md.
+    //    All path-valued frontmatter fields (source-spec, concrete-dependencies,
+    //    extends) are cwd-relative.
     const baseImplContentV1 =
-      "---\nsource-spec: base.spec.md\n---\n## Strategy\nBase strategy v1.";
+      "---\nsource-spec: src/base.spec.md\n---\n## Strategy\nBase strategy v1.";
     await writeAt(tmp, "src/base.impl.md", baseImplContentV1);
 
     // 4. Create downstream .impl.md declaring a concrete-dependency on base.
-    //    concrete-dependencies, unlike source-spec, are cwd-relative paths.
     await writeAt(
       tmp,
       "src/retry.py.impl.md",
       [
         "---",
-        "source-spec: retry.py.spec.md",
+        "source-spec: src/retry.py.spec.md",
         "concrete-dependencies:",
         "  - src/base.impl.md",
         "---",
@@ -496,9 +494,8 @@ describe("rippleCheck", () => {
     );
 
     // 6. Mutate the upstream -- ghost staleness trigger.
-    //    Keep source-spec consistent with V1 (relative to impl's dir).
     const baseImplContentV2 =
-      "---\nsource-spec: base.spec.md\n---\n## Strategy\nBase strategy v2 (changed).";
+      "---\nsource-spec: src/base.spec.md\n---\n## Strategy\nBase strategy v2 (changed).";
     await writeAt(tmp, "src/base.impl.md", baseImplContentV2);
 
     // 7. Run ripple check from the changed upstream. retry.py should be
@@ -517,5 +514,57 @@ describe("rippleCheck", () => {
     expect(ghostEntry!.diagnostic).toBeDefined();
     expect(ghostEntry!.diagnostic!.changedSpec).toBe("src/base.impl.md");
     expect(ghostEntry!.diagnostic!.chain).toContain("src/base.impl.md");
+  });
+
+  // -- Path convention regression guard -------------------------------------
+  //
+  // An earlier version of ripple.ts resolved `source-spec` relative to the
+  // impl file's parent directory while `concrete-dependencies` and `extends`
+  // were cwd-relative. That inconsistency silently mis-resolved nested impls:
+  // an impl at `src/foo.impl.md` with `source-spec: src/foo.spec.md` became
+  // `src/src/foo.spec.md`, which doesn't exist, so ripple never matched the
+  // impl to its abstract spec and ghost staleness detection failed. The tests
+  // at the time hid the bug because they put all impls at cwd root, where
+  // impl-dir == cwd and both conventions produce the same result.
+  //
+  // This test puts the impl and spec in a nested directory and asserts the
+  // cwd-relative convention works. If someone restores impl-dir-relative
+  // resolution, this test fails because `src/nested/foo.spec.md` would
+  // resolve to `src/nested/src/nested/foo.spec.md`.
+
+  it("source-spec is cwd-relative (nested directory regression guard)", async () => {
+    const tmp = await makeTmp();
+    dirs.push(tmp);
+
+    // Place both the spec and the impl in a nested directory.
+    await writeAt(
+      tmp,
+      "src/nested/foo.spec.md",
+      "---\n---\n# Foo spec",
+    );
+    await writeAt(
+      tmp,
+      "src/nested/foo.impl.md",
+      [
+        "---",
+        // Cwd-relative path. Under impl-dir-relative this would incorrectly
+        // resolve to src/nested/src/nested/foo.spec.md (nonexistent).
+        "source-spec: src/nested/foo.spec.md",
+        "---",
+        "",
+        "## Strategy",
+        "Foo strategy.",
+      ].join("\n"),
+    );
+
+    const result = await rippleCheck(["src/nested/foo.spec.md"], tmp);
+
+    // The impl must be linked to its source spec so the concrete layer sees it.
+    // This is the regression: under impl-dir-relative resolution, source-spec
+    // would become src/nested/src/nested/foo.spec.md, which doesn't exist,
+    // so the impl would never match and affectedImpls would be empty.
+    expect(result.layers.concrete.affectedImpls).toContain(
+      "src/nested/foo.impl.md",
+    );
   });
 });

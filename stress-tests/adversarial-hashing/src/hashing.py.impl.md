@@ -1,5 +1,5 @@
 ---
-source-spec: hashing.py.spec.md
+source-spec: src/hashing.py.spec.md
 target-language: python
 complexity: low
 ephemeral: true
