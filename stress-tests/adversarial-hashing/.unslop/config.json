@@ -1,9 +1,0 @@
-{
-  "test_command": "cd stress-tests/adversarial-hashing && python -m pytest tests/ -v",
-  "test_command_note": "Runs adversarial hashing stress test suite",
-  "exclude_patterns": [],
-  "adversarial": true,
-  "adversarial_max_iterations": 3,
-  "mutation_tool": "builtin",
-  "entropy_threshold": 0.05
-}
