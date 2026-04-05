@@ -8,9 +8,9 @@
 
 A test-generation agent that has never seen the source code produced 70 black-box tests that caught 88% of injected mutations in the implementation. The implementation itself was regenerated from a spec by a different agent that never saw the tests. The regenerated code was structurally different from the original -- different function decomposition, different control flow, different variable names -- but behaviourally identical. Every test passed against both versions.
 
-No shared runtime state held the handoffs together. A typed library dispatched the agents in sequence and passed data between them, but that library is stateless between sessions: every generation cycle rebuilds its state from files on disk. The only durable coordination mechanism -- the only thing that persists across sessions, across agents, across regenerations -- is the spec artifact itself. The spec files, their frontmatter, and the hash chain that connects them to generated code.
+No shared runtime state held the handoffs together. A typed library dispatched the agents in sequence and passed data between them, but that library holds nothing in memory across invocations: every generation cycle rebuilds its state from files on disk. The durable coordination mechanism -- the thing that encodes the system's claims about a module across sessions, across agents, across regenerations -- is the spec artifact: spec files, their frontmatter, the behaviour contract, and the hash chains that connect them to generated code.
 
-This paper describes that two-layer architecture and why the spec layer is the load-bearing part.
+This paper describes that architecture and why the coordination layer is the load-bearing part.
 
 ## 2. The Problem
 
@@ -46,13 +46,16 @@ The system has five agents, each with a specific role and specific information a
 
 These agents run in sequence inside a runtime orchestrator (a TypeScript library called `prunejuice`). The orchestrator dispatches each agent with a tool-restricted context, passes the output to the next agent via typed function calls, and runs the convergence loop. It is, unambiguously, an orchestrator -- it's just not the coordination mechanism.
 
-The coordination mechanism is the spec. Prunejuice holds runtime state only for the duration of a single generation cycle. Between cycles, everything it knows about the module must be reconstructible from three durable artifacts:
+The coordination mechanism is the spec. Prunejuice holds no in-memory state across invocations; between cycles, everything it knows about the module must be reconstructible from durable artifacts on disk. There are four kinds of coordination artifact:
 
-1. The **abstract spec** (`*.spec.md`): intent, constraints, frontmatter metadata
-2. The **concrete spec** (`*.impl.md`): implementation strategy, pseudocode, inheritance chain
-3. The **managed file header**: hash chain linking generated code back to its spec
+1. The **abstract spec** (`*.spec.md` and its mirror in `.prunejuice/artifacts/spec.json`): intent, constraints, frontmatter metadata
+2. The **concrete spec** (`.prunejuice/artifacts/concrete-spec.json`): implementation strategy, pseudocode, inheritance chain. The hash chain on implementation files anchors against this artifact.
+3. The **behaviour contract** (`.prunejuice/artifacts/behaviour-contract.json`): given/when/then scenarios, invariants, preconditions. The hash chain on test files anchors against this artifact; deleting it breaks test freshness.
+4. The **managed file headers**: per-file hash chain comments linking each generated file back to the coordination artifacts it was derived from.
 
-If all of prunejuice's in-memory state were destroyed mid-session and a fresh orchestrator were started, it could pick up exactly where it left off by reading these three artifacts. That property -- runtime statelessness relative to the spec layer -- is what makes the spec the coordinator rather than the library.
+Between cycles (no pipeline in flight), these four artifacts plus the managed files are sufficient to reconstruct the entire coordination state -- prunejuice can start a fresh generation with no memory of prior runs. Mid-cycle crash recovery uses an additional set of memoized artifacts (Stage 1-3 outputs cached in `.prunejuice/artifacts/`), but those are derivable from the coordination artifacts by re-running the agents. Section 3.4 covers the distinction in detail.
+
+That property -- the existence of a small, well-defined set of artifacts sufficient to reconstruct state -- is what makes the spec the coordinator rather than the library. The library can be torn down and rebuilt; the spec cannot.
 
 ### 3.2 The Hash Chain
 
@@ -99,25 +102,31 @@ Key frontmatter fields and what they solve:
 
 Each field exists because a specific failure mode was observed in practice. `rejected` was added after an agent proposed the same architectural approach three sessions in a row, each time being told no. `non-goals` was added after a regeneration introduced input validation that the original intentionally omitted. `discovered` was added after a concrete spec silently absorbed a correctness requirement that should have been a human decision.
 
-### 3.4 What Moved In-Process, What Stayed on Disk
+### 3.4 Three Kinds of State
 
-An earlier version of this system coordinated agents through the filesystem exclusively: each stage wrote its output to a file, the next stage read it, and synchronization was "check if the file exists." That worked as a proof of concept but had a cost: every handoff incurred a filesystem round-trip and the coordination state was smeared across ephemeral intermediate files (`behaviour.yaml`, temporary JSON outputs) that had no durable meaning after the cycle ended.
+An earlier version of this system coordinated agents through the filesystem exclusively: each stage wrote its output to a file, the next stage read it, and synchronization was "check if the file exists." That worked as a proof of concept but had a cost: every handoff incurred a filesystem round-trip and the coordination state was smeared across intermediate files (`behaviour.yaml`, temporary JSON outputs) whose lifetime and purpose weren't clearly separated.
 
-Extracting the orchestrator into a typed library made the split visible. Some artifacts are *runtime state* -- they exist to pass data from one agent to the next within a single cycle, and their only consumer is the next agent in the pipeline. Others are *durable coordination state* -- they exist to reconstruct context across cycles, across sessions, across humans.
+Extracting the orchestrator into a typed library exposed a three-way split that the earlier architecture had conflated. Every pipeline artifact ends up on disk, but for three different reasons, with three different lifetimes:
 
-| Artifact | Layer | Representation |
-|----------|-------|----------------|
-| `Spec` (intent, requirements, constraints) | Both | Disk as `.spec.md` frontmatter; in-process as TS interface |
-| `ConcreteSpec` (strategy, pseudocode, fileTargets) | Both | Disk as `.impl.md`; in-process as TS interface |
-| `BehaviourContract` (given/when/then, invariants) | Runtime only | TS interface passed Mason → Builder |
-| `GeneratedTests` | Runtime only | TS interface; materialized to disk only at end of cycle |
-| `Implementation` | Runtime only | TS interface; materialized to disk only at end of cycle |
-| `SaboteurReport` | Runtime (audit copy on disk) | TS interface; optional `.prunejuice/verification/<hash>.json` audit record |
-| Managed file header (`@prunejuice-managed` + hashes) | Durable | Comment in the generated file itself |
+| Artifact | Category | Why it's on disk |
+|----------|----------|------------------|
+| `Spec` | **Durable coordination** | Encodes human intent. Source of truth. Must survive across sessions. Persisted as `.spec.md` (human-edited) + `.prunejuice/artifacts/spec.json` (machine-readable mirror). |
+| `ConcreteSpec` | **Durable coordination** | Encodes implementation strategy decisions. Persisted as `.prunejuice/artifacts/concrete-spec.json`. The managed file hash chain for implementation files anchors against this artifact. |
+| `BehaviourContract` | **Durable coordination** | Persisted as `.prunejuice/artifacts/behaviour-contract.json`. The managed file hash chain for test files anchors against this artifact -- without it persisted, test freshness has nothing to chain to. Also the Chinese Wall artifact that Mason sees. |
+| `GeneratedTests` | **Resumability cache** | Persisted as `.prunejuice/artifacts/tests.json`. Derivable from `BehaviourContract` via Mason re-run, but cached so a mid-pipeline crash can skip re-invoking Mason. Deleting the cache and re-running produces equivalent tests (modulo LLM nondeterminism). |
+| `Implementation` | **Resumability cache** | Persisted as `.prunejuice/artifacts/implementation.json`. Derivable from `Spec + ConcreteSpec + Tests` via Builder re-run. Cached for crash recovery. |
+| `SaboteurReport` | **Resumability cache** | Persisted as `.prunejuice/artifacts/saboteur-report.json`. Derivable from `Implementation + Tests` via Saboteur re-run. Cached for crash recovery. |
+| Managed file header (`@prunejuice-managed` + hash chain + optional concrete manifest) | **Durable generated output** | Comment in the generated file itself. Links the file body to the coordination artifacts it was derived from. |
 
-The reorganization clarified what the spec *is*. The `Spec` and `ConcreteSpec` artifacts are durable because they encode human decisions that must outlive any particular generation cycle. The `BehaviourContract` is runtime-only because it's a mechanical derivation from `ConcreteSpec` -- the Archaeologist can reproduce it deterministically from the concrete spec's Strategy and Pattern sections. You don't need to persist it; you need to persist the thing it's derived from.
+**Durable coordination artifacts** encode human decisions. They must survive across sessions or the system loses coherence: regenerating from a deleted `ConcreteSpec` or `BehaviourContract` produces different code and different tests, breaking the hash chain linking old outputs to anything meaningful. The three coordination artifacts plus the managed file headers are what the spec-as-coordinator claim rests on.
 
-This is the observation that the earlier filesystem-only architecture was obscuring. It looked like every file was equally load-bearing. It wasn't. Three of the files were the spec artifact; the rest were ephemeral scaffolding that existed because markdown prompts had no other way to pass state.
+**Resumability cache artifacts** are memoized agent outputs. They persist so a mid-pipeline crash can resume without re-running expensive LLM calls, but they're conceptually disposable -- deleting `.prunejuice/artifacts/{tests,implementation,saboteur-report}.json` and re-running the pipeline produces equivalent results. The pipeline treats them as a cache, not ground truth.
+
+**Durable generated output** is the actual code on disk. The managed file header links each output file back to its coordination artifacts via hash pointers. For implementation files, the pointer is to `ConcreteSpec`; for test files, it's to `BehaviourContract`. The hash chain is how freshness checks work across sessions.
+
+The important consequence: to reconstruct prunejuice's state after a crash or fresh checkout, it's sufficient to have the three coordination artifacts plus the managed files. The resumability cache can be rebuilt from them by re-running the pipeline. But **neither category can be eliminated**: the coordination artifacts are load-bearing because the hash chains anchor against them, and the cache is load-bearing for crash-resilience.
+
+This is the observation that the earlier filesystem-only architecture was obscuring. It looked like every file was equally load-bearing. It wasn't -- but "runtime only" vs "durable" is too coarse a split. The real distinction is between artifacts whose existence is semantic (coordination) and artifacts whose existence is operational (cache).
 
 ## 4. The Chinese Wall
 
@@ -186,28 +195,34 @@ The adjusted kill rate was 88.2% (15/17 non-equivalent mutants killed). The two 
 
 ## 5. The Pipeline
 
-The full generation pipeline has five stages. Each stage is a function call in the runtime orchestrator; each stage reads and writes specific artifacts. Durable artifacts are marked **(D)**; runtime-only artifacts are marked **(R)**:
+The full generation pipeline has five stages. Each stage is a function call in the runtime orchestrator; each stage reads and writes specific artifacts. **Coordination** artifacts are marked (C), **cache** artifacts (resumability-only) are marked (Ca), and **durable output** is marked (O):
 
 ```
-Stage 0:  Archaeologist reads Spec (D), produces ConcreteSpec (D) + BehaviourContract (R)
+Stage 0:  Archaeologist reads Spec (C), produces ConcreteSpec (C) + BehaviourContract (C)
+          All three artifacts persist to .prunejuice/artifacts/ before Stage 1.
 Stage 0b: Discovery gate -- if Archaeologist found correctness requirements
-          the spec doesn't cover, pause and ask the human (resolution updates Spec (D))
-Stage 1:  Mason receives BehaviourContract (R) only, produces GeneratedTests (R)
-          [Chinese Wall: structural via MasonInput interface]
-Stage 2:  Builder receives Spec + ConcreteSpec + GeneratedTests, produces Implementation (R)
-          Both Tests and Implementation materialize to disk at end of cycle with
-          @prunejuice-managed headers forming the hash chain (D)
+          the spec doesn't cover, pause and ask the human (resolution updates Spec (C))
+Stage 1:  Mason receives BehaviourContract only (via MasonInput interface),
+          produces GeneratedTests (Ca). Chinese Wall enforced structurally.
+          Test files materialize to disk (O) with @prunejuice-managed headers
+          whose output-hash anchors against .prunejuice/artifacts/behaviour-contract.json.
+Stage 2:  Builder receives Spec + ConcreteSpec + GeneratedTests, produces
+          Implementation (Ca). Implementation files materialize to disk (O) with
+          @prunejuice-managed headers whose output-hash anchors against
+          .prunejuice/artifacts/concrete-spec.json.
 Stage 3:  Saboteur receives Spec + Tests + Implementation, produces SaboteurReport
-          (optional audit copy written to .prunejuice/verification/)
+          (Ca), persisted to .prunejuice/artifacts/saboteur-report.json.
 ```
+
+The three "Ca" artifacts (Tests, Implementation, SaboteurReport) are cache rather than coordination because they are derivable from the coordination artifacts by re-running the agents. Deleting them and re-running the pipeline produces equivalent outputs. They persist only so a crash mid-pipeline can resume without re-invoking expensive LLM calls.
 
 ### 5.1 Stage 0: The Archaeologist
 
 The Archaeologist reads the abstract spec and produces two artifacts:
 
-1. **ConcreteSpec**: Implementation strategy -- algorithm choices, type sketches, language-specific lowering notes, pseudocode. This is the "how" layer that the abstract spec's "what" layer doesn't specify. Persists to disk as `*.impl.md`.
+1. **ConcreteSpec**: Implementation strategy -- algorithm choices, type sketches, language-specific lowering notes, pseudocode. This is the "how" layer that the abstract spec's "what" layer doesn't specify. Persists to `.prunejuice/artifacts/concrete-spec.json`; the managed file hash chain for implementation files anchors against this artifact.
 
-2. **BehaviourContract**: Machine-readable behavioural contract as a TypeScript interface containing given/when/then scenarios, preconditions, postconditions, and invariants. This is the Chinese Wall artifact -- the only thing Mason sees. Runtime-only; not persisted.
+2. **BehaviourContract**: Machine-readable behavioural contract as a TypeScript interface containing given/when/then scenarios, preconditions, postconditions, and invariants. Persists to `.prunejuice/artifacts/behaviour-contract.json`; the managed file hash chain for test files anchors against this artifact. This is also the Chinese Wall artifact -- the only thing Mason sees (via the `MasonInput` TypeScript interface, which has exactly one field).
 
 The Archaeologist also performs a discovery check: are there correctness requirements implied by the strategy that the abstract spec doesn't explicitly state? If so, they're surfaced as `discovered:` frontmatter entries and the pipeline pauses at Stage 0b. The human promotes them into the spec or dismisses them. The concrete spec is never a back-channel for ratifying constraints the human didn't approve.
 
@@ -312,7 +327,7 @@ These assumptions are worth stress-testing on each model improvement. Some may b
 
 **Formal Verification**: TLA+, Alloy, and model checkers verify that implementations satisfy formal specifications. The spec layer is less rigorous -- it's natural language parsed by LLMs, not formal logic checked by theorem provers. The trade-off is accessibility: any developer can write a behaviour spec; few can write TLA+. The mutation testing compensates for the lack of formal guarantees with empirical coverage.
 
-**LLM Agent Frameworks** (AutoGen, CrewAI, LangGraph): These focus on runtime process coordination -- routing messages between agents, managing tool calls, handling failures. Prunejuice, the runtime orchestrator, does a similar job but with fewer features and stronger type constraints. The difference from those frameworks is not in the orchestration code but in the relationship between the orchestrator and the durable state: prunejuice's runtime state is entirely reconstructible from spec files, which means the orchestrator is replaceable. The frameworks typically hold the durable state themselves, which means the framework becomes the system.
+**LLM Agent Frameworks** (AutoGen, CrewAI, LangGraph): These focus on runtime process coordination -- routing messages between agents, managing tool calls, handling failures. Prunejuice, the runtime orchestrator, does a similar job but with fewer features and stronger type constraints. The difference from those frameworks is not in the orchestration code but in the relationship between the orchestrator and the coordination state: prunejuice owns no coordination state of its own -- every cross-session claim about the module is stored in the coordination artifacts on disk, and prunejuice can be torn down and replaced without losing the module's history. The frameworks typically hold the coordination state themselves (workflow state, thread history, agent memory), which means the framework becomes the system.
 
 **Agentic Coding Harnesses** (SWE-bench, OpenHands, Devin): Evaluation frameworks for coding agents. They measure whether an agent can solve a task end-to-end. The spec layer is orthogonal -- it's not about whether a single agent can solve a task, but about how the task's intent is preserved across multiple agents and multiple generations.
 
@@ -320,11 +335,13 @@ These assumptions are worth stress-testing on each model improvement. Some may b
 
 I didn't set out to build a formal verification pipeline, and I didn't set out to build an orchestrator. I set out to stop my AI from producing slop. The spec was a workaround for the model forgetting what it was supposed to do between sessions. The Chinese Wall was a workaround for tests that passed because they tested the wrong thing. The mutation testing was a workaround for not being able to tell whether the tests were actually good. Each layer was added because the previous layer wasn't enough.
 
-The first working version coordinated everything through the filesystem -- markdown commands invoking Python scripts that read and wrote files. I mistook the filesystem for the coordination mechanism because it was the only thing visible. When I extracted the runtime orchestration into a typed TypeScript library, I expected to discover that the filesystem was load-bearing and the library was just a convenience layer. I discovered the opposite: the filesystem was scaffolding, and most of the files that lived on it were runtime state that didn't need to be there.
+The first working version coordinated everything through the filesystem -- markdown commands invoking Python scripts that read and wrote files. I mistook the filesystem for the coordination mechanism because it was the only thing visible. When I extracted the runtime orchestration into a typed TypeScript library, I expected to discover that the filesystem was load-bearing and the library was just a convenience layer. What I actually discovered was subtler: the filesystem was still load-bearing, but it was doing two different jobs that the original architecture had conflated into one.
 
-What was actually load-bearing was a much smaller set of artifacts: the abstract spec, the concrete spec, the managed file header. These three -- along with the frontmatter fields, hash chain, and inheritance rules that bind them together -- are the coordination mechanism. Everything else is either a runtime artifact that exists for the duration of one cycle, or an audit record written for human inspection.
+The first job was **coordination** -- persisting the spec, concrete spec, and behaviour contract so that the managed file hash chains have something to anchor against, and so that the system's claims about a module survive across sessions. The second job was **resumability caching** -- persisting intermediate agent outputs (tests, implementation, saboteur report) so that a crashed pipeline can resume without re-running expensive LLM calls. In the original architecture, both kinds of file lived in the same directory with no indication of which was which. Pulling the runtime into TypeScript didn't eliminate the files; it made the distinction between them explicit.
 
-The result is a two-layer architecture. The runtime layer (prunejuice) is a typed library that dispatches agents, passes artifacts between them, and runs the convergence loop. It is stateless between sessions. The durable layer (the spec) is a structured artifact on disk that encodes human decisions, tracks their provenance, and binds them to generated code via hash chains. It is what persists.
+What was actually load-bearing for coordination was a small set of artifacts: the abstract spec, the concrete spec, the behaviour contract, and the managed file headers that link generated code back to them via hash chains. These are the coordination mechanism. The rest of the on-disk state is a cache -- still important for operations, but conceptually disposable: delete it and the system rebuilds it from the coordination artifacts by re-running the pipeline.
+
+The result is a layered architecture with three categories of durable state. The coordination layer (spec + concrete spec + behaviour contract + managed file headers) is the source of truth. The cache layer (tests, implementation, saboteur report) is memoized agent output. The output layer is the generated code itself. Prunejuice, the runtime library, holds nothing in memory across sessions -- it is a pure function of the coordination layer and whatever inputs it receives during a run.
 
 The empirical validation is modest -- one stress test, one module, 70 tests, 20 mutations. But the structural result is strong: two agents with no shared information except the spec artifacts independently produced compatible work. The Builder's code passed Mason's tests, and Mason never saw the code. That's not a fluke of the specific module or the specific model. That's a property of the architecture.
 
@@ -518,7 +535,7 @@ For concrete specs with dependencies, an additional `concrete-manifest` line sto
 
 ## Appendix E: What Changed Between the Original Paper and This Revision
 
-The original March 2026 paper described a Python-based orchestrator that coordinated agents through shell scripts invoking markdown commands, with all inter-agent state passed through the filesystem. That architecture was real and worked, but it conflated two different concerns: *runtime orchestration* (how agents hand off artifacts within a generation cycle) and *durable coordination* (how intent persists across cycles).
+The original March 2026 paper described a Python-based orchestrator that coordinated agents through shell scripts invoking markdown commands, with all inter-agent state passed through the filesystem. That architecture was real and worked, but it conflated three different concerns: *runtime orchestration* (how agents hand off artifacts within a single pipeline run), *durable coordination* (the subset of on-disk state that encodes human intent and anchors hash chains), and *resumability caching* (the subset of on-disk state that exists only to let a crashed pipeline resume). In the original architecture, all three lived in the same directory with no indication of which was which.
 
 Between March and April 2026, the runtime layer was extracted into a typed TypeScript library (prunejuice) with explicit interface boundaries. The migration happened across three phases:
 
@@ -528,4 +545,4 @@ Between March and April 2026, the runtime layer was extracted into a typed TypeS
 
 What didn't change: the spec schema, the hash chain, the Chinese Wall, the convergence loop, the empirical stress-test results. What did change: the paper's framing. The original paper claimed "no orchestrator" to emphasize that agents didn't share runtime state through a framework. That was misleading -- there was always orchestration, it was just embedded in markdown prompts that invoked Python scripts, which gave the appearance of statelessness because the prompts themselves were stateless between invocations. The extraction made the orchestration layer explicit and forced an honest accounting of what was actually load-bearing.
 
-The insight that survived the migration: the spec is the coordinator because it's the only artifact that persists across cycles. Everything else -- the Python scripts, the filesystem handoffs, the YAML files, the typed TS interfaces -- is an implementation of a coordination protocol whose ground truth lives in the spec files. The implementation can change (and did). The spec is what makes the system coherent across generations.
+The insight that survived the migration: the spec is the coordinator because it's the artifact the rest of the system anchors against. Not the only file that persists -- the resumability cache also persists -- but the only file whose persistence is *semantically required*. Delete the cache and re-run the pipeline, you get equivalent results. Delete the coordination artifacts and the hash chains break; the system has no durable record of what the code was supposed to be. The Python scripts, the filesystem handoffs, the YAML files, the typed TS interfaces -- all are implementations of a coordination protocol whose ground truth lives in the spec. The implementation can change (and did, several times). The spec is what makes the system coherent across generations.
