@@ -1,5 +1,6 @@
-import { readFile, writeFile, mkdir } from "node:fs/promises";
-import { resolve, dirname } from "node:path";
+import { readFile, mkdir, rename, open, unlink } from "node:fs/promises";
+import { resolve, dirname, basename } from "node:path";
+import { randomBytes } from "node:crypto";
 import { truncatedHash, formatHeader } from "./hashchain.js";
 import { isEnoent } from "./fs-utils.js";
 import type {
@@ -38,6 +39,73 @@ export async function ensureStore(cwd: string): Promise<void> {
   }
 }
 
+// -- Atomic write primitive --------------------------------------------------
+
+/**
+ * Write `content` to `targetPath` atomically: write to a sibling temp file,
+ * fsync the data to disk, then rename over the target. On POSIX, rename(2) is
+ * atomic, so a reader (or the next freshness check) never observes a partially
+ * written file. On crash or SIGKILL mid-write, the target is left at its
+ * previous content (or absent if it didn't exist); only a stale `.tmp-*`
+ * sibling may remain, which is safe to clean up on next run.
+ *
+ * The fsync ensures the temp file's bytes are on disk before the rename makes
+ * the directory entry point at them -- without it, a crash between rename and
+ * the kernel flushing the page cache can leave an empty file at the new path
+ * on some filesystems.
+ *
+ * If any step fails, we best-effort remove the temp file so we don't leak
+ * stale siblings; the original error propagates.
+ */
+export async function atomicWriteFile(
+  targetPath: string,
+  content: string,
+): Promise<void> {
+  await mkdir(dirname(targetPath), { recursive: true });
+
+  // Temp sibling in the SAME directory so the rename is on the same filesystem
+  // (cross-filesystem rename is not atomic on POSIX -- it falls back to copy).
+  const tmpName = `.${basename(targetPath)}.tmp-${process.pid}-${randomBytes(6).toString("hex")}`;
+  const tmpPath = resolve(dirname(targetPath), tmpName);
+
+  let fh;
+  try {
+    fh = await open(tmpPath, "w");
+    await fh.writeFile(content, "utf-8");
+    await fh.sync();
+  } catch (err) {
+    if (fh) {
+      try {
+        await fh.close();
+      } catch {
+        // Ignore close errors during cleanup
+      }
+    }
+    try {
+      await unlink(tmpPath);
+    } catch (cleanupErr) {
+      if (!isEnoent(cleanupErr)) {
+        // Leaking the temp file is less bad than masking the original error
+      }
+    }
+    throw err;
+  }
+  await fh.close();
+
+  try {
+    await rename(tmpPath, targetPath);
+  } catch (err) {
+    try {
+      await unlink(tmpPath);
+    } catch (cleanupErr) {
+      if (!isEnoent(cleanupErr)) {
+        // Same as above: don't mask the rename error
+      }
+    }
+    throw err;
+  }
+}
+
 // -- Artifact I/O ------------------------------------------------------------
 
 async function writeArtifact(
@@ -47,7 +115,7 @@ async function writeArtifact(
 ): Promise<TruncatedHash> {
   const content = JSON.stringify(data, null, 2);
   const path = storePath(cwd, "artifacts", `${name}.json`);
-  await writeFile(path, content, "utf-8");
+  await atomicWriteFile(path, content);
   return truncatedHash(content);
 }
 
@@ -230,8 +298,7 @@ export async function writeManagedFile(
 
   const fullContent = `${header}\n\n${content}`;
   const absPath = resolve(cwd, filePath);
-  await mkdir(dirname(absPath), { recursive: true });
-  await writeFile(absPath, fullContent, "utf-8");
+  await atomicWriteFile(absPath, fullContent);
 }
 
 export async function writeImplementationFiles(
